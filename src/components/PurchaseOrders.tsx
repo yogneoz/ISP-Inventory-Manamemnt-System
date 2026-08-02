@@ -1,0 +1,927 @@
+import React, { useState } from 'react';
+import { PurchaseOrder, Product, Branch, POLineItem, InventoryStock } from '../types';
+import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
+import { ProductSearchBar } from './ProductSearchBar';
+import {
+  ShoppingCart,
+  Plus,
+  Search,
+  CheckCircle2,
+  Trash2,
+  PackageCheck,
+  FileText,
+  X,
+  AlertCircle,
+  Eye,
+  Building2,
+  Calculator,
+  Percent,
+  Sparkles,
+  Printer,
+  XCircle,
+  CheckSquare,
+} from 'lucide-react';
+
+interface PurchaseOrdersProps {
+  purchaseOrders: PurchaseOrder[];
+  products: Product[];
+  branches: Branch[];
+  stock: InventoryStock[];
+  selectedBranchId: string;
+  dateMode: 'BS' | 'AD';
+  autoOpenModal?: boolean;
+  onCreatePO: (
+    po: Omit<
+      PurchaseOrder,
+      'id' | 'poNumber' | 'subtotalAmount' | 'taxAmount' | 'totalAmount'
+    >
+  ) => Promise<void>;
+  onReceivePO: (poId: string) => Promise<void>;
+  onUpdatePOStatus?: (poId: string, status: string) => Promise<void>;
+  isDarkMode?: boolean;
+}
+
+interface OrderFormLine {
+  productId: string;
+  quantity: number;
+  unitPrice: number;
+  discount: number;
+  isTaxExempt: boolean;
+}
+
+export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
+  purchaseOrders,
+  products,
+  branches,
+  stock,
+  selectedBranchId,
+  dateMode,
+  autoOpenModal = false,
+  onCreatePO,
+  onReceivePO,
+  onUpdatePOStatus,
+  isDarkMode = false,
+}) => {
+  const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
+  const [viewingPO, setViewingPO] = useState<PurchaseOrder | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Form State
+  const [supplierName, setSupplierName] = useState('Apex Trade & Telecom Supplies Pvt. Ltd.');
+  const [branchId, setBranchId] = useState(
+    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'br-ktm'
+  );
+  const [taxationType, setTaxationType] = useState<'TAXABLE_13' | 'TAX_EXEMPTED'>('TAXABLE_13');
+  const [expectedDeliveryDateAD, setExpectedDeliveryDateAD] = useState(
+    new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+  );
+  const [notes, setNotes] = useState('');
+
+  // Line items for POS entry (empty by default until scanned/added or defaults)
+  const [lines, setLines] = useState<OrderFormLine[]>([]);
+
+  // Search / Scan Product Add or Increment
+  const handleAddOrIncrementProduct = (prod: Product) => {
+    setLines((prevLines) => {
+      const existingIdx = prevLines.findIndex((l) => l.productId === prod.id);
+      if (existingIdx !== -1) {
+        const updated = [...prevLines];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          quantity: updated[existingIdx].quantity + 1,
+        };
+        return updated;
+      } else {
+        return [
+          ...prevLines,
+          {
+            productId: prod.id,
+            quantity: 1,
+            unitPrice: prod.costPrice,
+            discount: 0,
+            isTaxExempt: taxationType === 'TAX_EXEMPTED' || prod.taxRate === 0,
+          },
+        ];
+      }
+    });
+  };
+
+  const filteredPOs = purchaseOrders.filter((po) => {
+    const matchesBranch = selectedBranchId === 'ALL' || po.branchId === selectedBranchId;
+    const matchesSearch =
+      po.poNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      po.supplierName.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesBranch && matchesSearch;
+  });
+
+  const getBranchStock = (productId: string, bId: string) => {
+    const item = stock.find((s) => s.productId === productId && s.branchId === bId);
+    return item ? item.quantityOnHand : 0;
+  };
+
+  const addLine = () => {
+    const defaultProd = products[0];
+    setLines([
+      ...lines,
+      {
+        productId: defaultProd?.id || '',
+        quantity: 1,
+        unitPrice: defaultProd?.costPrice || 1000,
+        discount: 0,
+        isTaxExempt: false,
+      },
+    ]);
+  };
+
+  const removeLine = (index: number) => {
+    if (lines.length === 1) return;
+    setLines(lines.filter((_, i) => i !== index));
+  };
+
+  const updateLine = (index: number, field: keyof OrderFormLine, value: any) => {
+    const updated = [...lines];
+    if (field === 'productId') {
+      const prod = products.find((p) => p.id === value);
+      updated[index] = {
+        ...updated[index],
+        productId: value,
+        unitPrice: prod?.costPrice || 0,
+        isTaxExempt: prod?.taxRate === 0,
+      };
+    } else {
+      updated[index] = { ...updated[index], [field]: value };
+    }
+    setLines(updated);
+  };
+
+  // Calculations
+  const calculatedLines = lines.map((l) => {
+    const prod = products.find((p) => p.id === l.productId);
+    const gross = l.quantity * l.unitPrice;
+    const netSubtotal = Math.max(0, gross - l.discount);
+    const vat = l.isTaxExempt ? 0 : (netSubtotal * 13) / 100;
+    const total = netSubtotal + vat;
+    return {
+      ...l,
+      product: prod,
+      gross,
+      netSubtotal,
+      vat,
+      total,
+    };
+  });
+
+  const grossSubtotal = calculatedLines.reduce((acc, curr) => acc + curr.gross, 0);
+  const totalDiscount = calculatedLines.reduce((acc, curr) => acc + curr.discount, 0);
+  const taxableSubtotal = calculatedLines
+    .filter((l) => !l.isTaxExempt)
+    .reduce((acc, curr) => acc + curr.netSubtotal, 0);
+  const exemptSubtotal = calculatedLines
+    .filter((l) => l.isTaxExempt)
+    .reduce((acc, curr) => acc + curr.netSubtotal, 0);
+  const totalVAT = calculatedLines.reduce((acc, curr) => acc + curr.vat, 0);
+  const grandTotal = taxableSubtotal + exemptSubtotal + totalVAT;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (lines.length === 0) return;
+
+    const todayAD = new Date().toISOString().split('T')[0];
+    const bsObj = convertADToBS(todayAD);
+
+    const items: POLineItem[] = calculatedLines.map((l, idx) => ({
+      id: `poi-${Date.now()}-${idx}`,
+      productId: l.productId,
+      productName: l.product?.name || 'Item',
+      sku: l.product?.sku || 'SKU',
+      unit: l.product?.unit || 'Pcs',
+      quantity: Number(l.quantity),
+      unitPrice: Number(l.unitPrice),
+      discount: Number(l.discount),
+      isTaxExempt: l.isTaxExempt,
+      taxRate: l.isTaxExempt ? 0 : 13,
+      subtotal: l.netSubtotal,
+      taxAmount: l.vat,
+      total: l.total,
+    }));
+
+    await onCreatePO({
+      supplierName,
+      branchId,
+      orderDateAD: todayAD,
+      orderDateBS: bsObj.formattedBSShort,
+      expectedDeliveryDateAD,
+      status: 'SENT',
+      items,
+      notes,
+    });
+
+    setIsModalOpen(false);
+  };
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
+      {/* Header & Controls */}
+      <div className="flex-none flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+            isDarkMode ? 'text-white' : 'text-slate-900'
+          }`}>
+            <ShoppingCart className="h-5 w-5 text-indigo-500" />
+            <span>Purchase Orders & Supplier Procurement</span>
+          </h2>
+          <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            Create multi-item vendor purchase orders with 13% VAT & Tax-Exempt line breakdowns.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search PO # or Supplier..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48 sm:w-64 ${
+                isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+              }`}
+            />
+          </div>
+
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-indigo-600/20 transition-all cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>New Purchase Order</span>
+          </button>
+        </div>
+      </div>
+
+      {/* PO Summary Metrics */}
+      <div className="flex-none grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className={`rounded-2xl p-4 border shadow-sm ${
+          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+        }`}>
+          <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Total POs Issued</span>
+          <div className={`text-xl font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            {filteredPOs.length} Orders
+          </div>
+        </div>
+        <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/5 shadow-sm">
+          <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">Pending Deliveries</span>
+          <div className="text-xl font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1">
+            {filteredPOs.filter((p) => p.status === 'SENT' || p.status === 'APPROVED').length} Pending
+          </div>
+        </div>
+        <div className="rounded-2xl p-4 border border-indigo-500/30 bg-indigo-500/5 shadow-sm">
+          <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Pending Value (NPR)</span>
+          <div className="text-xl font-mono font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
+            रु{' '}
+            {filteredPOs
+              .filter((p) => p.status !== 'RECEIVED')
+              .reduce((s, p) => s + p.totalAmount, 0)
+              .toLocaleString()}
+          </div>
+        </div>
+        <div className="rounded-2xl p-4 border border-emerald-500/30 bg-emerald-500/5 shadow-sm">
+          <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Received Stock Value</span>
+          <div className="text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
+            रु{' '}
+            {filteredPOs
+              .filter((p) => p.status === 'RECEIVED')
+              .reduce((s, p) => s + p.totalAmount, 0)
+              .toLocaleString()}
+          </div>
+        </div>
+      </div>
+
+      {/* PO Data Table */}
+      <div className={`flex-1 min-h-0 flex flex-col rounded-2xl border shadow-lg overflow-hidden ${
+        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+      }`}>
+        <div className="flex-1 min-h-0 overflow-auto relative">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
+              isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+            }`}>
+              <tr>
+                <th className="p-3.5 sticky top-0 bg-inherit">PO Number</th>
+                <th className="p-3.5 sticky top-0 bg-inherit">Supplier Name</th>
+                <th className="p-3.5 sticky top-0 bg-inherit">Target Branch</th>
+                <th className="p-3.5 sticky top-0 bg-inherit">Order Date</th>
+                <th className="p-3.5 sticky top-0 bg-inherit">Delivery Target</th>
+                <th className="p-3.5 sticky top-0 bg-inherit text-center">Line Items</th>
+                <th className="p-3.5 sticky top-0 bg-inherit text-right">Gross Total (NPR)</th>
+                <th className="p-3.5 sticky top-0 bg-inherit text-center">Status</th>
+                <th className="p-3.5 sticky top-0 bg-inherit text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+              {filteredPOs.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center text-slate-500 text-xs">
+                    No purchase orders found. Click "New Purchase Order" to create one.
+                  </td>
+                </tr>
+              ) : (
+                filteredPOs.map((po) => {
+                  const branch = branches.find((b) => b.id === po.branchId);
+                  return (
+                    <tr key={po.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="p-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        {po.poNumber}
+                      </td>
+                      <td className="p-3.5 font-bold text-slate-800 dark:text-white">
+                        {po.supplierName}
+                      </td>
+                      <td className="p-3.5 text-slate-600 dark:text-slate-300">
+                        {branch?.name || po.branchId}
+                      </td>
+                      <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                        {formatDualDate(po.orderDateAD, dateMode)}
+                      </td>
+                      <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                        {formatDualDate(po.expectedDeliveryDateAD, dateMode)}
+                      </td>
+                      <td className="p-3.5 text-center">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                          {po.items.length} items
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                        रु {po.totalAmount.toLocaleString()}
+                      </td>
+                      <td className="p-3.5 text-center">
+                        <span
+                          className={`rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                            po.status === 'RECEIVED'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                              : po.status === 'SENT'
+                              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
+                              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                          }`}
+                        >
+                          {po.status}
+                        </span>
+                      </td>
+                      <td className="p-3.5 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => setViewingPO(po)}
+                            title="View PO Details"
+                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                          
+                          {po.status !== 'CANCELLED' && po.status !== 'PURCHASED' && (
+                            <button
+                              onClick={async () => {
+                                if (onUpdatePOStatus) {
+                                  await onUpdatePOStatus(po.id, 'PURCHASED');
+                                }
+                              }}
+                              className="flex items-center gap-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 px-2 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 transition-colors cursor-pointer"
+                              title="Mark PO as Purchased"
+                            >
+                              <CheckSquare className="h-3.5 w-3.5" />
+                              <span>Purchased</span>
+                            </button>
+                          )}
+
+                          {po.status !== 'CANCELLED' && (
+                            <button
+                              onClick={async () => {
+                                if (onUpdatePOStatus) {
+                                  await onUpdatePOStatus(po.id, 'CANCELLED');
+                                }
+                              }}
+                              className="flex items-center gap-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/80 px-2 py-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 transition-colors cursor-pointer"
+                              title="Cancel PO"
+                            >
+                              <XCircle className="h-3.5 w-3.5" />
+                              <span>Cancel</span>
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* POS Multi-Item Order Creation Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-5xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-6 text-slate-800 dark:text-slate-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4">
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                  <ShoppingCart className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                  <span>New Purchase Order (Multi-Item Vendor Entry)</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Specify items, quantities, cost rates, line discounts, and taxability (13% VAT / Exempt).
+                </p>
+              </div>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-5 space-y-5">
+              {/* Top Form Fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800/80">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                    Vendor / Supplier Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={supplierName}
+                    onChange={(e) => setSupplierName(e.target.value)}
+                    placeholder="e.g. Apex Trade Supplies"
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                    Destination Branch
+                  </label>
+                  <select
+                    value={branchId}
+                    onChange={(e) => setBranchId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
+                  >
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.location})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                    Taxation Term
+                  </label>
+                  <select
+                    value={taxationType}
+                    onChange={(e) => {
+                      const val = e.target.value as 'TAXABLE_13' | 'TAX_EXEMPTED';
+                      setTaxationType(val);
+                      setLines(lines.map(l => ({ ...l, isTaxExempt: val === 'TAX_EXEMPTED' })));
+                    }}
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="TAXABLE_13">Billwise 13% VAT (Taxable)</option>
+                    <option value="TAX_EXEMPTED">Tax Exempted (0% Tax)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                    Expected Delivery Date (AD)
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={expectedDeliveryDateAD}
+                    onChange={(e) => setExpectedDeliveryDateAD(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Product Search & Scan Bar */}
+              <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-800/60 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                  <span className="flex items-center gap-1.5">
+                    <Search className="h-4 w-4" />
+                    <span>Scan Barcode or Search & Enter Product Name / SKU:</span>
+                  </span>
+                  <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                    Product selection only (No serial tracking required for PO)
+                  </span>
+                </div>
+                <ProductSearchBar
+                  products={products}
+                  onAddOrIncrementProduct={handleAddOrIncrementProduct}
+                  placeholder="🔍 Scan barcode or type product name/SKU and press Enter..."
+                />
+              </div>
+
+              {/* POS Multi-Line Table */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Calculator className="h-4 w-4 text-indigo-500" />
+                    <span>Order Items & Line Calculations</span>
+                  </h4>
+                  <button
+                    type="button"
+                    onClick={addLine}
+                    className="flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer bg-indigo-50 dark:bg-indigo-950/50 px-3 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800/50"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Add Item Line</span>
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/30">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
+                      <tr>
+                        <th className="p-2.5 w-8 text-center">#</th>
+                        <th className="p-2.5">Product / Item Name</th>
+                        <th className="p-2.5 w-20 text-center">Branch Stock</th>
+                        <th className="p-2.5 w-20 text-center">Qty</th>
+                        <th className="p-2.5 w-28 text-right">Unit Rate (NPR)</th>
+                        <th className="p-2.5 w-24 text-right">Disc (NPR)</th>
+                        <th className="p-2.5 w-28 text-center">Tax Status</th>
+                        <th className="p-2.5 w-28 text-right">Subtotal</th>
+                        <th className="p-2.5 w-24 text-right">13% VAT</th>
+                        <th className="p-2.5 w-28 text-right">Total (NPR)</th>
+                        <th className="p-2.5 w-10 text-center"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                      {calculatedLines.map((line, idx) => {
+                        const stockQty = getBranchStock(line.productId, branchId);
+                        return (
+                          <tr key={idx} className="hover:bg-white dark:hover:bg-slate-800/50 transition-colors">
+                            <td className="p-2.5 text-center font-mono font-bold text-slate-400 text-[11px]">
+                              {idx + 1}
+                            </td>
+                            <td className="p-2.5">
+                              <select
+                                value={line.productId}
+                                onChange={(e) => updateLine(idx, 'productId', e.target.value)}
+                                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-slate-100 font-medium"
+                              >
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    [{p.sku}] {p.name} ({p.unit})
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="p-2.5 text-center font-mono font-semibold">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  stockQty <= 5
+                                    ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
+                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                }`}
+                              >
+                                {stockQty} {line.product?.unit || 'Pcs'}
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-center">
+                              <input
+                                type="number"
+                                min={1}
+                                required
+                                value={line.quantity}
+                                onChange={(e) =>
+                                  updateLine(idx, 'quantity', Math.max(1, Number(e.target.value)))
+                                }
+                                className="w-16 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs text-center font-mono font-bold text-slate-900 dark:text-white"
+                              />
+                            </td>
+                            <td className="p-2.5 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                required
+                                value={line.unitPrice}
+                                onChange={(e) =>
+                                  updateLine(idx, 'unitPrice', Math.max(0, Number(e.target.value)))
+                                }
+                                className="w-24 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
+                              />
+                            </td>
+                            <td className="p-2.5 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                value={line.discount}
+                                onChange={(e) =>
+                                  updateLine(idx, 'discount', Math.max(0, Number(e.target.value)))
+                                }
+                                className="w-20 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs font-mono text-amber-600 dark:text-amber-400 font-semibold"
+                              />
+                            </td>
+                            <td className="p-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateLine(idx, 'isTaxExempt', !line.isTaxExempt)
+                                }
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                                  line.isTaxExempt
+                                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700'
+                                    : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700'
+                                }`}
+                              >
+                                {line.isTaxExempt ? 'Tax Exempt' : 'Taxable (13%)'}
+                              </button>
+                            </td>
+                            <td className="p-2.5 text-right font-mono font-semibold text-slate-800 dark:text-slate-200">
+                              रु {line.netSubtotal.toLocaleString()}
+                            </td>
+                            <td className="p-2.5 text-right font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
+                              रु {line.vat.toLocaleString()}
+                            </td>
+                            <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                              रु {line.total.toLocaleString()}
+                            </td>
+                            <td className="p-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => removeLine(idx)}
+                                disabled={lines.length === 1}
+                                className="p-1 text-slate-400 hover:text-rose-500 disabled:opacity-30 cursor-pointer"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* POS Summary Calculations & Notes */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-200 dark:border-slate-800 pt-4">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                    Order Remarks / Terms & Conditions
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Enter dispatch instructions, warranty terms, or vendor agreement reference..."
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                {/* POS Billing Format Total Box */}
+                <div className="rounded-xl bg-slate-50 dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                    <span>Gross Subtotal:</span>
+                    <span className="font-mono font-bold">रु {grossSubtotal.toLocaleString()}</span>
+                  </div>
+                  {totalDiscount > 0 && (
+                    <div className="flex justify-between text-amber-600 dark:text-amber-400">
+                      <span>Total Line Discounts:</span>
+                      <span className="font-mono font-bold">- रु {totalDiscount.toLocaleString()}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                    <span>Taxable Amount (13% VAT):</span>
+                    <span className="font-mono font-bold">रु {taxableSubtotal.toLocaleString()}</span>
+                  </div>
+                  {exemptSubtotal > 0 && (
+                    <div className="flex justify-between text-amber-600 dark:text-amber-400">
+                      <span>Tax-Exempt / Non-Taxable Amount:</span>
+                      <span className="font-mono font-bold">रु {exemptSubtotal.toLocaleString()}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold border-t border-slate-200 dark:border-slate-800 pt-2">
+                    <span>13% Input VAT:</span>
+                    <span className="font-mono font-bold">रु {totalVAT.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-300 dark:border-slate-700">
+                    <span>Grand Total Amount:</span>
+                    <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                      रु {grandTotal.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Footer Actions */}
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 cursor-pointer"
+                >
+                  Confirm & Issue Purchase Order
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* PO Detail View Modal */}
+      {viewingPO && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden text-slate-800 dark:text-slate-200 my-8">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4">
+              <h3 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
+                <FileText className="h-4 w-4 text-indigo-500" />
+                <span>Purchase Order Summary — {viewingPO.poNumber}</span>
+              </h3>
+              <button
+                onClick={() => setViewingPO(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* PO Header details */}
+              <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+                <div>
+                  <h4 className="text-lg font-serif font-bold text-slate-900 dark:text-white">
+                    IZONE NETWORKS PVT. LTD.
+                  </h4>
+                  <p className="text-xs text-slate-500">Official Purchase Order Document</p>
+                  <p className="text-xs text-slate-500">Branch: {branches.find(b => b.id === viewingPO.branchId)?.name || viewingPO.branchId}</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
+                    {viewingPO.poNumber}
+                  </div>
+                  <div className="text-xs text-slate-500">Order Date: {viewingPO.orderDateAD} ({viewingPO.orderDateBS})</div>
+                  <div className="text-xs text-slate-500">Delivery: {viewingPO.expectedDeliveryDateAD}</div>
+                </div>
+              </div>
+
+              {/* Vendor & Status info */}
+              <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/50 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+                <div>
+                  <span className="font-bold text-slate-500 dark:text-slate-400 uppercase text-[10px]">Vendor Supplier</span>
+                  <div className="font-bold text-slate-900 dark:text-white text-sm mt-0.5">{viewingPO.supplierName}</div>
+                </div>
+                <div>
+                  <span className="font-bold text-slate-500 dark:text-slate-400 uppercase text-[10px]">Order Status</span>
+                  <div className="mt-0.5">
+                    <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-300 dark:border-indigo-700">
+                      {viewingPO.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Line Items Table */}
+              <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th className="p-3">#</th>
+                      <th className="p-3">Product Name</th>
+                      <th className="p-3">SKU</th>
+                      <th className="p-3 text-center">Qty</th>
+                      <th className="p-3 text-right">Unit Rate</th>
+                      <th className="p-3 text-right">Subtotal</th>
+                      <th className="p-3 text-right">13% VAT</th>
+                      <th className="p-3 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                    {viewingPO.items.map((item, idx) => (
+                      <tr key={idx}>
+                        <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
+                        <td className="p-3 font-bold text-slate-800 dark:text-white">{item.productName}</td>
+                        <td className="p-3 font-mono text-slate-500">{item.sku}</td>
+                        <td className="p-3 text-center font-mono font-bold">{item.quantity} {item.unit || 'Pcs'}</td>
+                        <td className="p-3 text-right font-mono">रु {item.unitPrice.toLocaleString()}</td>
+                        <td className="p-3 text-right font-mono">रु {item.subtotal.toLocaleString()}</td>
+                        <td className="p-3 text-right font-mono text-indigo-600 dark:text-indigo-400">रु {item.taxAmount.toLocaleString()}</td>
+                        <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-white">रु {item.total.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Financial Totals */}
+              <div className="flex justify-between items-end border-t border-slate-200 dark:border-slate-800 pt-4">
+                <div className="text-xs text-slate-500 max-w-xs space-y-1">
+                  <p className="font-semibold text-slate-700 dark:text-slate-300">
+                    * Procurement Note:
+                  </p>
+                  <p>
+                    Marking status as PURCHASED or CANCELLED updates PO state. Actual stock increase with serial number tracking occurs during Purchase Invoice entry.
+                  </p>
+                </div>
+                <div className="w-64 space-y-1.5 text-xs font-mono">
+                  <div className="flex justify-between text-slate-500">
+                    <span>Subtotal:</span>
+                    <span>रु {viewingPO.subtotalAmount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold">
+                    <span>VAT 13%:</span>
+                    <span>रु {viewingPO.taxAmount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
+                    <span>Grand Total:</span>
+                    <span>रु {viewingPO.totalAmount.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* View Modal Actions */}
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    <Printer className="h-4 w-4" />
+                    <span>Print Order</span>
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase text-slate-400 mr-1">Update Status:</span>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (onUpdatePOStatus) {
+                        await onUpdatePOStatus(viewingPO.id, 'PURCHASED');
+                      }
+                      setViewingPO({ ...viewingPO, status: 'PURCHASED' });
+                    }}
+                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                      viewingPO.status === 'PURCHASED'
+                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-500'
+                        : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <CheckSquare className="h-4 w-4" />
+                    <span>Set Purchased</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (onUpdatePOStatus) {
+                        await onUpdatePOStatus(viewingPO.id, 'APPROVED');
+                      }
+                      setViewingPO({ ...viewingPO, status: 'APPROVED' });
+                    }}
+                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                      viewingPO.status === 'APPROVED'
+                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-2 ring-blue-500'
+                        : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-100'
+                    }`}
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Set Approved</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (onUpdatePOStatus) {
+                        await onUpdatePOStatus(viewingPO.id, 'CANCELLED');
+                      }
+                      setViewingPO({ ...viewingPO, status: 'CANCELLED' });
+                    }}
+                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                      viewingPO.status === 'CANCELLED'
+                        ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 ring-2 ring-rose-500'
+                        : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700 hover:bg-rose-100'
+                    }`}
+                  >
+                    <XCircle className="h-4 w-4" />
+                    <span>Set Cancelled</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

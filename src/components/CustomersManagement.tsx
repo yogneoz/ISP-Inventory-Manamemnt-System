@@ -1,0 +1,673 @@
+import React, { useState } from 'react';
+import { CustomerDeviceRecord, Branch, Product } from '../types';
+import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
+import {
+  Users,
+  Search,
+  Plus,
+  Barcode,
+  Wifi,
+  MapPin,
+  Phone,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Copy,
+  Check,
+  Building2,
+  X,
+  FileText,
+  Tag,
+  Clock,
+  Tv,
+} from 'lucide-react';
+
+interface CustomersManagementProps {
+  customerDevices: CustomerDeviceRecord[];
+  branches: Branch[];
+  products: Product[];
+  selectedBranchId: string;
+  dateMode: 'BS' | 'AD';
+  autoOpenModal?: boolean;
+  onCreateCustomerDevice: (record: Omit<CustomerDeviceRecord, 'id'>) => Promise<void>;
+  onUpdateStatus: (id: string, status: CustomerDeviceRecord['status']) => Promise<void>;
+}
+
+export const CustomersManagement: React.FC<CustomersManagementProps> = ({
+  customerDevices = [],
+  branches = [],
+  products = [],
+  selectedBranchId,
+  dateMode,
+  autoOpenModal = false,
+  onCreateCustomerDevice,
+  onUpdateStatus,
+}) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
+  const [viewingRecord, setViewingRecord] = useState<CustomerDeviceRecord | null>(null);
+
+  // Modal Form State
+  const [customerName, setCustomerName] = useState('');
+  const [customerCode, setCustomerCode] = useState(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [contactPhone, setContactPhone] = useState('+977-98');
+  const [installationAddress, setInstallationAddress] = useState('');
+  const [branchId, setBranchId] = useState(
+    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'br-ktm'
+  );
+  const [productName, setProductName] = useState('ONU ROUTER 2.4G');
+  const [deviceSerial, setDeviceSerial] = useState('');
+  const [ponSerial, setPonSerial] = useState('');
+  const [macAddress, setMacAddress] = useState('');
+  const [issuedDateAD, setIssuedDateAD] = useState(
+    new Date().toISOString().split('T')[0]
+  );
+  const [purchaseBillRef, setPurchaseBillRef] = useState('BILL-9021');
+  const [notes, setNotes] = useState('');
+
+  const filteredRecords = customerDevices.filter((rec) => {
+    const matchesBranch = selectedBranchId === 'ALL' || rec.branchId === selectedBranchId;
+    const matchesStatus = selectedStatus === 'ALL' || rec.status === selectedStatus;
+    
+    if (!searchQuery.trim()) return matchesBranch && matchesStatus;
+
+    const q = searchQuery.toLowerCase().trim();
+    const matchesQuery =
+      rec.deviceSerial.toLowerCase().includes(q) ||
+      rec.ponSerial.toLowerCase().includes(q) ||
+      (rec.macAddress && rec.macAddress.toLowerCase().includes(q)) ||
+      rec.customerName.toLowerCase().includes(q) ||
+      rec.customerCode.toLowerCase().includes(q) ||
+      rec.contactPhone.toLowerCase().includes(q) ||
+      rec.productName.toLowerCase().includes(q) ||
+      (rec.purchaseBillRef && rec.purchaseBillRef.toLowerCase().includes(q));
+
+    return matchesBranch && matchesStatus && matchesQuery;
+  });
+
+  // Metrics
+  const activeCount = customerDevices.filter((c) => c.status === 'ACTIVE').length;
+  const suspendedCount = customerDevices.filter((c) => c.status === 'SUSPENDED').length;
+  const inStockCount = customerDevices.filter((c) => c.status === 'IN_STOCK').length;
+
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(text);
+    setTimeout(() => setCopiedText(null), 2000);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customerName.trim() || !deviceSerial.trim() || !ponSerial.trim()) {
+      alert('Please fill customer name, device serial number, and PON serial number.');
+      return;
+    }
+
+    const dateBSObj = convertADToBS(issuedDateAD);
+
+    await onCreateCustomerDevice({
+      customerId: `c-${Date.now()}`,
+      customerName,
+      customerCode,
+      contactPhone,
+      installationAddress,
+      branchId,
+      productName,
+      deviceSerial,
+      ponSerial,
+      macAddress: macAddress.trim() || undefined,
+      status: 'ACTIVE',
+      issuedDateAD,
+      issuedDateBS: dateBSObj.formattedBSShort,
+      purchaseBillRef: purchaseBillRef.trim() || undefined,
+      notes: notes.trim() || undefined,
+    });
+
+    setIsModalOpen(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-serif font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            <Wifi className="h-5 w-5 text-blue-600" />
+            <span>Customer Hardware Directory & Serial Number Lookup</span>
+          </h2>
+          <p className="text-slate-500 text-xs mt-0.5">
+            Lookup router, ONU, or set-top box devices by Device Serial, PON Serial, MAC address, or Customer name.
+          </p>
+        </div>
+
+        <button
+          onClick={() => {
+            setCustomerCode(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
+            setDeviceSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
+            setPonSerial(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
+            setIsModalOpen(true);
+          }}
+          className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-all"
+        >
+          <Plus className="h-4 w-4" />
+          <span>Assign Customer Device</span>
+        </button>
+      </div>
+
+      {/* Overview Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="rounded-2xl bg-white p-4 border border-slate-200 shadow-xs">
+          <div className="text-xs font-semibold text-slate-500">Total Tracked Serials</div>
+          <div className="text-xl font-mono font-bold text-slate-900 mt-1">
+            {customerDevices.length} Devices
+          </div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 border border-emerald-200 bg-emerald-50/20 shadow-xs">
+          <div className="text-xs font-semibold text-emerald-800">Active Deployed Routers</div>
+          <div className="text-xl font-mono font-extrabold text-emerald-700 mt-1">
+            {activeCount} Active
+          </div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 border border-amber-200 bg-amber-50/20 shadow-xs">
+          <div className="text-xs font-semibold text-amber-800">Suspended Connections</div>
+          <div className="text-xl font-mono font-extrabold text-amber-700 mt-1">
+            {suspendedCount} Suspended
+          </div>
+        </div>
+        <div className="rounded-2xl bg-white p-4 border border-blue-200 bg-blue-50/20 shadow-xs">
+          <div className="text-xs font-semibold text-blue-800">Available / In-Stock</div>
+          <div className="text-xl font-mono font-extrabold text-blue-600 mt-1">
+            {inStockCount} In Stock
+          </div>
+        </div>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-blue-600" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="🔍 Instant Lookup by Device Serial (e.g. SN-ONU24G-881923), PON Serial (e.g. HWTC-90A812C4), MAC, Customer, Phone..."
+            className="w-full pl-10 pr-4 py-2.5 text-xs text-slate-900 font-medium bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Status:</span>
+          <select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="ACTIVE">ACTIVE</option>
+            <option value="SUSPENDED">SUSPENDED</option>
+            <option value="DISCONNECTED">DISCONNECTED</option>
+            <option value="IN_STOCK">IN_STOCK</option>
+            <option value="RETURNED">RETURNED</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Customer & Serial Number Table */}
+      <div className="rounded-2xl bg-white border border-slate-200 shadow-xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
+              <tr>
+                <th className="p-3.5">Customer & Account</th>
+                <th className="p-3.5">Branch & Address</th>
+                <th className="p-3.5">Hardware Item</th>
+                <th className="p-3.5">Device Serial #</th>
+                <th className="p-3.5">PON Serial #</th>
+                <th className="p-3.5">Issued Date</th>
+                <th className="p-3.5 text-center">Status</th>
+                <th className="p-3.5 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {filteredRecords.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="p-8 text-center text-slate-500 text-xs">
+                    No matching customer devices found. Use the search bar above to query Device Serial or PON Serial numbers.
+                  </td>
+                </tr>
+              ) : (
+                filteredRecords.map((rec) => {
+                  const branch = branches.find((b) => b.id === rec.branchId);
+                  return (
+                    <tr key={rec.id} className="hover:bg-blue-50/40 transition-colors">
+                      <td className="p-3.5">
+                        <div className="font-bold text-slate-900 text-sm">{rec.customerName}</div>
+                        <div className="text-[11px] font-mono text-slate-500 flex items-center gap-2 mt-0.5">
+                          <span className="text-blue-700 font-semibold">{rec.customerCode}</span>
+                          <span className="flex items-center gap-1 text-slate-600">
+                            <Phone className="h-3 w-3" /> {rec.contactPhone}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td className="p-3.5">
+                        <div className="font-bold text-slate-800 text-xs">{branch?.name || rec.branchId}</div>
+                        <div className="text-slate-500 text-[11px] flex items-center gap-1 mt-0.5">
+                          <MapPin className="h-3 w-3 text-slate-400" />
+                          <span>{rec.installationAddress}</span>
+                        </div>
+                      </td>
+
+                      <td className="p-3.5">
+                        <span className="font-bold text-slate-900 bg-slate-100 border border-slate-200 px-2 py-1 rounded-lg text-xs">
+                          {rec.productName}
+                        </span>
+                        {rec.purchaseBillRef && (
+                          <div className="text-[10px] text-slate-500 font-mono mt-1">
+                            Bill Ref: <strong className="text-slate-700">{rec.purchaseBillRef}</strong>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Device Serial Number */}
+                      <td className="p-3.5">
+                        <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1 w-fit">
+                          <Barcode className="h-3.5 w-3.5 text-blue-600" />
+                          <span className="font-mono font-extrabold text-blue-900 text-xs select-all">
+                            {rec.deviceSerial}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(rec.deviceSerial)}
+                            title="Copy Device Serial"
+                            className="p-0.5 text-blue-500 hover:text-blue-700 cursor-pointer ml-1"
+                          >
+                            {copiedText === rec.deviceSerial ? (
+                              <Check className="h-3 w-3 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                          </button>
+                        </div>
+                        {rec.macAddress && (
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                            MAC: {rec.macAddress}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* PON Serial Number */}
+                      <td className="p-3.5">
+                        <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 rounded-lg px-2.5 py-1 w-fit">
+                          <Wifi className="h-3.5 w-3.5 text-indigo-600" />
+                          <span className="font-mono font-extrabold text-indigo-900 text-xs select-all">
+                            {rec.ponSerial}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(rec.ponSerial)}
+                            title="Copy PON Serial"
+                            className="p-0.5 text-indigo-500 hover:text-indigo-700 cursor-pointer ml-1"
+                          >
+                            {copiedText === rec.ponSerial ? (
+                              <Check className="h-3 w-3 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+
+                      <td className="p-3.5 font-mono text-[11px] text-slate-500">
+                        {formatDualDate(rec.issuedDateAD, dateMode)}
+                      </td>
+
+                      <td className="p-3.5 text-center">
+                        <select
+                          value={rec.status}
+                          onChange={(e) => onUpdateStatus(rec.id, e.target.value as any)}
+                          className={`rounded px-2.5 py-1 text-[10px] font-bold uppercase cursor-pointer border ${
+                            rec.status === 'ACTIVE'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : rec.status === 'SUSPENDED'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : rec.status === 'IN_STOCK'
+                              ? 'bg-blue-50 text-blue-700 border-blue-200'
+                              : 'bg-rose-50 text-rose-700 border-rose-200'
+                          }`}
+                        >
+                          <option value="ACTIVE">ACTIVE</option>
+                          <option value="SUSPENDED">SUSPENDED</option>
+                          <option value="DISCONNECTED">DISCONNECTED</option>
+                          <option value="IN_STOCK">IN_STOCK</option>
+                          <option value="RETURNED">RETURNED</option>
+                        </select>
+                      </td>
+
+                      <td className="p-3.5 text-center">
+                        <button
+                          onClick={() => setViewingRecord(rec)}
+                          className="px-2.5 py-1 text-[11px] font-bold text-blue-600 hover:bg-blue-100 rounded-lg border border-blue-200 cursor-pointer"
+                        >
+                          Details
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Customer Record Detail Modal */}
+      {viewingRecord && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden text-slate-800">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <Wifi className="h-4 w-4 text-blue-600" />
+                <span>Customer Hardware Deployment Details</span>
+              </h3>
+              <button
+                onClick={() => setViewingRecord(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex justify-between items-center">
+                <div>
+                  <div className="text-base font-extrabold text-slate-900">{viewingRecord.customerName}</div>
+                  <div className="text-xs text-blue-700 font-mono font-bold mt-0.5">
+                    Account: {viewingRecord.customerCode} | Phone: {viewingRecord.contactPhone}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5 text-slate-400" />
+                    <span>{viewingRecord.installationAddress}</span>
+                  </div>
+                </div>
+
+                <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
+                  viewingRecord.status === 'ACTIVE'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-amber-100 text-amber-800'
+                }`}>
+                  {viewingRecord.status}
+                </span>
+              </div>
+
+              {/* Serials Card */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-blue-50/80 p-3.5 rounded-xl border border-blue-200">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block">
+                    Device Serial Number
+                  </span>
+                  <div className="text-sm font-mono font-extrabold text-blue-900 mt-1 select-all">
+                    {viewingRecord.deviceSerial}
+                  </div>
+                  <div className="text-[10px] text-blue-600 mt-0.5">Physical Barcode Label</div>
+                </div>
+
+                <div className="bg-indigo-50/80 p-3.5 rounded-xl border border-indigo-200">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 block">
+                    PON Serial Number
+                  </span>
+                  <div className="text-sm font-mono font-extrabold text-indigo-900 mt-1 select-all">
+                    {viewingRecord.ponSerial}
+                  </div>
+                  <div className="text-[10px] text-indigo-600 mt-0.5">Optical Line Terminal ID</div>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex justify-between text-slate-600">
+                  <span>Device Hardware Model:</span>
+                  <span className="font-bold text-slate-900">{viewingRecord.productName}</span>
+                </div>
+                {viewingRecord.macAddress && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>MAC Address:</span>
+                    <span className="font-mono font-bold text-slate-900">{viewingRecord.macAddress}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-slate-600">
+                  <span>Assigned Branch:</span>
+                  <span className="font-bold text-slate-900">{branches.find(b => b.id === viewingRecord.branchId)?.name || viewingRecord.branchId}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>Issued Date:</span>
+                  <span className="font-mono font-bold">{viewingRecord.issuedDateAD} ({viewingRecord.issuedDateBS})</span>
+                </div>
+                {viewingRecord.purchaseBillRef && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Origin Purchase Bill #:</span>
+                    <span className="font-mono font-bold text-blue-700">{viewingRecord.purchaseBillRef}</span>
+                  </div>
+                )}
+              </div>
+
+              {viewingRecord.notes && (
+                <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-200 text-amber-900 text-xs">
+                  <strong className="block font-bold mb-0.5">Technical Notes:</strong>
+                  {viewingRecord.notes}
+                </div>
+              )}
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setViewingRecord(null)}
+                  className="rounded-xl bg-blue-600 text-white px-5 py-2 text-xs font-bold hover:bg-blue-700 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Customer Device Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden text-slate-800 my-8">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                <Wifi className="h-4 w-4 text-blue-600" />
+                <span>Assign Customer Device (Device & PON Serial Entry)</span>
+              </h3>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Customer Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="e.g. Aashish Subedi"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 font-bold focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Account / Code
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={customerCode}
+                    onChange={(e) => setCustomerCode(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono font-bold text-blue-700 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Contact Phone *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Serving Branch
+                  </label>
+                  <select
+                    value={branchId}
+                    onChange={(e) => setBranchId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 font-bold focus:ring-2 focus:ring-blue-500"
+                  >
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                  Installation Address *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={installationAddress}
+                  onChange={(e) => setInstallationAddress(e.target.value)}
+                  placeholder="e.g. Lazimpat Ward 2, Kathmandu"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                  Device Hardware Model
+                </label>
+                <select
+                  value={productName}
+                  onChange={(e) => setProductName(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 font-bold focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="ONU ROUTER 2.4G">ONU ROUTER 2.4G</option>
+                  <option value="ONU ROUTER 5G">ONU ROUTER 5G</option>
+                  <option value="IP TV SETUP BOX">IP TV SETUP BOX</option>
+                  <option value="SWITCH (HUAWEI S6700-24-EI)-FA">SWITCH (HUAWEI S6700-24-EI)</option>
+                  <option value="MIKROTIK HEX RB750Gr3">MIKROTIK HEX RB750Gr3</option>
+                </select>
+              </div>
+
+              {/* Highlighted Serial Inputs */}
+              <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 space-y-3">
+                <span className="text-xs font-bold text-blue-900 block flex items-center gap-1">
+                  <Barcode className="h-4 w-4 text-blue-600" />
+                  Hardware Device Identification Numbers
+                </span>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-blue-800 mb-1">
+                      Device Serial Number *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={deviceSerial}
+                      onChange={(e) => setDeviceSerial(e.target.value)}
+                      placeholder="e.g. SN-ONU24G-881923"
+                      className="w-full rounded-lg border border-blue-300 bg-white px-2.5 py-1.5 font-mono text-xs text-blue-900 font-extrabold focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-indigo-800 mb-1">
+                      PON Serial Number *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={ponSerial}
+                      onChange={(e) => setPonSerial(e.target.value)}
+                      placeholder="e.g. HWTC-90A812C4"
+                      className="w-full rounded-lg border border-indigo-300 bg-white px-2.5 py-1.5 font-mono text-xs text-indigo-900 font-extrabold focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                      MAC Address (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={macAddress}
+                      onChange={(e) => setMacAddress(e.target.value)}
+                      placeholder="e.g. 70:A8:E3:4B:91:10"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                      Vendor Purchase Bill Ref
+                    </label>
+                    <input
+                      type="text"
+                      value={purchaseBillRef}
+                      onChange={(e) => setPurchaseBillRef(e.target.value)}
+                      placeholder="e.g. BILL-9021"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-xs text-slate-800"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-700 px-5 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/20 cursor-pointer"
+                >
+                  Save Device Record
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
