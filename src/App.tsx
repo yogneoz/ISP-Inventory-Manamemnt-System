@@ -37,6 +37,9 @@ import { BranchesManagement } from './components/BranchesManagement';
 import { SuppliersManagement } from './components/SuppliersManagement';
 import { UsersManagement } from './components/UsersManagement';
 import { PermissionManagement } from './components/PermissionManagement';
+import { ExportReports } from './components/ExportReports';
+import { StockValuation } from './components/StockValuation';
+import { StockMovementLedger } from './components/StockMovementLedger';
 import { AiAssistantModal } from './components/AiAssistantModal';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 import { Loader2 } from 'lucide-react';
@@ -568,6 +571,31 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'stock-valuation' && (
+                <StockValuation
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'stock-ledger' && (
+                <StockMovementLedger
+                  transactionLogs={transactionLogs}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  stockOperations={stockOperations}
+                  shipments={shipments}
+                  purchaseOrders={purchaseOrders}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
               {activeTab === 'fixed-assets' && (
                 <FixedAssetRegister
                   assets={assets}
@@ -854,6 +882,18 @@ export default function App() {
                   invoices={purchaseInvoices}
                   dateMode={dateMode}
                   onOpenAiModal={() => setIsAiModalOpen(true)}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'export-reports' && (
+                <ExportReports
+                  purchaseOrders={purchaseOrders}
+                  invoices={purchaseInvoices}
+                  shipments={shipments}
+                  branches={branches}
+                  suppliers={suppliers}
+                  dateMode={dateMode}
                   isDarkMode={isDarkMode}
                 />
               )}

@@ -8,6 +8,8 @@ export type NavTab =
   | 'branch-stock'
   | 'reorder-stock'
   | 'damaged-stock'
+  | 'stock-valuation'
+  | 'stock-ledger'
   | 'fixed-assets'
   | 'customers'
   | 'create-po'
@@ -25,7 +27,8 @@ export type NavTab =
   | 'suppliers'
   | 'users'
   | 'permissions'
-  | 'audit';
+  | 'audit'
+  | 'export-reports';
 
 interface SidebarProps {
   currentUser?: User | null;
@@ -91,6 +94,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Damaged Stock Matrix',
       icon: '⚠️',
     },
+    { id: 'stock-valuation' as NavTab, label: 'Stock Valuation', icon: '💰' },
+    { id: 'stock-ledger' as NavTab, label: 'Stock Movement Ledger', icon: '📒' },
     ...(!isClerk ? [{ id: 'fixed-assets' as NavTab, label: 'Fixed Asset Register', icon: '🏗️' }] : []),
     { id: 'customers' as NavTab, label: 'Customer Device Serials', icon: '📶' },
   ];
@@ -168,6 +173,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'users' as NavTab, label: 'Users', icon: '👤' },
         { id: 'permissions' as NavTab, label: 'Permission Management', icon: '🛡️' },
         { id: 'audit' as NavTab, label: 'Audit Trail', icon: '📋' },
+        { id: 'export-reports' as NavTab, label: 'Export Reports', icon: '📥' },
       ],
     });
   }
