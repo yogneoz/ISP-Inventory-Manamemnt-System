@@ -430,11 +430,14 @@ products.forEach((p, index) => {
       qty = Math.max(0, ((openingQty + bIdx * 3) % 18) + (index % 3 === 0 ? 4 : 1));
     }
 
+    let damagedQty = (index + bIdx) % 7 === 0 ? (index % 3 + 1) : 0;
+
     inventoryStock.push({
       id: `stk-${branch.id.toLowerCase()}-${p.id}`,
       productId: p.id,
       branchId: branch.id,
       quantityOnHand: qty,
+      damagedQty: damagedQty,
       reservedQty: 0,
       incomingQty: 0,
       lastUpdated: new Date().toISOString(),
@@ -1179,53 +1182,209 @@ app.post('/api/shipments/:id/receive', (req, res) => {
   res.json(sh);
 });
 
-// Stock Operations
+// Stock Operations (Pullout Bins, Damage Tagging & Adjustments)
 app.get('/api/stock-operations', (req, res) => {
+  const { branchId } = req.query;
+  if (branchId && branchId !== 'ALL') {
+    return res.json(
+      stockOperations.filter(
+        (op) => op.branchId === branchId || op.destinationWarehouseId === branchId
+      )
+    );
+  }
   res.json(stockOperations);
 });
 
 app.post('/api/stock-operations', (req, res) => {
-  const totalValue = Math.abs(req.body.quantityChanged) * req.body.costPerUnit;
+  const opType = req.body.type || 'DAMAGE';
+  const branchObj = branches.find((b) => b.id === req.body.branchId);
+  const destWarehouseObj = branches.find((b) => b.id === (req.body.destinationWarehouseId || 'WH001'));
+
+  let totalValue = 0;
+  const items = req.body.items || [];
+
+  if (items.length > 0) {
+    totalValue = items.reduce((sum: number, it: any) => sum + (it.totalValue || it.quantity * it.unitCost), 0);
+  } else if (req.body.quantityChanged && req.body.costPerUnit) {
+    totalValue = Math.abs(req.body.quantityChanged) * req.body.costPerUnit;
+  }
+
   const newOp = {
     id: `op-${Date.now()}`,
-    referenceNumber: `${req.body.type.slice(0, 3)}-2083-${Math.floor(100 + Math.random() * 900)}`,
+    referenceNumber: `${opType.slice(0, 3)}-2083-${Math.floor(100 + Math.random() * 900)}`,
     dateAD: new Date().toISOString().split('T')[0],
     dateBS: '2083-04-16 BS',
     totalValue,
     fiscalYear: '2082/83',
+    branchName: branchObj?.name || 'Branch',
+    destinationWarehouseId: destWarehouseObj?.id || 'WH001',
+    destinationWarehouseName: destWarehouseObj?.name || 'Headquarters Warehouse',
+    status: opType === 'PULLOUT' ? 'DISPATCHED' : 'LOGGED',
     ...req.body,
   };
 
-  // Adjust stock
-  let stk = inventoryStock.find(
-    (s) => s.productId === req.body.productId && s.branchId === req.body.branchId
-  );
-  if (stk) {
-    const qtyBefore = stk.quantityOnHand;
-    stk.quantityOnHand += req.body.quantityChanged;
+  // If multi-item Pullout or Damage Bin
+  if (items.length > 0) {
+    items.forEach((item: any) => {
+      let stk = inventoryStock.find(
+        (s) => s.productId === item.productId && s.branchId === req.body.branchId
+      );
+      if (stk) {
+        const qtyBefore = stk.quantityOnHand;
 
-    const prod = products.find((p) => p.id === req.body.productId);
+        if (opType === 'PULLOUT') {
+          // If pulling out damaged stock, deduct from damagedQty; else deduct from usable quantityOnHand
+          if (item.condition === 'DAMAGED_STOCK') {
+            stk.damagedQty = Math.max(0, (stk.damagedQty || 0) - item.quantity);
+          } else {
+            stk.quantityOnHand = Math.max(0, stk.quantityOnHand - item.quantity);
+          }
+        } else if (opType === 'DAMAGE') {
+          // Flagging stock as damaged at branch/warehouse:
+          // Reduce usable stock and increase local damaged stock!
+          stk.quantityOnHand = Math.max(0, stk.quantityOnHand - item.quantity);
+          stk.damagedQty = (stk.damagedQty || 0) + item.quantity;
+        }
 
-    transactionLogs.unshift({
-      id: `txn-${Date.now()}`,
-      transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
-      productId: req.body.productId,
-      productSku: prod?.sku || '',
-      productName: req.body.productName,
-      branchId: req.body.branchId,
-      changeType: req.body.type,
-      quantityBefore: qtyBefore,
-      quantityChanged: req.body.quantityChanged,
-      quantityAfter: stk.quantityOnHand,
-      unitCost: req.body.costPerUnit,
-      referenceDocId: newOp.referenceNumber,
-      timestampAD: new Date().toISOString(),
-      timestampBS: '2083-04-16 BS',
+        stk.lastUpdated = new Date().toISOString();
+
+        transactionLogs.unshift({
+          id: `txn-${Date.now()}-${item.productId}`,
+          transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+          productId: item.productId,
+          productSku: item.sku || '',
+          productName: item.productName || 'Product',
+          branchId: req.body.branchId,
+          changeType: opType === 'PULLOUT' ? 'PULLOUT' : 'DAMAGE',
+          quantityBefore: qtyBefore,
+          quantityChanged: -item.quantity,
+          quantityAfter: stk.quantityOnHand,
+          unitCost: item.unitCost || 0,
+          referenceDocId: newOp.referenceNumber,
+          timestampAD: new Date().toISOString(),
+          timestampBS: '2083-04-16 BS',
+        });
+      }
     });
+  } else if (req.body.productId) {
+    // Single item stock operation / damage log
+    let stk = inventoryStock.find(
+      (s) => s.productId === req.body.productId && s.branchId === req.body.branchId
+    );
+    if (stk) {
+      const qtyBefore = stk.quantityOnHand;
+      const qtyChanged = Number(req.body.quantityChanged) || 0;
+
+      if (opType === 'DAMAGE') {
+        // Tag local damage: convert usable stock into damaged stock
+        const damAmt = Math.abs(qtyChanged);
+        stk.quantityOnHand = Math.max(0, stk.quantityOnHand - damAmt);
+        stk.damagedQty = (stk.damagedQty || 0) + damAmt;
+      } else {
+        stk.quantityOnHand += qtyChanged;
+      }
+
+      stk.lastUpdated = new Date().toISOString();
+      const prod = products.find((p) => p.id === req.body.productId);
+
+      transactionLogs.unshift({
+        id: `txn-${Date.now()}`,
+        transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+        productId: req.body.productId,
+        productSku: prod?.sku || '',
+        productName: req.body.productName || prod?.name || '',
+        branchId: req.body.branchId,
+        changeType: opType,
+        quantityBefore: qtyBefore,
+        quantityChanged: qtyChanged,
+        quantityAfter: stk.quantityOnHand,
+        unitCost: req.body.costPerUnit || prod?.costPrice || 0,
+        referenceDocId: newOp.referenceNumber,
+        timestampAD: new Date().toISOString(),
+        timestampBS: '2083-04-16 BS',
+      });
+    }
   }
 
   stockOperations.unshift(newOp);
   res.status(201).json(newOp);
+});
+
+// Receive Pullout Bin at Warehouse
+app.post('/api/stock-operations/:id/receive', (req, res) => {
+  const { id } = req.params;
+  const op = stockOperations.find((o) => o.id === id);
+  if (!op) return res.status(404).json({ message: 'Stock operation not found' });
+
+  op.status = 'RECEIVED';
+  const whId = op.destinationWarehouseId || 'WH001';
+
+  // Add received stock to central Warehouse stock
+  if (op.items && op.items.length > 0) {
+    op.items.forEach((item: any) => {
+      let whStk = inventoryStock.find((s) => s.productId === item.productId && s.branchId === whId);
+      if (!whStk) {
+        whStk = {
+          id: `stk-${whId.toLowerCase()}-${item.productId}`,
+          productId: item.productId,
+          branchId: whId,
+          quantityOnHand: 0,
+          damagedQty: 0,
+          reservedQty: 0,
+          incomingQty: 0,
+          lastUpdated: new Date().toISOString(),
+        };
+        inventoryStock.push(whStk);
+      }
+
+      const qtyBefore = whStk.quantityOnHand;
+
+      if (item.condition === 'DAMAGED_STOCK') {
+        whStk.damagedQty = (whStk.damagedQty || 0) + item.quantity;
+      } else {
+        whStk.quantityOnHand += item.quantity;
+      }
+
+      whStk.lastUpdated = new Date().toISOString();
+
+      transactionLogs.unshift({
+        id: `txn-${Date.now()}-${item.productId}`,
+        transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+        productId: item.productId,
+        productSku: item.sku || '',
+        productName: item.productName || '',
+        branchId: whId,
+        changeType: 'PULLOUT',
+        quantityBefore: qtyBefore,
+        quantityChanged: item.quantity,
+        quantityAfter: whStk.quantityOnHand,
+        unitCost: item.unitCost || 0,
+        referenceDocId: op.referenceNumber,
+        timestampAD: new Date().toISOString(),
+        timestampBS: '2083-04-16 BS',
+      });
+    });
+  } else if (op.productId && op.quantityChanged) {
+    let whStk = inventoryStock.find((s) => s.productId === op.productId && s.branchId === whId);
+    if (!whStk) {
+      whStk = {
+        id: `stk-${whId.toLowerCase()}-${op.productId}`,
+        productId: op.productId,
+        branchId: whId,
+        quantityOnHand: 0,
+        damagedQty: 0,
+        reservedQty: 0,
+        incomingQty: 0,
+        lastUpdated: new Date().toISOString(),
+      };
+      inventoryStock.push(whStk);
+    }
+    const pullQty = Math.abs(op.quantityChanged);
+    whStk.quantityOnHand += pullQty;
+    whStk.lastUpdated = new Date().toISOString();
+  }
+
+  res.json(op);
 });
 
 // Fiscal Years

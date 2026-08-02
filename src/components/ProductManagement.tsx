@@ -423,13 +423,28 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   <input
                     type="text"
                     required
+                    list="product-categories-list"
                     value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    placeholder="e.g. Electronics, Furniture"
+                    onChange={(e) => {
+                      const newCat = e.target.value;
+                      setCategory(newCat);
+                      if (newCat.toLowerCase().includes('asset') || newCat.toLowerCase().includes('fixed')) {
+                        setMinReorderLevel(0);
+                      }
+                    }}
+                    placeholder="e.g. Fixed Assets, Electronics, Furniture"
                     className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
                       isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
                     }`}
                   />
+                  <datalist id="product-categories-list">
+                    <option value="Fixed Assets" />
+                    <option value="Electronics" />
+                    <option value="Furniture" />
+                    <option value="Office Supplies" />
+                    <option value="Machinery & Equipment" />
+                    <option value="IT Hardware" />
+                  </datalist>
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold mb-1 opacity-80">
@@ -508,13 +523,16 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 <input
                   type="number"
                   required
-                  min={1}
+                  min={0}
                   value={minReorderLevel}
-                  onChange={(e) => setMinReorderLevel(Number(e.target.value))}
+                  onChange={(e) => setMinReorderLevel(Math.max(0, Number(e.target.value)))}
                   className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-indigo-500 ${
                     isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
                   }`}
                 />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Accepts 0 for Fixed Asset type products or non-reorder items.
+                </p>
               </div>
 
               <div>

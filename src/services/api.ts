@@ -249,10 +249,16 @@ export const api = {
     return fetchJson(`/api/stock-operations${query}`);
   },
 
-  async createStockOperation(op: Omit<StockOperation, 'id' | 'referenceNumber' | 'dateAD' | 'dateBS' | 'totalValue' | 'fiscalYear'>): Promise<StockOperation> {
+  async createStockOperation(op: Partial<StockOperation>): Promise<StockOperation> {
     return fetchJson('/api/stock-operations', {
       method: 'POST',
       body: JSON.stringify(op),
+    });
+  },
+
+  async receiveStockOperation(id: string): Promise<StockOperation> {
+    return fetchJson(`/api/stock-operations/${id}/receive`, {
+      method: 'POST',
     });
   },
 

@@ -23,9 +23,11 @@ import { LoginModal } from './components/LoginModal';
 import { Dashboard } from './components/Dashboard';
 import { ProductManagement } from './components/ProductManagement';
 import { BranchStockTracking } from './components/BranchStockTracking';
+import { ReorderStockTracking } from './components/ReorderStockTracking';
+import { DamagedStockTracking } from './components/DamagedStockTracking';
 import { FixedAssetRegister } from './components/FixedAssetRegister';
 import { CustomersManagement } from './components/CustomersManagement';
-import { PurchaseOrders } from './components/PurchaseOrders';
+import { PurchaseOrders, OrderFormLine } from './components/PurchaseOrders';
 import { PurchaseInvoices } from './components/PurchaseInvoices';
 import { Shipments } from './components/Shipments';
 import { StockOperations } from './components/StockOperations';
@@ -71,6 +73,7 @@ export default function App() {
   };
 
   // App Data State
+  const [prepopulatedPOLines, setPrepopulatedPOLines] = useState<OrderFormLine[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -335,13 +338,13 @@ export default function App() {
   };
 
   // Stock Operations Actions
-  const handleCreateOperation = async (
-    op: Omit<
-      StockOperation,
-      'id' | 'referenceNumber' | 'dateAD' | 'dateBS' | 'totalValue' | 'fiscalYear'
-    >
-  ) => {
+  const handleCreateOperation = async (op: Partial<StockOperation>) => {
     await api.createStockOperation(op);
+    refreshAllData();
+  };
+
+  const handleReceiveOperation = async (id: string) => {
+    await api.receiveStockOperation(id);
     refreshAllData();
   };
 
@@ -354,7 +357,10 @@ export default function App() {
   // Badge calculations
   const lowStockCount = stock.filter((s) => {
     const prod = products.find((p) => p.id === s.productId);
-    return prod ? s.quantityOnHand <= prod.minReorderLevel : false;
+    if (!prod) return false;
+    return prod.minReorderLevel > 0
+      ? s.quantityOnHand <= prod.minReorderLevel
+      : s.quantityOnHand < 0;
   }).length;
 
   const pendingPoCount = purchaseOrders.filter(
@@ -367,6 +373,49 @@ export default function App() {
 
   const activeFy =
     fiscalYears.find((f) => f.isCurrent)?.code || financialSummary.currentFiscalYear;
+
+  const handleGroupLowStockPO = () => {
+    const lowStockItems = stock.filter((item) => {
+      const product = products.find((p) => p.id === item.productId);
+      if (!product) return false;
+      return product.minReorderLevel > 0
+        ? item.quantityOnHand <= product.minReorderLevel
+        : item.quantityOnHand < 0;
+    });
+
+    const lowStockProductMap = new Map<string, { product: Product; qty: number }>();
+
+    lowStockItems.forEach((item) => {
+      const prod = products.find((p) => p.id === item.productId);
+      if (!prod) return;
+
+      const deficit = prod.minReorderLevel > 0
+        ? Math.max(1, prod.minReorderLevel - item.quantityOnHand)
+        : (item.quantityOnHand < 0 ? Math.abs(item.quantityOnHand) : 0);
+
+      if (deficit <= 0) return;
+
+      if (lowStockProductMap.has(prod.id)) {
+        const curr = lowStockProductMap.get(prod.id)!;
+        curr.qty += deficit;
+      } else {
+        lowStockProductMap.set(prod.id, { product: prod, qty: deficit });
+      }
+    });
+
+    const lines: OrderFormLine[] = Array.from(lowStockProductMap.values()).map(
+      ({ product, qty }) => ({
+        productId: product.id,
+        quantity: Math.max(1, qty),
+        unitPrice: product.costPrice,
+        discount: 0,
+        isTaxExempt: product.taxRate === 0,
+      })
+    );
+
+    setPrepopulatedPOLines(lines);
+    setActiveTab('create-po');
+  };
 
   return (
     <div
@@ -433,7 +482,7 @@ export default function App() {
 
         {/* Main Content Viewport */}
         <main
-          className={`flex-1 overflow-hidden flex flex-col p-4 sm:p-6 transition-colors duration-200 ${
+          className={`flex-1 overflow-y-auto p-4 sm:p-6 transition-colors duration-200 ${
             isDarkMode ? 'bg-[#0a0c10]' : 'bg-[#f8fafc]'
           }`}
         >
@@ -460,6 +509,7 @@ export default function App() {
                   dateMode={dateMode}
                   onNavigateTab={setActiveTab}
                   onOpenAiModal={() => setIsAiModalOpen(true)}
+                  onGroupLowStockPO={handleGroupLowStockPO}
                   onUpdateStockLevel={handleUpdateStockLevel}
                   isDarkMode={isDarkMode}
                 />
@@ -487,6 +537,33 @@ export default function App() {
                   selectedBranchId={selectedBranchId}
                   onUpdateStockLevel={handleUpdateStockLevel}
                   onCreateStockTransfer={handleCreateStockTransfer}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'reorder-stock' && (
+                <ReorderStockTracking
+                  currentUser={currentUser}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  onUpdateStockLevel={handleUpdateStockLevel}
+                  onGroupLowStockPO={handleGroupLowStockPO}
+                  onNavigateTab={setActiveTab}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'damaged-stock' && (
+                <DamagedStockTracking
+                  currentUser={currentUser}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  onUpdateStockLevel={handleUpdateStockLevel}
+                  onNavigateTab={setActiveTab}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -531,6 +608,7 @@ export default function App() {
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   autoOpenModal={true}
+                  prepopulatedLines={prepopulatedPOLines}
                   onCreatePO={handleCreatePO}
                   onReceivePO={handleReceivePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
@@ -547,6 +625,7 @@ export default function App() {
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   autoOpenModal={false}
+                  prepopulatedLines={prepopulatedPOLines}
                   onCreatePO={handleCreatePO}
                   onReceivePO={handleReceivePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
@@ -646,12 +725,14 @@ export default function App() {
                   operations={stockOperations}
                   products={products}
                   branches={branches}
+                  stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="PULLOUT"
-                  autoOpenModal={true}
+                  autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   onCreateOperation={handleCreateOperation}
+                  onReceiveOperation={handleReceiveOperation}
                 />
               )}
 
@@ -660,12 +741,14 @@ export default function App() {
                   operations={stockOperations}
                   products={products}
                   branches={branches}
+                  stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="DAMAGE"
-                  autoOpenModal={true}
+                  autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   onCreateOperation={handleCreateOperation}
+                  onReceiveOperation={handleReceiveOperation}
                 />
               )}
 
@@ -674,12 +757,14 @@ export default function App() {
                   operations={stockOperations}
                   products={products}
                   branches={branches}
+                  stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="STOCK_OUT"
-                  autoOpenModal={true}
+                  autoOpenModal={false}
                   isDarkMode={isDarkMode}
                   onCreateOperation={handleCreateOperation}
+                  onReceiveOperation={handleReceiveOperation}
                 />
               )}
 

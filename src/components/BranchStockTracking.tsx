@@ -132,7 +132,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
+    <div className="space-y-6">
       {/* Header & Actions */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -221,10 +221,10 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
       </div>
 
       {/* Stock Matrix Table with Sticky Frozen Headers and Column */}
-      <div className={`flex-1 min-h-0 flex flex-col rounded-2xl border shadow-lg overflow-hidden ${
+      <div className={`rounded-2xl border shadow-lg overflow-hidden ${
         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
       }`}>
-        <div className="flex-1 min-h-0 overflow-auto relative">
+        <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-15rem)] relative">
           <table className="w-full text-left text-xs border-collapse">
             <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
               isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
@@ -237,6 +237,11 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                 </th>
                 <th className="p-3.5 text-center sticky top-0 bg-inherit">Category</th>
                 <th className="p-3.5 text-right sticky top-0 bg-inherit">Min Reorder</th>
+                <th className={`p-3.5 text-center sticky top-0 border-l border-r font-extrabold ${
+                  isDarkMode ? 'bg-indigo-950/40 text-indigo-300 border-slate-800' : 'bg-indigo-50/80 text-indigo-900 border-slate-200'
+                }`}>
+                  Total Stock
+                </th>
                 {activeBranches.map((b) => (
                   <th key={b.id} className={`p-3.5 text-center border-l sticky top-0 bg-inherit min-w-[130px] ${
                     isDarkMode ? 'border-slate-800' : 'border-slate-200'
@@ -252,39 +257,66 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
               {visibleProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={3 + activeBranches.length} className="p-8 text-center text-slate-500 text-xs">
+                  <td colSpan={4 + activeBranches.length} className="p-8 text-center text-slate-500 text-xs">
                     No available stock items found. Click "Showing Available Stock Only" to toggle and view zero-stock items.
                   </td>
                 </tr>
               ) : (
-                visibleProducts.map((prod) => (
-                  <tr key={prod.id} className={`transition-colors ${
-                    isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
-                  }`}>
-                    <td className={`p-3.5 sticky left-0 z-10 border-r font-medium ${
-                      isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-                    }`}>
-                      <div className={`font-bold text-xs ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
-                      <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
-                        SKU: {prod.sku}
-                      </div>
-                    </td>
-                    <td className="p-3.5 text-center">
-                      <span className={`rounded px-2 py-0.5 text-[10px] font-semibold border ${
-                        isDarkMode
-                          ? 'bg-slate-900 text-slate-300 border-slate-800'
-                          : 'bg-slate-100 text-slate-700 border-slate-200'
-                      }`}>
-                        {prod.category}
-                      </span>
-                    </td>
-                    <td className={`p-3.5 text-right font-mono font-semibold ${
-                      isDarkMode ? 'text-slate-400' : 'text-slate-600'
-                    }`}>
-                      {prod.minReorderLevel} {prod.unit}
-                    </td>
+                visibleProducts.map((prod) => {
+                  const systemTotalUsable = branches.reduce((sum, b) => {
+                    const st = stock.find((item) => item.productId === prod.id && item.branchId === b.id);
+                    return sum + (st ? st.quantityOnHand : 0);
+                  }, 0);
 
-                    {/* Branch Stock cells */}
+                  const systemTotalDamaged = branches.reduce((sum, b) => {
+                    const st = stock.find((item) => item.productId === prod.id && item.branchId === b.id);
+                    return sum + (st ? st.damagedQty || 0 : 0);
+                  }, 0);
+
+                  return (
+                    <tr key={prod.id} className={`transition-colors ${
+                      isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
+                    }`}>
+                      <td className={`p-3.5 sticky left-0 z-10 border-r font-medium ${
+                        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+                      }`}>
+                        <div className={`font-bold text-xs ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>{prod.name}</div>
+                        <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
+                          SKU: {prod.sku}
+                        </div>
+                      </td>
+                      <td className="p-3.5 text-center">
+                        <span className={`rounded px-2 py-0.5 text-[10px] font-semibold border ${
+                          isDarkMode
+                            ? 'bg-slate-900 text-slate-300 border-slate-800'
+                            : 'bg-slate-100 text-slate-700 border-slate-200'
+                        }`}>
+                          {prod.category}
+                        </span>
+                      </td>
+                      <td className={`p-3.5 text-right font-mono font-semibold ${
+                        isDarkMode ? 'text-slate-400' : 'text-slate-600'
+                      }`}>
+                        {prod.minReorderLevel} {prod.unit}
+                      </td>
+
+                      {/* Total Stock Column */}
+                      <td className={`p-3.5 text-center border-l border-r font-mono font-bold ${
+                        isDarkMode ? 'bg-indigo-950/20 border-slate-800 text-indigo-300' : 'bg-indigo-50/50 border-slate-200 text-indigo-900'
+                      }`}>
+                        <div className="flex flex-col items-center">
+                          <span className="text-xs">
+                            {systemTotalUsable} <span className="text-[10px] font-normal opacity-75">{prod.unit}</span>
+                          </span>
+                          {systemTotalDamaged > 0 && (
+                            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
+                              ({systemTotalDamaged} damaged)
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Branch Stock cells */}
                     {activeBranches.map((b) => {
                       const s = stock.find(
                         (st) => st.productId === prod.id && st.branchId === b.id
@@ -303,22 +335,30 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                       return (
                         <td
                           key={b.id}
-                          className={`p-3.5 text-center border-l font-medium ${
+                          className={`p-3 text-center border-l font-medium ${
                             isDarkMode ? 'border-slate-800' : 'border-slate-200'
                           } ${
                             isLow ? (isDarkMode ? 'bg-rose-950/20' : 'bg-rose-50/60') : ''
                           }`}
                         >
                           <div className="flex items-center justify-between gap-1">
-                            <span
-                              className={`font-mono font-bold text-xs ${
-                                isLow
-                                  ? 'text-rose-600 dark:text-rose-400'
-                                  : isDarkMode ? 'text-slate-200' : 'text-slate-800'
-                              }`}
-                            >
-                              {s.quantityOnHand} {prod.unit}
-                            </span>
+                            <div className="flex flex-col items-start">
+                              <span
+                                className={`font-mono font-bold text-xs ${
+                                  isLow
+                                    ? 'text-rose-600 dark:text-rose-400'
+                                    : isDarkMode ? 'text-slate-200' : 'text-slate-800'
+                                }`}
+                              >
+                                {s.quantityOnHand} <span className="text-[10px] text-slate-400 font-normal">{prod.unit} usable</span>
+                              </span>
+                              {(s.damagedQty || 0) > 0 && (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800/50 mt-0.5">
+                                  <AlertTriangle className="h-2.5 w-2.5" />
+                                  <span>{s.damagedQty} damaged</span>
+                                </span>
+                              )}
+                            </div>
                             <button
                               onClick={() => openStockEdit(s, prod, b)}
                               title="Adjust stock balance"
@@ -341,9 +381,10 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                       );
                     })}
                   </tr>
-                ))
-              )}
-            </tbody>
+                );
+              })
+            )}
+          </tbody>
           </table>
         </div>
       </div>

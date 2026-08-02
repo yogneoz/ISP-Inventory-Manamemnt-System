@@ -24,6 +24,7 @@ import {
   ArrowDownRight,
   CheckCircle2,
   FileSpreadsheet,
+  Eye,
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -39,6 +40,7 @@ interface DashboardProps {
   dateMode: 'BS' | 'AD';
   onNavigateTab: (tab: any) => void;
   onOpenAiModal: () => void;
+  onGroupLowStockPO?: () => void;
   onUpdateStockLevel?: (stockId: string, newQty: number, reason: string) => Promise<void>;
   isDarkMode?: boolean;
 }
@@ -56,6 +58,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   dateMode,
   onNavigateTab,
   onOpenAiModal,
+  onGroupLowStockPO,
   onUpdateStockLevel,
   isDarkMode = false,
 }) => {
@@ -100,7 +103,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Low stock items
   const lowStockItems = filteredStock.filter((s) => {
     const prod = products.find((p) => p.id === s.productId);
-    return prod ? s.quantityOnHand <= prod.minReorderLevel : false;
+    if (!prod) return false;
+    return prod.minReorderLevel > 0
+      ? s.quantityOnHand <= prod.minReorderLevel
+      : s.quantityOnHand < 0;
   });
 
   // Pending POs
@@ -307,6 +313,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  onClick={() => onNavigateTab('reorder-stock')}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
+                    isDarkMode
+                      ? 'bg-amber-950/80 text-amber-300 border-amber-500/40 hover:bg-amber-900'
+                      : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100'
+                  }`}
+                >
+                  <Eye className="h-3.5 w-3.5 text-amber-500" />
+                  <span>View Reorder Stocks</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setIsAdjustModalOpen(true)}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
                     isDarkMode
@@ -320,7 +339,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => onNavigateTab('create-po')}
+                  onClick={() => {
+                    if (onGroupLowStockPO) {
+                      onGroupLowStockPO();
+                    } else {
+                      onNavigateTab('create-po');
+                    }
+                  }}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
                     isDarkMode
                       ? 'bg-indigo-600 text-white border-indigo-500 hover:bg-indigo-500 shadow-md shadow-indigo-950/50'
@@ -350,7 +375,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       <th className="p-3.5">Branch</th>
                       <th className="p-3.5 text-right">On Hand</th>
                       <th className="p-3.5 text-right">Min Level</th>
-                      <th className="p-3.5 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-100'}`}>
@@ -374,18 +398,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                           </td>
                           <td className="p-3.5 text-right font-mono text-slate-500">
                             {prod?.minReorderLevel} {prod?.unit}
-                          </td>
-                          <td className="p-3.5 text-center">
-                            <button
-                              onClick={() => onNavigateTab('purchase-orders')}
-                              className={`rounded px-2.5 py-1 font-semibold text-[11px] border transition-colors ${
-                                isDarkMode
-                                  ? 'bg-indigo-950/80 text-indigo-300 hover:bg-indigo-900 border-indigo-500/30'
-                                  : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border-indigo-200'
-                              }`}
-                            >
-                              Create PO
-                            </button>
                           </td>
                         </tr>
                       );

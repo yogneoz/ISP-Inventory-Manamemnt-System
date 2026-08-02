@@ -30,6 +30,7 @@ interface PurchaseOrdersProps {
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
+  prepopulatedLines?: OrderFormLine[];
   onCreatePO: (
     po: Omit<
       PurchaseOrder,
@@ -41,7 +42,7 @@ interface PurchaseOrdersProps {
   isDarkMode?: boolean;
 }
 
-interface OrderFormLine {
+export interface OrderFormLine {
   productId: string;
   quantity: number;
   unitPrice: number;
@@ -57,6 +58,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   selectedBranchId,
   dateMode,
   autoOpenModal = false,
+  prepopulatedLines,
   onCreatePO,
   onReceivePO,
   onUpdatePOStatus,
@@ -77,8 +79,62 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   );
   const [notes, setNotes] = useState('');
 
-  // Line items for POS entry (empty by default until scanned/added or defaults)
-  const [lines, setLines] = useState<OrderFormLine[]>([]);
+  // Line items for POS entry
+  const [lines, setLines] = useState<OrderFormLine[]>(() => {
+    if (prepopulatedLines && prepopulatedLines.length > 0) {
+      return prepopulatedLines;
+    }
+    return [];
+  });
+
+  // Keep lines synced with prepopulatedLines prop when provided
+  React.useEffect(() => {
+    if (prepopulatedLines && prepopulatedLines.length > 0) {
+      setLines(prepopulatedLines);
+    }
+  }, [prepopulatedLines]);
+
+  const handleAutoPopulateLowStock = () => {
+    const lowStockProductMap = new Map<string, { product: Product; qty: number }>();
+
+    stock.forEach((s) => {
+      const prod = products.find((p) => p.id === s.productId);
+      if (!prod) return;
+
+      const isLow = prod.minReorderLevel > 0
+        ? s.quantityOnHand <= prod.minReorderLevel
+        : s.quantityOnHand < 0;
+
+      if (isLow) {
+        const deficit = prod.minReorderLevel > 0
+          ? Math.max(1, prod.minReorderLevel - s.quantityOnHand)
+          : Math.abs(s.quantityOnHand);
+
+        if (deficit <= 0) return;
+
+        if (lowStockProductMap.has(prod.id)) {
+          const curr = lowStockProductMap.get(prod.id)!;
+          curr.qty += deficit;
+        } else {
+          lowStockProductMap.set(prod.id, { product: prod, qty: deficit });
+        }
+      }
+    });
+
+    const lowStockLines: OrderFormLine[] = Array.from(lowStockProductMap.values()).map(
+      ({ product, qty }) => ({
+        productId: product.id,
+        quantity: Math.max(1, qty),
+        unitPrice: product.costPrice,
+        discount: 0,
+        isTaxExempt: taxationType === 'TAX_EXEMPTED' || product.taxRate === 0,
+      })
+    );
+
+    if (lowStockLines.length > 0) {
+      setLines(lowStockLines);
+    }
+  };
 
   // Search / Scan Product Add or Increment
   const handleAddOrIncrementProduct = (prod: Product) => {
@@ -120,21 +176,23 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   };
 
   const addLine = () => {
-    const defaultProd = products[0];
+    const existingIds = new Set(lines.map((l) => l.productId));
+    const nextProd = products.find((p) => !existingIds.has(p.id)) || products[0];
+    if (!nextProd) return;
+
     setLines([
       ...lines,
       {
-        productId: defaultProd?.id || '',
+        productId: nextProd.id,
         quantity: 1,
-        unitPrice: defaultProd?.costPrice || 1000,
+        unitPrice: nextProd.costPrice,
         discount: 0,
-        isTaxExempt: false,
+        isTaxExempt: nextProd.taxRate === 0,
       },
     ]);
   };
 
   const removeLine = (index: number) => {
-    if (lines.length === 1) return;
     setLines(lines.filter((_, i) => i !== index));
   };
 
@@ -189,7 +247,35 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     const todayAD = new Date().toISOString().split('T')[0];
     const bsObj = convertADToBS(todayAD);
 
-    const items: POLineItem[] = calculatedLines.map((l, idx) => ({
+    // Deduplicate and consolidate items by productId
+    const consolidatedLinesMap = new Map<string, typeof calculatedLines[0]>();
+
+    calculatedLines.forEach((l) => {
+      if (consolidatedLinesMap.has(l.productId)) {
+        const existing = consolidatedLinesMap.get(l.productId)!;
+        const newQty = existing.quantity + l.quantity;
+        const newDiscount = existing.discount + l.discount;
+        const gross = newQty * existing.unitPrice;
+        const netSubtotal = Math.max(0, gross - newDiscount);
+        const vat = existing.isTaxExempt ? 0 : (netSubtotal * 13) / 100;
+        const total = netSubtotal + vat;
+        consolidatedLinesMap.set(l.productId, {
+          ...existing,
+          quantity: newQty,
+          discount: newDiscount,
+          gross,
+          netSubtotal,
+          vat,
+          total,
+        });
+      } else {
+        consolidatedLinesMap.set(l.productId, { ...l });
+      }
+    });
+
+    const uniqueCalculatedLines = Array.from(consolidatedLinesMap.values());
+
+    const items: POLineItem[] = uniqueCalculatedLines.map((l, idx) => ({
       id: `poi-${Date.now()}-${idx}`,
       productId: l.productId,
       productName: l.product?.name || 'Item',
@@ -220,9 +306,9 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
+    <div className="space-y-6">
       {/* Header & Controls */}
-      <div className="flex-none flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
@@ -298,10 +384,10 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       </div>
 
       {/* PO Data Table */}
-      <div className={`flex-1 min-h-0 flex flex-col rounded-2xl border shadow-lg overflow-hidden ${
+      <div className={`rounded-2xl border shadow-lg overflow-hidden ${
         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
       }`}>
-        <div className="flex-1 min-h-0 overflow-auto relative">
+        <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
               isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
@@ -530,14 +616,25 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     <Calculator className="h-4 w-4 text-indigo-500" />
                     <span>Order Items & Line Calculations</span>
                   </h4>
-                  <button
-                    type="button"
-                    onClick={addLine}
-                    className="flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer bg-indigo-50 dark:bg-indigo-950/50 px-3 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800/50"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    <span>Add Item Line</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleAutoPopulateLowStock}
+                      className="flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline cursor-pointer bg-amber-50 dark:bg-amber-950/50 px-3 py-1 rounded-lg border border-amber-200 dark:border-amber-800/50"
+                      title="Automatically populate all low stock products below reorder levels"
+                    >
+                      <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                      <span>Auto-fill Low Stock Items</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={addLine}
+                      className="flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer bg-indigo-50 dark:bg-indigo-950/50 px-3 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800/50"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      <span>Add Item Line</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/30">
@@ -558,109 +655,117 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                      {calculatedLines.map((line, idx) => {
-                        const stockQty = getBranchStock(line.productId, branchId);
-                        return (
-                          <tr key={idx} className="hover:bg-white dark:hover:bg-slate-800/50 transition-colors">
-                            <td className="p-2.5 text-center font-mono font-bold text-slate-400 text-[11px]">
-                              {idx + 1}
-                            </td>
-                            <td className="p-2.5">
-                              <select
-                                value={line.productId}
-                                onChange={(e) => updateLine(idx, 'productId', e.target.value)}
-                                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-slate-100 font-medium"
-                              >
-                                {products.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    [{p.sku}] {p.name} ({p.unit})
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="p-2.5 text-center font-mono font-semibold">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  stockQty <= 5
-                                    ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
-                                    : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                                }`}
-                              >
-                                {stockQty} {line.product?.unit || 'Pcs'}
-                              </span>
-                            </td>
-                            <td className="p-2.5 text-center">
-                              <input
-                                type="number"
-                                min={1}
-                                required
-                                value={line.quantity}
-                                onChange={(e) =>
-                                  updateLine(idx, 'quantity', Math.max(1, Number(e.target.value)))
-                                }
-                                className="w-16 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs text-center font-mono font-bold text-slate-900 dark:text-white"
-                              />
-                            </td>
-                            <td className="p-2.5 text-right">
-                              <input
-                                type="number"
-                                min={0}
-                                required
-                                value={line.unitPrice}
-                                onChange={(e) =>
-                                  updateLine(idx, 'unitPrice', Math.max(0, Number(e.target.value)))
-                                }
-                                className="w-24 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
-                              />
-                            </td>
-                            <td className="p-2.5 text-right">
-                              <input
-                                type="number"
-                                min={0}
-                                value={line.discount}
-                                onChange={(e) =>
-                                  updateLine(idx, 'discount', Math.max(0, Number(e.target.value)))
-                                }
-                                className="w-20 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs font-mono text-amber-600 dark:text-amber-400 font-semibold"
-                              />
-                            </td>
-                            <td className="p-2.5 text-center">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateLine(idx, 'isTaxExempt', !line.isTaxExempt)
-                                }
-                                className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
-                                  line.isTaxExempt
-                                    ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700'
-                                    : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700'
-                                }`}
-                              >
-                                {line.isTaxExempt ? 'Tax Exempt' : 'Taxable (13%)'}
-                              </button>
-                            </td>
-                            <td className="p-2.5 text-right font-mono font-semibold text-slate-800 dark:text-slate-200">
-                              रु {line.netSubtotal.toLocaleString()}
-                            </td>
-                            <td className="p-2.5 text-right font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
-                              रु {line.vat.toLocaleString()}
-                            </td>
-                            <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                              रु {line.total.toLocaleString()}
-                            </td>
-                            <td className="p-2.5 text-center">
-                              <button
-                                type="button"
-                                onClick={() => removeLine(idx)}
-                                disabled={lines.length === 1}
-                                className="p-1 text-slate-400 hover:text-rose-500 disabled:opacity-30 cursor-pointer"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {calculatedLines.length === 0 ? (
+                        <tr>
+                          <td colSpan={11} className="p-8 text-center text-slate-500 text-xs">
+                            No products in this purchase order. Use the product search bar above, click "Add Item Line", or click "Auto-fill Low Stock Items".
+                          </td>
+                        </tr>
+                      ) : (
+                        calculatedLines.map((line, idx) => {
+                          const stockQty = getBranchStock(line.productId, branchId);
+                          return (
+                            <tr key={idx} className="hover:bg-white dark:hover:bg-slate-800/50 transition-colors">
+                              <td className="p-2.5 text-center font-mono font-bold text-slate-400 text-[11px]">
+                                {idx + 1}
+                              </td>
+                              <td className="p-2.5">
+                                <select
+                                  value={line.productId}
+                                  onChange={(e) => updateLine(idx, 'productId', e.target.value)}
+                                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-slate-100 font-medium"
+                                >
+                                  {products.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      [{p.sku}] {p.name} ({p.unit})
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="p-2.5 text-center font-mono font-semibold">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    stockQty <= 5
+                                      ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
+                                      : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                  }`}
+                                >
+                                  {stockQty} {line.product?.unit || 'Pcs'}
+                                </span>
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  required
+                                  value={line.quantity}
+                                  onChange={(e) =>
+                                    updateLine(idx, 'quantity', Math.max(1, Number(e.target.value)))
+                                  }
+                                  className="w-16 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs text-center font-mono font-bold text-slate-900 dark:text-white"
+                                />
+                              </td>
+                              <td className="p-2.5 text-right">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  required
+                                  value={line.unitPrice}
+                                  onChange={(e) =>
+                                    updateLine(idx, 'unitPrice', Math.max(0, Number(e.target.value)))
+                                  }
+                                  className="w-24 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
+                                />
+                              </td>
+                              <td className="p-2.5 text-right">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={line.discount}
+                                  onChange={(e) =>
+                                    updateLine(idx, 'discount', Math.max(0, Number(e.target.value)))
+                                  }
+                                  className="w-20 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs font-mono text-amber-600 dark:text-amber-400 font-semibold"
+                                />
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    updateLine(idx, 'isTaxExempt', !line.isTaxExempt)
+                                  }
+                                  className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
+                                    line.isTaxExempt
+                                      ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700'
+                                      : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700'
+                                  }`}
+                                >
+                                  {line.isTaxExempt ? 'Tax Exempt' : 'Taxable (13%)'}
+                                </button>
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-semibold text-slate-800 dark:text-slate-200">
+                                रु {line.netSubtotal.toLocaleString()}
+                              </td>
+                              <td className="p-2.5 text-right font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
+                                रु {line.vat.toLocaleString()}
+                              </td>
+                              <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                                रु {line.total.toLocaleString()}
+                              </td>
+                              <td className="p-2.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => removeLine(idx)}
+                                  className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer transition-colors"
+                                  title="Remove product item line"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>

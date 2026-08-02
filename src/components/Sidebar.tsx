@@ -6,6 +6,8 @@ export type NavTab =
   | 'dashboard'
   | 'all-stock'
   | 'branch-stock'
+  | 'reorder-stock'
+  | 'damaged-stock'
   | 'fixed-assets'
   | 'customers'
   | 'create-po'
@@ -76,8 +78,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'branch-stock' as NavTab,
       label: isBranchUser ? 'My Branch Stock' : 'Stock By Branch',
       icon: '🏪',
+    },
+    {
+      id: 'reorder-stock' as NavTab,
+      label: 'Reorder Stock Matrix',
+      icon: '🔔',
       badge: lowStockCount,
       badgeColor: 'bg-rose-500 text-white',
+    },
+    {
+      id: 'damaged-stock' as NavTab,
+      label: 'Damaged Stock Matrix',
+      icon: '⚠️',
     },
     ...(!isClerk ? [{ id: 'fixed-assets' as NavTab, label: 'Fixed Asset Register', icon: '🏗️' }] : []),
     { id: 'customers' as NavTab, label: 'Customer Device Serials', icon: '📶' },

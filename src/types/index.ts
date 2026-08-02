@@ -50,6 +50,7 @@ export interface InventoryStock {
   productId: string;
   branchId: string;
   quantityOnHand: number;
+  damagedQty?: number;
   reservedQty: number;
   incomingQty: number;
   lastUpdated: string;
@@ -195,21 +196,39 @@ export interface Shipment {
   notes?: string;
 }
 
+export interface PulloutItem {
+  id: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  unit?: string;
+  quantity: number;
+  condition: 'OVERSTOCK' | 'DAMAGED_STOCK' | 'EXPIRED' | 'RECALLED';
+  unitCost: number;
+  totalValue: number;
+  reason?: string;
+}
+
 export interface StockOperation {
   id: string;
   referenceNumber: string;
   type: 'PULLOUT' | 'DAMAGE' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT';
   branchId: string;
-  productId: string;
-  productName: string;
-  quantityChanged: number; // e.g. -5 or +10
-  costPerUnit: number;
+  branchName?: string;
+  destinationWarehouseId?: string;
+  destinationWarehouseName?: string;
+  productId?: string;
+  productName?: string;
+  quantityChanged?: number; // e.g. -5 or +10
+  costPerUnit?: number;
   totalValue: number;
   reason: string;
   inspectorName: string;
   dateAD: string;
   dateBS: string;
   fiscalYear: string;
+  status?: 'DISPATCHED' | 'RECEIVED' | 'LOGGED';
+  items?: PulloutItem[];
 }
 
 export interface FiscalYear {
