@@ -135,49 +135,45 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const cardSubText = isDarkMode ? 'text-slate-400' : 'text-slate-600';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3.5">
       {/* Top Welcome Banner */}
       <div
-        className={`rounded-2xl p-6 text-white shadow-xl border relative overflow-hidden transition-colors duration-200 ${
+        className={`rounded-xl p-3.5 text-white shadow-md border relative overflow-hidden transition-colors duration-200 ${
           isDarkMode
             ? 'bg-gradient-to-r from-[#0f1218] via-indigo-950/40 to-[#0f1218] border-slate-800'
             : 'bg-gradient-to-r from-[#1a237e] via-[#283593] to-[#0d47a1] border-indigo-900'
         }`}
       >
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2.5 py-0.5 border border-emerald-400/30">
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="rounded-full bg-emerald-500/20 text-emerald-300 text-[9px] font-bold px-2 py-0.2 border border-emerald-400/30">
                 ● Live Realtime Sync
               </span>
-              <span className="text-indigo-100/80 text-xs font-medium">
+              <span className="text-indigo-100/80 text-[11px] font-medium">
                 {selectedBranchId === 'ALL'
                   ? 'Consolidated - All Branches'
                   : branches.find((b) => b.id === selectedBranchId)?.name}
               </span>
             </div>
-            <h2 className="text-2xl font-serif font-bold tracking-tight text-white">
+            <h2 className="text-lg font-serif font-bold tracking-tight text-white">
               Executive Inventory & Financial Dashboard
             </h2>
-            <p className="text-indigo-100/70 text-xs mt-1 max-w-2xl">
-              Real-time multi-branch stock levels, fixed asset registers,
-              purchase invoice VAT, and Nepal Bikram Sambat fiscal accounting.
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={onOpenAiModal}
-              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:brightness-110 transition-all cursor-pointer"
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:brightness-110 transition-all cursor-pointer"
             >
-              <Sparkles className="h-4 w-4 text-amber-300" />
-              <span>Generate AI Forecast</span>
+              <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+              <span>AI Forecast</span>
             </button>
             <button
-              onClick={() => onNavigateTab('reports')}
-              className="flex items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 px-4 py-2.5 text-xs font-semibold text-white border border-white/20 backdrop-blur-xs transition-all cursor-pointer"
+              onClick={() => onNavigateTab('financial-statements')}
+              className="flex items-center gap-1.5 rounded-lg bg-white/10 hover:bg-white/20 px-3 py-1.5 text-xs font-semibold text-white border border-white/20 backdrop-blur-xs transition-all cursor-pointer"
             >
-              <FileSpreadsheet className="h-4 w-4 text-emerald-300" />
+              <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-300" />
               <span>Financial Statements</span>
             </button>
           </div>
@@ -185,44 +181,44 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* KPI Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* KPI 1: Inventory Asset Value */}
-        <div className={`rounded-xl p-5 border shadow-xs ${cardBg}`}>
+        <div className={`rounded-xl p-3 border shadow-2xs ${cardBg}`}>
           <div className="flex items-center justify-between">
-            <span className={`text-xs font-semibold uppercase ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+            <span className={`text-[10px] font-bold uppercase ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
               Total Stock Valuation
             </span>
-            <div className={`flex h-8 w-8 items-center justify-center rounded-lg border ${
+            <div className={`flex h-7 w-7 items-center justify-center rounded-lg border ${
               isDarkMode ? 'bg-indigo-950/60 text-indigo-400 border-indigo-500/20' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
             }`}>
-              <Package className="h-4 w-4" />
+              <Package className="h-3.5 w-3.5" />
             </div>
           </div>
-          <div className={`mt-2 text-2xl font-serif font-bold ${cardTitleText}`}>
+          <div className={`mt-1 text-xl font-serif font-bold ${cardTitleText}`}>
             {formatNPR(totalStockValuation)}
           </div>
-          <div className={`mt-2 flex items-center justify-between text-[11px] ${cardSubText}`}>
+          <div className={`mt-1 flex items-center justify-between text-[10px] ${cardSubText}`}>
             <span>{filteredStock.length} SKU Locations</span>
             <span className="text-indigo-600 font-medium">Cost Basis</span>
           </div>
         </div>
 
         {/* KPI 2: Fixed Assets Value */}
-        <div className={`rounded-xl p-5 border shadow-xs ${cardBg}`}>
+        <div className={`rounded-xl p-3 border shadow-2xs ${cardBg}`}>
           <div className="flex items-center justify-between">
-            <span className={`text-xs font-semibold uppercase ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+            <span className={`text-[10px] font-bold uppercase ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
               Fixed Asset Net Value
             </span>
-            <div className={`flex h-8 w-8 items-center justify-center rounded-lg border ${
+            <div className={`flex h-7 w-7 items-center justify-center rounded-lg border ${
               isDarkMode ? 'bg-emerald-950/60 text-emerald-400 border-emerald-500/20' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
             }`}>
-              <Landmark className="h-4 w-4" />
+              <Landmark className="h-3.5 w-3.5" />
             </div>
           </div>
-          <div className={`mt-2 text-2xl font-serif font-bold ${cardTitleText}`}>
+          <div className={`mt-1 text-xl font-serif font-bold ${cardTitleText}`}>
             {formatNPR(totalAssetNBV)}
           </div>
-          <div className={`mt-2 flex items-center justify-between text-[11px] ${cardSubText}`}>
+          <div className={`mt-1 flex items-center justify-between text-[10px] ${cardSubText}`}>
             <span>{assets.length} Active Assets</span>
             <span className="text-emerald-600 font-medium">Net Book Value</span>
           </div>
@@ -231,29 +227,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* KPI 3: Low Stock Warning */}
         <div
           onClick={() => onNavigateTab('branch-stock')}
-          className={`rounded-xl p-5 border shadow-xs transition-all cursor-pointer group ${
+          className={`rounded-xl p-3 border shadow-2xs transition-all cursor-pointer group ${
             isDarkMode
               ? 'bg-[#0f1218] border-rose-950/60 hover:border-rose-800'
-              : 'bg-white border-rose-200 hover:border-rose-300 hover:shadow-md'
+              : 'bg-white border-rose-200 hover:border-rose-300 hover:shadow-xs'
           }`}
         >
           <div className="flex items-center justify-between">
-            <span className={`text-xs font-semibold uppercase ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+            <span className={`text-[10px] font-bold uppercase ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
               Low Stock Alerts
             </span>
-            <div className={`flex h-8 w-8 items-center justify-center rounded-lg border group-hover:scale-110 transition-transform ${
+            <div className={`flex h-7 w-7 items-center justify-center rounded-lg border group-hover:scale-105 transition-transform ${
               isDarkMode ? 'bg-rose-950/60 text-rose-400 border-rose-500/20' : 'bg-rose-50 text-rose-600 border-rose-200'
             }`}>
-              <AlertTriangle className="h-4 w-4" />
+              <AlertTriangle className="h-3.5 w-3.5" />
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-serif font-bold text-rose-600">
+          <div className="mt-1 flex items-baseline gap-1.5">
+            <span className="text-xl font-serif font-bold text-rose-600">
               {lowStockItems.length} SKUs
             </span>
-            <span className="text-xs text-rose-600 font-medium">Below Reorder</span>
+            <span className="text-[10px] text-rose-600 font-medium">Below Reorder</span>
           </div>
-          <div className={`mt-2 flex items-center justify-between text-[11px] ${cardSubText}`}>
+          <div className={`mt-1 flex items-center justify-between text-[10px] ${cardSubText}`}>
             <span>Requires Action</span>
             <span className="text-rose-600 font-medium group-hover:underline">
               View Matrix &rarr;
@@ -262,33 +258,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* KPI 4: Pending POs & In-Transit */}
-        <div className={`rounded-xl p-5 border shadow-xs ${cardBg}`}>
+        <div className={`rounded-xl p-3 border shadow-2xs ${cardBg}`}>
           <div className="flex items-center justify-between">
-            <span className={`text-xs font-semibold uppercase ${isDarkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+            <span className={`text-[10px] font-bold uppercase ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
               Procurement & Shipments
             </span>
-            <div className={`flex h-8 w-8 items-center justify-center rounded-lg border ${
+            <div className={`flex h-7 w-7 items-center justify-center rounded-lg border ${
               isDarkMode ? 'bg-blue-950/60 text-blue-400 border-blue-500/20' : 'bg-blue-50 text-blue-700 border-blue-200'
             }`}>
-              <Truck className="h-4 w-4" />
+              <Truck className="h-3.5 w-3.5" />
             </div>
           </div>
-          <div className="mt-2 flex items-center justify-between">
+          <div className="mt-1 flex items-center justify-between">
             <div>
-              <div className={`text-xl font-serif font-bold ${cardTitleText}`}>
+              <div className={`text-lg font-serif font-bold ${cardTitleText}`}>
                 {pendingPOs.length} Pending POs
               </div>
-              <div className={`text-[11px] mt-0.5 ${cardSubText}`}>
+              <div className={`text-[10px] mt-0.5 ${cardSubText}`}>
                 {activeShipments.length} Active Shipments
               </div>
             </div>
             <button
-              onClick={() => onNavigateTab('purchase-orders')}
-              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              onClick={() => onNavigateTab('po-list')}
+              className={`p-1 rounded-lg transition-colors cursor-pointer ${
                 isDarkMode ? 'text-blue-400 hover:bg-slate-800' : 'text-blue-600 hover:bg-slate-100'
               }`}
             >
-              <ArrowUpRight className="h-4 w-4" />
+              <ArrowUpRight className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
@@ -478,7 +474,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <span>Realtime Stock Audit Stream</span>
               </h3>
               <button
-                onClick={() => onNavigateTab('reports')}
+                onClick={() => onNavigateTab('stock-ledger')}
                 className="text-xs font-medium text-indigo-600 hover:underline"
               >
                 View Logs

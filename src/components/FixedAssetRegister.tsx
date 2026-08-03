@@ -178,7 +178,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search Tag Number or Asset Name..."
+          placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
           className="w-full text-xs text-slate-800 placeholder-slate-400 bg-transparent focus:outline-none"
         />
       </div>

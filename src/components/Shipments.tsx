@@ -37,6 +37,7 @@ interface ShipmentsProps {
 interface ShipmentFormLine {
   productId: string;
   quantitySent: number;
+  deviceSerials: { deviceSerial: string; ponSerial?: string }[];
 }
 
 export const Shipments: React.FC<ShipmentsProps> = ({
@@ -66,19 +67,36 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const userBranchId = currentUser?.branchId && currentUser.branchId !== 'ALL' ? currentUser.branchId : null;
 
-  // Form State
-  const [type, setType] = useState<'INTER_BRANCH' | 'SUPPLIER_INBOUND'>('INTER_BRANCH');
-  const [sourceBranchId, setSourceBranchId] = useState(branches[0]?.id || 'br-hq');
-  const [destinationBranchId, setDestinationBranchId] = useState(branches[1]?.id || 'br-chulachuli');
+  // Form State - Strict Inter-Branch Stock Transfer
+  const type = 'INTER_BRANCH';
+  const [sourceBranchId, setSourceBranchId] = useState(branches[0]?.id || 'WH001');
+  const [destinationBranchId, setDestinationBranchId] = useState(branches[1]?.id || 'WH002');
   const [notes, setNotes] = useState('');
 
-  // Multi-Item Transfer Lines
-  const [lines, setLines] = useState<ShipmentFormLine[]>([
-    {
-      productId: products[0]?.id || '',
-      quantitySent: 10,
-    },
-  ]);
+  // Helper to generate serial pairs for a product
+  const generateSerialsForProduct = (prod?: Product, qty: number = 1) => {
+    const serials = [];
+    const sku = prod?.sku || 'SKU';
+    for (let i = 0; i < qty; i++) {
+      serials.push({
+        deviceSerial: `SN-${sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+        ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+      });
+    }
+    return serials;
+  };
+
+  // Multi-Item Transfer Lines with Serial tracking
+  const [lines, setLines] = useState<ShipmentFormLine[]>(() => {
+    const initialProd = products[0];
+    return [
+      {
+        productId: initialProd?.id || '',
+        quantitySent: 2,
+        deviceSerials: generateSerialsForProduct(initialProd, 2),
+      },
+    ];
+  });
 
   const filteredShipments = shipments.filter((sh) => {
     // If branch user, show shipments involving their branch
@@ -100,11 +118,14 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   };
 
   const addLine = () => {
+    const existingIds = new Set(lines.map((l) => l.productId));
+    const nextProd = products.find((p) => !existingIds.has(p.id)) || products[0];
     setLines([
       ...lines,
       {
-        productId: products[0]?.id || '',
-        quantitySent: 5,
+        productId: nextProd?.id || '',
+        quantitySent: 1,
+        deviceSerials: generateSerialsForProduct(nextProd, 1),
       },
     ]);
   };
@@ -114,9 +135,56 @@ export const Shipments: React.FC<ShipmentsProps> = ({
     setLines(lines.filter((_, i) => i !== index));
   };
 
-  const updateLine = (index: number, field: keyof ShipmentFormLine, val: any) => {
+  const updateLineProduct = (index: number, newProductId: string) => {
     const updated = [...lines];
-    updated[index] = { ...updated[index], [field]: val };
+    const prod = products.find((p) => p.id === newProductId);
+    const qty = updated[index].quantitySent || 1;
+    updated[index] = {
+      productId: newProductId,
+      quantitySent: qty,
+      deviceSerials: generateSerialsForProduct(prod, qty),
+    };
+    setLines(updated);
+  };
+
+  const updateLineQuantity = (index: number, newQty: number) => {
+    const qty = Math.max(1, newQty);
+    const updated = [...lines];
+    const line = updated[index];
+    const prod = products.find((p) => p.id === line.productId);
+    const currentSerials = [...(line.deviceSerials || [])];
+
+    while (currentSerials.length < qty) {
+      currentSerials.push({
+        deviceSerial: `SN-${prod?.sku || 'SKU'}-${Math.floor(100000 + Math.random() * 900000)}`,
+        ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+      });
+    }
+    if (currentSerials.length > qty) {
+      currentSerials.length = qty;
+    }
+
+    updated[index] = {
+      ...line,
+      quantitySent: qty,
+      deviceSerials: currentSerials,
+    };
+    setLines(updated);
+  };
+
+  const updateLineDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+    const updated = [...lines];
+    const serials = [...(updated[lineIdx].deviceSerials || [])];
+    serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
+    updated[lineIdx] = { ...updated[lineIdx], deviceSerials: serials };
+    setLines(updated);
+  };
+
+  const updateLinePonSerial = (lineIdx: number, sIdx: number, val: string) => {
+    const updated = [...lines];
+    const serials = [...(updated[lineIdx].deviceSerials || [])];
+    serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+    updated[lineIdx] = { ...updated[lineIdx], deviceSerials: serials };
     setLines(updated);
   };
 
@@ -126,6 +194,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
 
     const todayAD = new Date().toISOString().split('T')[0];
     const bsObj = convertADToBS(todayAD);
+    const srcBranch = branches.find((b) => b.id === sourceBranchId);
     const destBranch = branches.find((b) => b.id === destinationBranchId);
 
     const items: ShipmentItem[] = lines.map((l, idx) => {
@@ -136,14 +205,16 @@ export const Shipments: React.FC<ShipmentsProps> = ({
         productName: prod?.name || 'Item',
         sku: prod?.sku || 'SKU',
         quantitySent: Number(l.quantitySent),
+        deviceSerials: l.deviceSerials,
       };
     });
 
     await onCreateShipment({
-      type,
-      sourceBranchId: type === 'INTER_BRANCH' ? sourceBranchId : undefined,
+      type: 'INTER_BRANCH',
+      sourceBranchId,
+      sourceBranchName: srcBranch?.name || 'Source Branch',
       destinationBranchId,
-      destinationBranchName: destBranch?.name || 'Branch',
+      destinationBranchName: destBranch?.name || 'Destination Branch',
       dispatchDateAD: todayAD,
       dispatchDateBS: bsObj.formattedBSShort,
       estimatedArrivalAD: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
@@ -339,15 +410,15 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       {/* Multi-Item Shipment Creation Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-6 text-slate-800 dark:text-slate-200">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4">
+          <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-6 text-slate-800 dark:text-slate-200 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4 shrink-0">
               <div>
                 <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
                   <Truck className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                   <span>Dispatch Multi-Item Inter-Branch Stock Transfer</span>
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Select source branch, target branch, and multiple product quantities to transfer.
+                  Select source branch, target branch, and enter device serial numbers for each transferred item.
                 </p>
               </div>
               <button
@@ -358,40 +429,24 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800/80">
+            <form onSubmit={handleSubmit} className="p-5 space-y-4 overflow-y-auto flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800/80">
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Transfer Type
+                    From (Source Branch)
                   </label>
                   <select
-                    value={type}
-                    onChange={(e) => setType(e.target.value as any)}
+                    value={sourceBranchId}
+                    onChange={(e) => setSourceBranchId(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-900 dark:text-slate-100"
                   >
-                    <option value="INTER_BRANCH">Inter-Branch Stock Transfer</option>
-                    <option value="SUPPLIER_INBOUND">Inbound Vendor Delivery</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
                   </select>
                 </div>
-
-                {type === 'INTER_BRANCH' && (
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                      From (Source Branch)
-                    </label>
-                    <select
-                      value={sourceBranchId}
-                      onChange={(e) => setSourceBranchId(e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-900 dark:text-slate-100"
-                    >
-                      {branches.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
 
                 <div>
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
@@ -415,7 +470,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               <div className="bg-indigo-50/60 dark:bg-indigo-950/30 p-3 rounded-xl border border-indigo-200 dark:border-indigo-800/60 space-y-1.5">
                 <label className="block text-[11px] font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
                   <Barcode className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                  <span>Scan Barcode or Search & Enter Product Name / SKU:</span>
+                  <span>Scan Barcode or Search Product to Add Transfer Line:</span>
                 </label>
                 <ProductSearchBar
                   products={products}
@@ -425,13 +480,28 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                       const existingIdx = prev.findIndex((l) => l.productId === product.id);
                       if (existingIdx >= 0) {
                         const updated = [...prev];
+                        const existing = updated[existingIdx];
+                        const newQty = existing.quantitySent + 1;
+                        const currentSerials = [...(existing.deviceSerials || [])];
+                        currentSerials.push({
+                          deviceSerial: `SN-${product.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+                          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+                        });
                         updated[existingIdx] = {
-                          ...updated[existingIdx],
-                          quantitySent: updated[existingIdx].quantitySent + 1,
+                          ...existing,
+                          quantitySent: newQty,
+                          deviceSerials: currentSerials,
                         };
                         return updated;
                       }
-                      return [...prev, { productId: product.id, quantitySent: 1 }];
+                      return [
+                        ...prev,
+                        {
+                          productId: product.id,
+                          quantitySent: 1,
+                          deviceSerials: generateSerialsForProduct(product, 1),
+                        },
+                      ];
                     });
                   }}
                 />
@@ -450,63 +520,97 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                     className="flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer bg-indigo-50 dark:bg-indigo-950/50 px-3 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800/50"
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    <span>Add Manual Line</span>
+                    <span>Add Item Line</span>
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
                   {lines.map((line, idx) => {
                     const availableStock = getSourceStock(line.productId, sourceBranchId);
+                    const prod = products.find((p) => p.id === line.productId);
                     return (
                       <div
                         key={idx}
-                        className="grid grid-cols-12 gap-3 items-center bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs"
+                        className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 text-xs"
                       >
-                        <div className="col-span-6">
-                          <label className="block text-[10px] text-slate-400 mb-0.5">Product</label>
-                          <select
-                            value={line.productId}
-                            onChange={(e) => updateLine(idx, 'productId', e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-slate-100 font-medium"
-                          >
-                            {products.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                [{p.sku}] {p.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                        <div className="grid grid-cols-12 gap-3 items-center">
+                          <div className="col-span-6">
+                            <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Product Item</label>
+                            <select
+                              value={line.productId}
+                              onChange={(e) => updateLineProduct(idx, e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-slate-100 font-medium"
+                            >
+                              {products.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  [{p.sku}] {p.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
 
-                        {type === 'INTER_BRANCH' && (
                           <div className="col-span-3 text-center">
-                            <label className="block text-[10px] text-slate-400 mb-0.5">Available Stock</label>
+                            <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Available Stock</label>
                             <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
                               {availableStock} Units
                             </span>
                           </div>
-                        )}
 
-                        <div className={`${type === 'INTER_BRANCH' ? 'col-span-2' : 'col-span-5'}`}>
-                          <label className="block text-[10px] text-slate-400 mb-0.5">Transfer Qty</label>
-                          <input
-                            type="number"
-                            min={1}
-                            required
-                            value={line.quantitySent}
-                            onChange={(e) => updateLine(idx, 'quantitySent', Math.max(1, Number(e.target.value)))}
-                            className="w-full text-center font-mono font-bold rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-white"
-                          />
+                          <div className="col-span-2">
+                            <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Transfer Qty</label>
+                            <input
+                              type="number"
+                              min={1}
+                              required
+                              value={line.quantitySent}
+                              onChange={(e) => updateLineQuantity(idx, Number(e.target.value))}
+                              className="w-full text-center font-mono font-bold rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-white"
+                            />
+                          </div>
+
+                          <div className="col-span-1 text-center pt-3">
+                            <button
+                              type="button"
+                              onClick={() => removeLine(idx)}
+                              disabled={lines.length === 1}
+                              className="p-1 text-slate-400 hover:text-rose-500 disabled:opacity-30 cursor-pointer"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="col-span-1 text-center pt-3">
-                          <button
-                            type="button"
-                            onClick={() => removeLine(idx)}
-                            disabled={lines.length === 1}
-                            className="p-1 text-slate-400 hover:text-rose-500 disabled:opacity-30 cursor-pointer"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                        {/* Expandable Device Serial & PON Serial Fields per Unit */}
+                        <div className="bg-indigo-50/50 dark:bg-indigo-950/40 p-2.5 rounded-lg border border-indigo-100 dark:border-indigo-900/50 space-y-2">
+                          <div className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
+                            <Barcode className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                            <span>Serial Numbers for {prod?.name || 'Item'} (Qty: {line.quantitySent})</span>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {Array.from({ length: line.quantitySent }).map((_, sIdx) => (
+                              <div key={sIdx} className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-indigo-200 dark:border-indigo-800 flex items-center gap-2">
+                                <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
+                                <div className="flex-1 min-w-0">
+                                  <input
+                                    type="text"
+                                    placeholder="Device Serial #"
+                                    value={line.deviceSerials?.[sIdx]?.deviceSerial || ''}
+                                    onChange={(e) => updateLineDeviceSerial(idx, sIdx, e.target.value)}
+                                    className="w-full px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/50 rounded border border-indigo-200 dark:border-indigo-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
+                                  />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <input
+                                    type="text"
+                                    placeholder="PON Serial #"
+                                    value={line.deviceSerials?.[sIdx]?.ponSerial || ''}
+                                    onChange={(e) => updateLinePonSerial(idx, sIdx, e.target.value)}
+                                    className="w-full px-2 py-1 text-[11px] font-mono font-bold text-blue-900 dark:text-blue-200 bg-blue-50/50 dark:bg-blue-950/50 rounded border border-blue-200 dark:border-blue-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     );
@@ -527,7 +631,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                 />
               </div>
 
-              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -567,8 +671,8 @@ export const Shipments: React.FC<ShipmentsProps> = ({
             <div className="p-6 space-y-4">
               <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-4 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
                 <div>
-                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Source Location</span>
-                  <span className="font-bold text-slate-900 dark:text-white text-sm">{viewingShipment.sourceBranchName || 'External Supplier'}</span>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Source Branch</span>
+                  <span className="font-bold text-slate-900 dark:text-white text-sm">{viewingShipment.sourceBranchName || 'Central Warehouse'}</span>
                 </div>
                 <ArrowRight className="h-5 w-5 text-indigo-500" />
                 <div className="text-right">
@@ -589,12 +693,35 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                     {viewingShipment.items.map((item, idx) => (
-                      <tr key={idx}>
-                        <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
-                        <td className="p-3 font-bold text-slate-800 dark:text-white">{item.productName}</td>
-                        <td className="p-3 font-mono text-slate-500">{item.sku}</td>
-                        <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">{item.quantitySent} Units</td>
-                      </tr>
+                      <React.Fragment key={idx}>
+                        <tr>
+                          <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
+                          <td className="p-3 font-bold text-slate-800 dark:text-white">{item.productName}</td>
+                          <td className="p-3 font-mono text-slate-500">{item.sku}</td>
+                          <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">{item.quantitySent} Units</td>
+                        </tr>
+
+                        {/* Render Serial Numbers if present */}
+                        {item.deviceSerials && item.deviceSerials.length > 0 && (
+                          <tr className="bg-indigo-50/40 dark:bg-indigo-950/30">
+                            <td colSpan={4} className="p-3">
+                              <div className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 mb-1.5 flex items-center gap-1.5">
+                                <Barcode className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                                <span>Attached Device & PON Serial Numbers:</span>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {item.deviceSerials.map((s, sIdx) => (
+                                  <div key={sIdx} className="bg-white dark:bg-slate-900 p-2 rounded border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between font-mono text-[11px]">
+                                    <span className="text-slate-400 font-bold">#{sIdx + 1}</span>
+                                    <span className="text-indigo-700 dark:text-indigo-300 font-bold">{s.deviceSerial}</span>
+                                    {s.ponSerial && <span className="text-blue-600 dark:text-blue-400 font-semibold">{s.ponSerial}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>

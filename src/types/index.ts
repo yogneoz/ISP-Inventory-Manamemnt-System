@@ -36,13 +36,32 @@ export interface Product {
   barcode: string;
   name: string;
   category: string;
+  productGroup?: 'Product Item' | 'Fixed Asset';
   unit: 'Pcs' | 'Box' | 'Kg' | 'Set' | 'Mtr' | 'Roll' | 'Pair' | string;
   costPrice: number;
   sellingPrice: number;
   taxRate: number; // e.g., 13 for 13% VAT
   minReorderLevel: number;
+  requiresSerialTracking?: boolean;
+  trackingType?: 'SERIAL_MAC_PON' | 'QUANTITY_ONLY';
   description?: string;
   imageUrl?: string;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  code: string;
+  description?: string;
+  productCount?: number;
+}
+
+export interface UnitOfMeasure {
+  id: string;
+  name: string;
+  symbol: string;
+  type: 'Count' | 'Length' | 'Weight' | 'Volume' | 'Package';
+  isBaseUnit?: boolean;
 }
 
 export interface InventoryStock {
@@ -54,6 +73,7 @@ export interface InventoryStock {
   reservedQty: number;
   incomingQty: number;
   lastUpdated: string;
+  minReorderLevel?: number;
 }
 
 export interface Asset {
@@ -178,6 +198,7 @@ export interface ShipmentItem {
   sku: string;
   quantitySent: number;
   quantityReceived?: number;
+  deviceSerials?: { deviceSerial: string; ponSerial?: string }[];
 }
 
 export interface Shipment {

@@ -46,8 +46,8 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   onOpenAiModal,
 }) => {
   const [subTab, setSubTab] = useState<
-    'FINANCIAL_STATEMENTS' | 'VAT_REGISTER' | 'AUDIT_TRAIL' | 'STOCK_TRANSACTIONS'
-  >('FINANCIAL_STATEMENTS');
+    'AUDIT_TRAIL' | 'STOCK_TRANSACTIONS'
+  >('AUDIT_TRAIL');
 
   // Compute Balance Sheet numbers
   const inventoryAssetVal = financialSummary.totalInventoryAssetValue;
@@ -69,12 +69,12 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-serif font-bold text-white tracking-tight flex items-center gap-2">
-            <FileSpreadsheet className="h-5 w-5 text-indigo-400" />
-            <span>Audit Trail & Financial Statements</span>
+          <h2 className="text-xl font-serif font-bold tracking-tight flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-indigo-400" />
+            <span>Activities Log (System Audit Trail)</span>
           </h2>
           <p className="text-slate-400 text-xs mt-0.5">
-            Consolidated balance sheet, VAT ledger, system audit logs, and stock ledger history.
+            Realtime security audit trails, user access activities, role permissions changes, and system mutation records.
           </p>
         </div>
 
@@ -84,14 +84,14 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
             className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 px-3.5 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-950/50 hover:brightness-110 transition-all cursor-pointer"
           >
             <Sparkles className="h-3.5 w-3.5 text-amber-300" />
-            <span>AI Executive Audit Analysis</span>
+            <span>AI Activity Analysis</span>
           </button>
           <button
             onClick={handlePrintReport}
             className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <Printer className="h-3.5 w-3.5 text-slate-400" />
-            <span>Print Report</span>
+            <span>Print Log</span>
           </button>
         </div>
       </div>
@@ -99,27 +99,15 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
       {/* Navigation Sub-Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
         <button
-          onClick={() => setSubTab('FINANCIAL_STATEMENTS')}
+          onClick={() => setSubTab('AUDIT_TRAIL')}
           className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            subTab === 'FINANCIAL_STATEMENTS'
+            subTab === 'AUDIT_TRAIL'
               ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/50'
               : 'text-slate-400 hover:bg-slate-800/60'
           }`}
         >
-          <Scale className="h-4 w-4" />
-          <span>Balance Sheet & Profit/Loss</span>
-        </button>
-
-        <button
-          onClick={() => setSubTab('VAT_REGISTER')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            subTab === 'VAT_REGISTER'
-              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/50'
-              : 'text-slate-400 hover:bg-slate-800/60'
-          }`}
-        >
-          <Receipt className="h-4 w-4" />
-          <span>VAT Tax Register</span>
+          <ShieldCheck className="h-4 w-4" />
+          <span>User & Security Activities</span>
         </button>
 
         <button
@@ -131,19 +119,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
           }`}
         >
           <History className="h-4 w-4" />
-          <span>Stock Movement Ledger</span>
-        </button>
-
-        <button
-          onClick={() => setSubTab('AUDIT_TRAIL')}
-          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            subTab === 'AUDIT_TRAIL'
-              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-950/50'
-              : 'text-slate-400 hover:bg-slate-800/60'
-          }`}
-        >
-          <ShieldCheck className="h-4 w-4" />
-          <span>System User Audit Log</span>
+          <span>Stock Audit Events</span>
         </button>
       </div>
 

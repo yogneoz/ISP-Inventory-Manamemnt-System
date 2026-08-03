@@ -38,10 +38,18 @@ import { SuppliersManagement } from './components/SuppliersManagement';
 import { UsersManagement } from './components/UsersManagement';
 import { PermissionManagement } from './components/PermissionManagement';
 import { ExportReports } from './components/ExportReports';
+import { FinancialStatements } from './components/FinancialStatements';
+import { VatRegister } from './components/VatRegister';
+import { DepreciationRegister } from './components/DepreciationRegister';
 import { StockValuation } from './components/StockValuation';
 import { StockMovementLedger } from './components/StockMovementLedger';
+import { CategoryManagement } from './components/CategoryManagement';
+import { UomManagement } from './components/UomManagement';
+import { ImportStock } from './components/ImportStock';
+import { ExportStock } from './components/ExportStock';
 import { AiAssistantModal } from './components/AiAssistantModal';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
+import { GlobalSearchModal } from './components/GlobalSearchModal';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
@@ -58,8 +66,21 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Global search keyboard shortcut (Ctrl+K or Cmd+K)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsGlobalSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Theme State: default to light mode (false) as requested, with localStorage persistence
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -225,6 +246,21 @@ export default function App() {
     reason: string
   ) => {
     await api.updateStockLevel(stockId, newQty, reason);
+    refreshAllData();
+  };
+
+  const handleUpdateStockReorderLevel = async (
+    stockId: string,
+    minReorderLevel: number
+  ) => {
+    await api.updateStockReorderLevel(stockId, minReorderLevel);
+    refreshAllData();
+  };
+
+  const handleBulkUpdateStockReorderLevels = async (
+    updates: { stockId: string; minReorderLevel: number }[]
+  ) => {
+    await api.bulkUpdateStockReorderLevels(updates);
     refreshAllData();
   };
 
@@ -440,6 +476,7 @@ export default function App() {
         currentFiscalYear={activeFy}
         onOpenAiModal={() => setIsAiModalOpen(true)}
         onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
+        onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
         onLogout={handleLogout}
         onSwitchUser={handleLogin}
         onRefreshData={refreshAllData}
@@ -480,12 +517,13 @@ export default function App() {
             inTransitShipmentCount={inTransitShipmentCount}
             isDarkMode={isDarkMode}
             onCloseMobile={() => setIsSidebarOpen(false)}
+            onSwitchUser={handleLogin}
           />
         </div>
 
         {/* Main Content Viewport */}
         <main
-          className={`flex-1 overflow-y-auto p-4 sm:p-6 transition-colors duration-200 ${
+          className={`flex-1 overflow-y-auto p-2.5 sm:p-3.5 transition-colors duration-200 ${
             isDarkMode ? 'bg-[#0a0c10]' : 'bg-[#f8fafc]'
           }`}
         >
@@ -528,6 +566,54 @@ export default function App() {
                   onDeleteProduct={handleDeleteProduct}
                   searchQuery={searchQuery}
                   isDarkMode={isDarkMode}
+                  mode="all-stock"
+                />
+              )}
+
+              {activeTab === 'product-master' && (
+                <ProductManagement
+                  products={products}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  onCreateProduct={handleCreateProduct}
+                  onUpdateProduct={handleUpdateProduct}
+                  onDeleteProduct={handleDeleteProduct}
+                  searchQuery={searchQuery}
+                  isDarkMode={isDarkMode}
+                  mode="product-master"
+                />
+              )}
+
+              {activeTab === 'category-management' && (
+                <CategoryManagement
+                  products={products}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'uom-management' && (
+                <UomManagement
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'import-stock' && (
+                <ImportStock
+                  branches={branches}
+                  products={products}
+                  onCreateProduct={handleCreateProduct}
+                  onRefreshData={refreshAllData}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'export-stock' && (
+                <ExportStock
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -552,6 +638,8 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   onUpdateStockLevel={handleUpdateStockLevel}
+                  onUpdateStockReorderLevel={handleUpdateStockReorderLevel}
+                  onBulkUpdateStockReorderLevels={handleBulkUpdateStockReorderLevels}
                   onGroupLowStockPO={handleGroupLowStockPO}
                   onNavigateTab={setActiveTab}
                   isDarkMode={isDarkMode}
@@ -871,6 +959,36 @@ export default function App() {
                 <PermissionManagement />
               )}
 
+              {activeTab === 'financial-statements' && (
+                <FinancialStatements
+                  financialSummary={financialSummary}
+                  assets={assets}
+                  invoices={purchaseInvoices}
+                  purchaseOrders={purchaseOrders}
+                  dateMode={dateMode}
+                  onOpenAiModal={() => setIsAiModalOpen(true)}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'vat-register' && (
+                <VatRegister
+                  invoices={purchaseInvoices}
+                  dateMode={dateMode}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'depreciation-register' && (
+                <DepreciationRegister
+                  assets={assets}
+                  branches={branches}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
               {activeTab === 'audit' && (
                 <AuditTrailReports
                   auditLogs={auditLogs}
@@ -920,6 +1038,32 @@ export default function App() {
         isOpen={isBarcodeModalOpen}
         onClose={() => setIsBarcodeModalOpen(false)}
         products={products}
+      />
+
+      {/* Global Quick Search Modal */}
+      <GlobalSearchModal
+        isOpen={isGlobalSearchOpen}
+        onClose={() => setIsGlobalSearchOpen(false)}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        products={products}
+        purchaseOrders={purchaseOrders}
+        invoices={purchaseInvoices}
+        shipments={shipments}
+        assets={assets}
+        customerDevices={customerDevices}
+        suppliers={suppliers}
+        branches={branches}
+        stock={stock}
+        selectedBranchId={selectedBranchId}
+        onSelectResult={(tab, filterText) => {
+          setActiveTab(tab);
+          if (filterText !== undefined) {
+            setSearchQuery(filterText);
+          }
+          setIsGlobalSearchOpen(false);
+        }}
+        isDarkMode={isDarkMode}
       />
     </div>
   );

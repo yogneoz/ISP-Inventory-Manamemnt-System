@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PurchaseOrder, Product, Branch, POLineItem, InventoryStock } from '../types';
+import { PurchaseOrder, Product, Branch, POLineItem, InventoryStock, Supplier } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
 import { ProductSearchBar } from './ProductSearchBar';
 import {
@@ -20,6 +20,8 @@ import {
   Printer,
   XCircle,
   CheckSquare,
+  RotateCcw,
+  ChevronDown,
 } from 'lucide-react';
 
 interface PurchaseOrdersProps {
@@ -27,6 +29,7 @@ interface PurchaseOrdersProps {
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
+  suppliers?: Supplier[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
@@ -55,6 +58,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   products,
   branches,
   stock,
+  suppliers = [],
   selectedBranchId,
   dateMode,
   autoOpenModal = false,
@@ -68,23 +72,56 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   const [viewingPO, setViewingPO] = useState<PurchaseOrder | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Default known suppliers list for autocomplete if props list is empty
+  const defaultSuppliersList = [
+    { id: 'sup-1', name: 'Apex Trade & Telecom Supplies Pvt. Ltd.', panVatNumber: '300129841' },
+    { id: 'sup-2', name: 'Himalayan Tech Distributors Pvt. Ltd.', panVatNumber: '302918273' },
+    { id: 'sup-3', name: 'Nepal Optical & Fiber Optics Importers', panVatNumber: '601239845' },
+    { id: 'sup-4', name: 'Subisu Cablenet Hardware Suppliers', panVatNumber: '602819384' },
+    { id: 'sup-5', name: 'Broadlink Fiber Importers Pvt. Ltd.', panVatNumber: '301829304' },
+  ];
+
+  const availableSuppliers = suppliers.length > 0 ? suppliers : defaultSuppliersList;
+
   // Form State
   const [supplierName, setSupplierName] = useState('Apex Trade & Telecom Supplies Pvt. Ltd.');
+  const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false);
   const [branchId, setBranchId] = useState(
-    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'br-ktm'
+    selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'WH001'
   );
   const [taxationType, setTaxationType] = useState<'TAXABLE_13' | 'TAX_EXEMPTED'>('TAXABLE_13');
   const [expectedDeliveryDateAD, setExpectedDeliveryDateAD] = useState(
     new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
   );
+  const [billWiseDiscount, setBillWiseDiscount] = useState<number>(0);
   const [notes, setNotes] = useState('');
 
-  // Line items for POS entry
+  // Filtered suppliers for autocomplete
+  const filteredSuppliers = availableSuppliers.filter((s) => {
+    if (!supplierName.trim()) return true;
+    const q = supplierName.toLowerCase();
+    return (
+      s.name.toLowerCase().includes(q) ||
+      (s.panVatNumber && s.panVatNumber.includes(q))
+    );
+  });
+
+  // Line items for POS entry (start with prepopulated lines if given, otherwise empty or 1 line)
   const [lines, setLines] = useState<OrderFormLine[]>(() => {
     if (prepopulatedLines && prepopulatedLines.length > 0) {
       return prepopulatedLines;
     }
-    return [];
+    return products.length > 0
+      ? [
+          {
+            productId: products[0].id,
+            quantity: 1,
+            unitPrice: products[0].costPrice,
+            discount: 0,
+            isTaxExempt: false,
+          },
+        ]
+      : [];
   });
 
   // Keep lines synced with prepopulatedLines prop when provided
@@ -94,6 +131,28 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     }
   }, [prepopulatedLines]);
 
+  const handleResetForm = () => {
+    setLines(
+      products.length > 0
+        ? [
+            {
+              productId: products[0].id,
+              quantity: 1,
+              unitPrice: products[0].costPrice,
+              discount: 0,
+              isTaxExempt: false,
+            },
+          ]
+        : []
+    );
+    setSupplierName('Apex Trade & Telecom Supplies Pvt. Ltd.');
+    setIsSupplierDropdownOpen(false);
+    setBillWiseDiscount(0);
+    setTaxationType('TAXABLE_13');
+    setNotes('');
+    setExpectedDeliveryDateAD(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
+  };
+
   const handleAutoPopulateLowStock = () => {
     const lowStockProductMap = new Map<string, { product: Product; qty: number }>();
 
@@ -101,14 +160,16 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       const prod = products.find((p) => p.id === s.productId);
       if (!prod) return;
 
-      const isLow = prod.minReorderLevel > 0
-        ? s.quantityOnHand <= prod.minReorderLevel
-        : s.quantityOnHand < 0;
+      const isLow =
+        prod.minReorderLevel > 0
+          ? s.quantityOnHand <= prod.minReorderLevel
+          : s.quantityOnHand < 0;
 
       if (isLow) {
-        const deficit = prod.minReorderLevel > 0
-          ? Math.max(1, prod.minReorderLevel - s.quantityOnHand)
-          : Math.abs(s.quantityOnHand);
+        const deficit =
+          prod.minReorderLevel > 0
+            ? Math.max(1, prod.minReorderLevel - s.quantityOnHand)
+            : Math.abs(s.quantityOnHand);
 
         if (deficit <= 0) return;
 
@@ -170,11 +231,6 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     return matchesBranch && matchesSearch;
   });
 
-  const getBranchStock = (productId: string, bId: string) => {
-    const item = stock.find((s) => s.productId === productId && s.branchId === bId);
-    return item ? item.quantityOnHand : 0;
-  };
-
   const addLine = () => {
     const existingIds = new Set(lines.map((l) => l.productId));
     const nextProd = products.find((p) => !existingIds.has(p.id)) || products[0];
@@ -187,7 +243,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         quantity: 1,
         unitPrice: nextProd.costPrice,
         discount: 0,
-        isTaxExempt: nextProd.taxRate === 0,
+        isTaxExempt: taxationType === 'TAX_EXEMPTED' || nextProd.taxRate === 0,
       },
     ]);
   };
@@ -204,7 +260,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         ...updated[index],
         productId: value,
         unitPrice: prod?.costPrice || 0,
-        isTaxExempt: prod?.taxRate === 0,
+        isTaxExempt: taxationType === 'TAX_EXEMPTED' || prod?.taxRate === 0,
       };
     } else {
       updated[index] = { ...updated[index], [field]: value };
@@ -212,33 +268,11 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     setLines(updated);
   };
 
-  // Calculations
-  const calculatedLines = lines.map((l) => {
-    const prod = products.find((p) => p.id === l.productId);
-    const gross = l.quantity * l.unitPrice;
-    const netSubtotal = Math.max(0, gross - l.discount);
-    const vat = l.isTaxExempt ? 0 : (netSubtotal * 13) / 100;
-    const total = netSubtotal + vat;
-    return {
-      ...l,
-      product: prod,
-      gross,
-      netSubtotal,
-      vat,
-      total,
-    };
-  });
-
-  const grossSubtotal = calculatedLines.reduce((acc, curr) => acc + curr.gross, 0);
-  const totalDiscount = calculatedLines.reduce((acc, curr) => acc + curr.discount, 0);
-  const taxableSubtotal = calculatedLines
-    .filter((l) => !l.isTaxExempt)
-    .reduce((acc, curr) => acc + curr.netSubtotal, 0);
-  const exemptSubtotal = calculatedLines
-    .filter((l) => l.isTaxExempt)
-    .reduce((acc, curr) => acc + curr.netSubtotal, 0);
-  const totalVAT = calculatedLines.reduce((acc, curr) => acc + curr.vat, 0);
-  const grandTotal = taxableSubtotal + exemptSubtotal + totalVAT;
+  // Order level calculations with bill-wise discount
+  const grossSubtotal = lines.reduce((acc, curr) => acc + curr.quantity * curr.unitPrice, 0);
+  const taxableAfterDiscount = Math.max(0, grossSubtotal - billWiseDiscount);
+  const totalVAT = taxationType === 'TAXABLE_13' ? (taxableAfterDiscount * 13) / 100 : 0;
+  const grandTotal = taxableAfterDiscount + totalVAT;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -247,49 +281,25 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     const todayAD = new Date().toISOString().split('T')[0];
     const bsObj = convertADToBS(todayAD);
 
-    // Deduplicate and consolidate items by productId
-    const consolidatedLinesMap = new Map<string, typeof calculatedLines[0]>();
-
-    calculatedLines.forEach((l) => {
-      if (consolidatedLinesMap.has(l.productId)) {
-        const existing = consolidatedLinesMap.get(l.productId)!;
-        const newQty = existing.quantity + l.quantity;
-        const newDiscount = existing.discount + l.discount;
-        const gross = newQty * existing.unitPrice;
-        const netSubtotal = Math.max(0, gross - newDiscount);
-        const vat = existing.isTaxExempt ? 0 : (netSubtotal * 13) / 100;
-        const total = netSubtotal + vat;
-        consolidatedLinesMap.set(l.productId, {
-          ...existing,
-          quantity: newQty,
-          discount: newDiscount,
-          gross,
-          netSubtotal,
-          vat,
-          total,
-        });
-      } else {
-        consolidatedLinesMap.set(l.productId, { ...l });
-      }
+    const items: POLineItem[] = lines.map((l, idx) => {
+      const prod = products.find((p) => p.id === l.productId);
+      const lineTotal = l.quantity * l.unitPrice;
+      return {
+        id: `poi-${Date.now()}-${idx}`,
+        productId: l.productId,
+        productName: prod?.name || 'Item',
+        sku: prod?.sku || 'SKU',
+        unit: prod?.unit || 'Pcs',
+        quantity: Number(l.quantity),
+        unitPrice: Number(l.unitPrice),
+        discount: 0,
+        isTaxExempt: taxationType === 'TAX_EXEMPTED',
+        taxRate: taxationType === 'TAX_EXEMPTED' ? 0 : 13,
+        subtotal: lineTotal,
+        taxAmount: 0,
+        total: lineTotal,
+      };
     });
-
-    const uniqueCalculatedLines = Array.from(consolidatedLinesMap.values());
-
-    const items: POLineItem[] = uniqueCalculatedLines.map((l, idx) => ({
-      id: `poi-${Date.now()}-${idx}`,
-      productId: l.productId,
-      productName: l.product?.name || 'Item',
-      sku: l.product?.sku || 'SKU',
-      unit: l.product?.unit || 'Pcs',
-      quantity: Number(l.quantity),
-      unitPrice: Number(l.unitPrice),
-      discount: Number(l.discount),
-      isTaxExempt: l.isTaxExempt,
-      taxRate: l.isTaxExempt ? 0 : 13,
-      subtotal: l.netSubtotal,
-      taxAmount: l.vat,
-      total: l.total,
-    }));
 
     await onCreatePO({
       supplierName,
@@ -310,14 +320,16 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       {/* Header & Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
+          <h2
+            className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+              isDarkMode ? 'text-white' : 'text-slate-900'
+            }`}
+          >
             <ShoppingCart className="h-5 w-5 text-indigo-500" />
             <span>Purchase Orders & Supplier Procurement</span>
           </h2>
           <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Create multi-item vendor purchase orders with 13% VAT & Tax-Exempt line breakdowns.
+            Create multi-item vendor purchase orders with 13% VAT & Bill-wise Discount.
           </p>
         </div>
 
@@ -326,11 +338,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search PO # or Supplier..."
+              placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className={`pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48 sm:w-64 ${
-                isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+              className={`pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64 sm:w-80 ${
+                isDarkMode
+                  ? 'bg-slate-900 border-slate-800 text-slate-200'
+                  : 'bg-white border-slate-200 text-slate-800'
               }`}
             />
           </div>
@@ -347,10 +361,14 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
       {/* PO Summary Metrics */}
       <div className="flex-none grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className={`rounded-2xl p-4 border shadow-sm ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
-          <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Total POs Issued</span>
+        <div
+          className={`rounded-2xl p-4 border shadow-sm ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+          }`}
+        >
+          <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            Total POs Issued
+          </span>
           <div className={`text-xl font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
             {filteredPOs.length} Orders
           </div>
@@ -384,14 +402,18 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       </div>
 
       {/* PO Data Table */}
-      <div className={`rounded-2xl border shadow-lg overflow-hidden ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-      }`}>
+      <div
+        className={`rounded-2xl border shadow-lg overflow-hidden ${
+          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+        }`}
+      >
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
-            <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
-              isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-            }`}>
+            <thead
+              className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
+                isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+              }`}
+            >
               <tr>
                 <th className="p-3.5 sticky top-0 bg-inherit">PO Number</th>
                 <th className="p-3.5 sticky top-0 bg-inherit">Supplier Name</th>
@@ -419,12 +441,8 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                       <td className="p-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                         {po.poNumber}
                       </td>
-                      <td className="p-3.5 font-bold text-slate-800 dark:text-white">
-                        {po.supplierName}
-                      </td>
-                      <td className="p-3.5 text-slate-600 dark:text-slate-300">
-                        {branch?.name || po.branchId}
-                      </td>
+                      <td className="p-3.5 font-bold text-slate-800 dark:text-white">{po.supplierName}</td>
+                      <td className="p-3.5 text-slate-600 dark:text-slate-300">{branch?.name || po.branchId}</td>
                       <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
                         {formatDualDate(po.orderDateAD, dateMode)}
                       </td>
@@ -437,7 +455,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                         </span>
                       </td>
                       <td className="p-3.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                        रु {po.totalAmount.toLocaleString()}
+                        रु {(po.totalAmount ?? 0).toLocaleString()}
                       </td>
                       <td className="p-3.5 text-center">
                         <span
@@ -461,7 +479,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                           >
                             <Eye className="h-3.5 w-3.5" />
                           </button>
-                          
+
                           {po.status !== 'CANCELLED' && po.status !== 'PURCHASED' && (
                             <button
                               onClick={async () => {
@@ -502,7 +520,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         </div>
       </div>
 
-      {/* POS Multi-Item Order Creation Modal */}
+      {/* Purchase Order Creation Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="w-full max-w-5xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-6 text-slate-800 dark:text-slate-200">
@@ -511,10 +529,10 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               <div>
                 <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
                   <ShoppingCart className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                  <span>New Purchase Order (Multi-Item Vendor Entry)</span>
+                  <span>New Purchase Order Entry</span>
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Specify items, quantities, cost rates, line discounts, and taxability (13% VAT / Exempt).
+                  Scan barcode or search & add items, set unit rates, and apply bill-wise discount.
                 </p>
               </div>
               <button
@@ -528,18 +546,56 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             <form onSubmit={handleSubmit} className="p-5 space-y-5">
               {/* Top Form Fields */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800/80">
-                <div>
+                {/* Vendor Autocomplete Input */}
+                <div className="relative">
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
                     Vendor / Supplier Name
                   </label>
-                  <input
-                    type="text"
-                    required
-                    value={supplierName}
-                    onChange={(e) => setSupplierName(e.target.value)}
-                    placeholder="e.g. Apex Trade Supplies"
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      value={supplierName}
+                      onFocus={() => setIsSupplierDropdownOpen(true)}
+                      onChange={(e) => {
+                        setSupplierName(e.target.value);
+                        setIsSupplierDropdownOpen(true);
+                      }}
+                      placeholder="Type or select Vendor Name / PAN"
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pr-8 pl-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+                  </div>
+
+                  {/* Autocomplete Dropdown */}
+                  {isSupplierDropdownOpen && (
+                    <div className="absolute z-50 left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl divide-y divide-slate-100 dark:divide-slate-800">
+                      {filteredSuppliers.length === 0 ? (
+                        <div className="p-2.5 text-xs text-slate-400 text-center">
+                          Press Enter to use "{supplierName}" as custom supplier
+                        </div>
+                      ) : (
+                        filteredSuppliers.map((s) => (
+                          <button
+                            key={s.id || s.name}
+                            type="button"
+                            onClick={() => {
+                              setSupplierName(s.name);
+                              setIsSupplierDropdownOpen(false);
+                            }}
+                            className="w-full text-left p-2.5 hover:bg-indigo-50 dark:hover:bg-slate-800/80 transition-colors cursor-pointer"
+                          >
+                            <div className="font-bold text-slate-900 dark:text-white text-xs">{s.name}</div>
+                            {s.panVatNumber && (
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                                PAN/VAT: {s.panVatNumber}
+                              </div>
+                            )}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -568,7 +624,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     onChange={(e) => {
                       const val = e.target.value as 'TAXABLE_13' | 'TAX_EXEMPTED';
                       setTaxationType(val);
-                      setLines(lines.map(l => ({ ...l, isTaxExempt: val === 'TAX_EXEMPTED' })));
+                      setLines(lines.map((l) => ({ ...l, isTaxExempt: val === 'TAX_EXEMPTED' })));
                     }}
                     className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
                   >
@@ -599,13 +655,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     <span>Scan Barcode or Search & Enter Product Name / SKU:</span>
                   </span>
                   <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                    Product selection only (No serial tracking required for PO)
+                    Scan or type item name to instantly add or increment quantity
                   </span>
                 </div>
                 <ProductSearchBar
                   products={products}
                   onAddOrIncrementProduct={handleAddOrIncrementProduct}
-                  placeholder="🔍 Scan barcode or type product name/SKU and press Enter..."
+                  placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
                 />
               </div>
 
@@ -614,17 +670,17 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                     <Calculator className="h-4 w-4 text-indigo-500" />
-                    <span>Order Items & Line Calculations</span>
+                    <span>Order Items Table ({lines.length} items)</span>
                   </h4>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={handleAutoPopulateLowStock}
                       className="flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline cursor-pointer bg-amber-50 dark:bg-amber-950/50 px-3 py-1 rounded-lg border border-amber-200 dark:border-amber-800/50"
-                      title="Automatically populate all low stock products below reorder levels"
+                      title="Automatically populate low stock products below reorder levels"
                     >
                       <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                      <span>Auto-fill Low Stock Items</span>
+                      <span>Auto-fill Low Stock</span>
                     </button>
                     <button
                       type="button"
@@ -637,43 +693,39 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   </div>
                 </div>
 
-                <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/30">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/30 max-h-[360px] overflow-y-auto">
+                  <table className="w-full text-left text-xs relative">
+                    <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800 shadow-xs">
                       <tr>
-                        <th className="p-2.5 w-8 text-center">#</th>
-                        <th className="p-2.5">Product / Item Name</th>
-                        <th className="p-2.5 w-20 text-center">Branch Stock</th>
-                        <th className="p-2.5 w-20 text-center">Qty</th>
-                        <th className="p-2.5 w-28 text-right">Unit Rate (NPR)</th>
-                        <th className="p-2.5 w-24 text-right">Disc (NPR)</th>
-                        <th className="p-2.5 w-28 text-center">Tax Status</th>
-                        <th className="p-2.5 w-28 text-right">Subtotal</th>
-                        <th className="p-2.5 w-24 text-right">13% VAT</th>
-                        <th className="p-2.5 w-28 text-right">Total (NPR)</th>
-                        <th className="p-2.5 w-10 text-center"></th>
+                        <th className="p-3 w-10 text-center">#</th>
+                        <th className="p-3">Product / Item Name & SKU</th>
+                        <th className="p-3 w-28 text-center">Qty</th>
+                        <th className="p-3 w-36 text-right">Unit Rate (NPR)</th>
+                        <th className="p-3 w-36 text-right">Total (NPR)</th>
+                        <th className="p-3 w-12 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                      {calculatedLines.length === 0 ? (
+                      {lines.length === 0 ? (
                         <tr>
-                          <td colSpan={11} className="p-8 text-center text-slate-500 text-xs">
-                            No products in this purchase order. Use the product search bar above, click "Add Item Line", or click "Auto-fill Low Stock Items".
+                          <td colSpan={6} className="p-8 text-center text-slate-500 text-xs">
+                            No items in this purchase order. Use the product search bar above or click "Add Item Line" to add products.
                           </td>
                         </tr>
                       ) : (
-                        calculatedLines.map((line, idx) => {
-                          const stockQty = getBranchStock(line.productId, branchId);
+                        lines.map((line, idx) => {
+                          const prod = products.find((p) => p.id === line.productId);
+                          const lineTotal = line.quantity * line.unitPrice;
                           return (
                             <tr key={idx} className="hover:bg-white dark:hover:bg-slate-800/50 transition-colors">
-                              <td className="p-2.5 text-center font-mono font-bold text-slate-400 text-[11px]">
+                              <td className="p-3 text-center font-mono font-bold text-slate-400 text-[11px]">
                                 {idx + 1}
                               </td>
-                              <td className="p-2.5">
+                              <td className="p-3">
                                 <select
                                   value={line.productId}
                                   onChange={(e) => updateLine(idx, 'productId', e.target.value)}
-                                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-slate-100 font-medium"
+                                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs text-slate-900 dark:text-slate-100 font-medium"
                                 >
                                   {products.map((p) => (
                                     <option key={p.id} value={p.id}>
@@ -682,18 +734,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                   ))}
                                 </select>
                               </td>
-                              <td className="p-2.5 text-center font-mono font-semibold">
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                    stockQty <= 5
-                                      ? 'bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400'
-                                      : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                                  }`}
-                                >
-                                  {stockQty} {line.product?.unit || 'Pcs'}
-                                </span>
-                              </td>
-                              <td className="p-2.5 text-center">
+                              <td className="p-3 text-center">
                                 <input
                                   type="number"
                                   min={1}
@@ -702,10 +743,10 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                   onChange={(e) =>
                                     updateLine(idx, 'quantity', Math.max(1, Number(e.target.value)))
                                   }
-                                  className="w-16 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs text-center font-mono font-bold text-slate-900 dark:text-white"
+                                  className="w-20 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-center font-mono font-bold text-slate-900 dark:text-white"
                                 />
                               </td>
-                              <td className="p-2.5 text-right">
+                              <td className="p-3 text-right">
                                 <input
                                   type="number"
                                   min={0}
@@ -714,50 +755,18 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                   onChange={(e) =>
                                     updateLine(idx, 'unitPrice', Math.max(0, Number(e.target.value)))
                                   }
-                                  className="w-24 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
+                                  className="w-28 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
                                 />
                               </td>
-                              <td className="p-2.5 text-right">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={line.discount}
-                                  onChange={(e) =>
-                                    updateLine(idx, 'discount', Math.max(0, Number(e.target.value)))
-                                  }
-                                  className="w-20 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-xs font-mono text-amber-600 dark:text-amber-400 font-semibold"
-                                />
+                              <td className="p-3 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                                रु {lineTotal.toLocaleString()}
                               </td>
-                              <td className="p-2.5 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    updateLine(idx, 'isTaxExempt', !line.isTaxExempt)
-                                  }
-                                  className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all cursor-pointer ${
-                                    line.isTaxExempt
-                                      ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-700'
-                                      : 'bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border-indigo-300 dark:border-indigo-700'
-                                  }`}
-                                >
-                                  {line.isTaxExempt ? 'Tax Exempt' : 'Taxable (13%)'}
-                                </button>
-                              </td>
-                              <td className="p-2.5 text-right font-mono font-semibold text-slate-800 dark:text-slate-200">
-                                रु {line.netSubtotal.toLocaleString()}
-                              </td>
-                              <td className="p-2.5 text-right font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
-                                रु {line.vat.toLocaleString()}
-                              </td>
-                              <td className="p-2.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                                रु {line.total.toLocaleString()}
-                              </td>
-                              <td className="p-2.5 text-center">
+                              <td className="p-3 text-center">
                                 <button
                                   type="button"
                                   onClick={() => removeLine(idx)}
-                                  className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer transition-colors"
-                                  title="Remove product item line"
+                                  className="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer transition-colors"
+                                  title="Remove item line"
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </button>
@@ -786,33 +795,36 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                   />
                 </div>
 
-                {/* POS Billing Format Total Box */}
-                <div className="rounded-xl bg-slate-50 dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
-                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                {/* Bill-wise Discount Summary Box */}
+                <div className="rounded-xl bg-slate-50 dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
                     <span>Gross Subtotal:</span>
                     <span className="font-mono font-bold">रु {grossSubtotal.toLocaleString()}</span>
                   </div>
-                  {totalDiscount > 0 && (
-                    <div className="flex justify-between text-amber-600 dark:text-amber-400">
-                      <span>Total Line Discounts:</span>
-                      <span className="font-mono font-bold">- रु {totalDiscount.toLocaleString()}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                    <span>Taxable Amount (13% VAT):</span>
-                    <span className="font-mono font-bold">रु {taxableSubtotal.toLocaleString()}</span>
+
+                  {/* Bill Wise Discount Input */}
+                  <div className="flex justify-between items-center text-amber-600 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/30 p-2 rounded-lg border border-amber-200/50 dark:border-amber-800/40">
+                    <span className="font-bold">Bill Wise Discount (NPR):</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={billWiseDiscount}
+                      onChange={(e) => setBillWiseDiscount(Math.max(0, Number(e.target.value)))}
+                      className="w-28 text-right rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 focus:ring-2 focus:ring-amber-500"
+                    />
                   </div>
-                  {exemptSubtotal > 0 && (
-                    <div className="flex justify-between text-amber-600 dark:text-amber-400">
-                      <span>Tax-Exempt / Non-Taxable Amount:</span>
-                      <span className="font-mono font-bold">रु {exemptSubtotal.toLocaleString()}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold border-t border-slate-200 dark:border-slate-800 pt-2">
-                    <span>13% Input VAT:</span>
+
+                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                    <span>Taxable Subtotal:</span>
+                    <span className="font-mono font-bold">रु {taxableAfterDiscount.toLocaleString()}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-400 font-semibold border-t border-slate-200 dark:border-slate-800 pt-2">
+                    <span>13% Input VAT ({taxationType === 'TAXABLE_13' ? 'Applicable' : 'Exempt'}):</span>
                     <span className="font-mono font-bold">रु {totalVAT.toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-300 dark:border-slate-700">
+
+                  <div className="flex justify-between items-center text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-300 dark:border-slate-700">
                     <span>Grand Total Amount:</span>
                     <span className="font-mono text-indigo-600 dark:text-indigo-400">
                       रु {grandTotal.toLocaleString()}
@@ -822,20 +834,32 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               </div>
 
               {/* Modal Footer Actions */}
-              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  onClick={handleResetForm}
+                  className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-3.5 py-2 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+                  title="Reset entire PO form to initial state"
                 >
-                  Cancel
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Reset Form</span>
                 </button>
-                <button
-                  type="submit"
-                  className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 cursor-pointer"
-                >
-                  Confirm & Issue Purchase Order
-                </button>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 cursor-pointer"
+                  >
+                    Confirm & Issue Purchase Order
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -939,15 +963,15 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <div className="w-64 space-y-1.5 text-xs font-mono">
                   <div className="flex justify-between text-slate-500">
                     <span>Subtotal:</span>
-                    <span>रु {viewingPO.subtotalAmount.toLocaleString()}</span>
+                    <span>रु {(viewingPO.subtotalAmount ?? 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold">
                     <span>VAT 13%:</span>
-                    <span>रु {viewingPO.taxAmount.toLocaleString()}</span>
+                    <span>रु {(viewingPO.taxAmount ?? 0).toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between text-sm font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
                     <span>Grand Total:</span>
-                    <span>रु {viewingPO.totalAmount.toLocaleString()}</span>
+                    <span>रु {(viewingPO.totalAmount ?? 0).toLocaleString()}</span>
                   </div>
                 </div>
               </div>

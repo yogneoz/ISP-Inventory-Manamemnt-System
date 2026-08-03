@@ -452,7 +452,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by Product Name, SKU code or Transaction reference..."
+              placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
               className={`w-full rounded-xl border pl-9 pr-4 py-2 text-xs font-medium ${
                 isDarkMode
                   ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-500'

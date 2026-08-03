@@ -108,6 +108,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
   // Search/Scan Product Add or Duplicate Quantity Increment
   const handleAddOrIncrementProduct = (prod: Product) => {
+    const isSerialized = prod.requiresSerialTracking !== false;
     setLines((prevLines) => {
       const existingIdx = prevLines.findIndex((l) => l.productId === prod.id);
       if (existingIdx !== -1) {
@@ -115,20 +116,22 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         const updated = [...prevLines];
         const newQty = updated[existingIdx].quantity + 1;
         const currentSerials = [...(updated[existingIdx].deviceSerials || [])];
-        while (currentSerials.length < newQty) {
-          currentSerials.push({
-            deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-            ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-          });
+        if (isSerialized) {
+          while (currentSerials.length < newQty) {
+            currentSerials.push({
+              deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+              ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+            });
+          }
         }
         updated[existingIdx] = {
           ...updated[existingIdx],
           quantity: newQty,
-          deviceSerials: currentSerials,
+          deviceSerials: isSerialized ? currentSerials : [],
         };
         return updated;
       } else {
-        // Add new row with initial serial pair
+        // Add new row with initial serial pair if serialized
         return [
           ...prevLines,
           {
@@ -139,12 +142,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             quantity: 1,
             unitPrice: prod.costPrice,
             discount: 0,
-            deviceSerials: [
-              {
-                deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-                ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-              },
-            ],
+            deviceSerials: isSerialized
+              ? [
+                  {
+                    deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+                    ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+                  },
+                ]
+              : [],
           },
         ];
       }
@@ -159,14 +164,21 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     const updated = [...lines];
     const qty = Math.max(1, newQty);
     updated[index].quantity = qty;
-    const currentSerials = [...(updated[index].deviceSerials || [])];
-    while (currentSerials.length < qty) {
-      currentSerials.push({
-        deviceSerial: `SN-${updated[index].sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-        ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-      });
+    const prod = products.find((p) => p.id === updated[index].productId);
+    const isSerialized = prod ? prod.requiresSerialTracking !== false : true;
+
+    if (isSerialized) {
+      const currentSerials = [...(updated[index].deviceSerials || [])];
+      while (currentSerials.length < qty) {
+        currentSerials.push({
+          deviceSerial: `SN-${updated[index].sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+        });
+      }
+      updated[index].deviceSerials = currentSerials.slice(0, qty);
+    } else {
+      updated[index].deviceSerials = [];
     }
-    updated[index].deviceSerials = currentSerials.slice(0, qty);
     setLines(updated);
   };
 
@@ -606,9 +618,19 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             </td>
                             <td className="p-2.5 font-bold text-slate-900">
                               <div>{line.productName}</div>
-                              <div className="text-[10px] text-blue-600 font-medium">
-                                Device & PON Serial Tracking ({line.quantity} Unit{line.quantity > 1 ? 's' : ''})
-                              </div>
+                              {(() => {
+                                const prod = products.find((p) => p.id === line.productId);
+                                const isSerialized = prod ? prod.requiresSerialTracking !== false : true;
+                                return isSerialized ? (
+                                  <div className="text-[10px] text-blue-600 font-medium">
+                                    Device & PON Serial Tracking ({line.quantity} Unit{line.quantity > 1 ? 's' : ''})
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-emerald-600 font-medium">
+                                    Bulk Consumable Item ({line.quantity} {line.unit})
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td className="p-2.5 font-mono text-slate-500">
                               {line.sku}
@@ -654,42 +676,62 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             </td>
                           </tr>
 
-                          {/* Device Serial & PON Serial Row per Unit */}
-                          <tr className="bg-blue-50/40 border-b border-slate-200">
-                            <td colSpan={8} className="px-4 py-2.5">
-                              <div className="text-[11px] font-bold text-blue-900 mb-1.5 flex items-center gap-1.5">
-                                <Barcode className="h-3.5 w-3.5 text-blue-600" />
-                                <span>Serial Numbers for {line.productName} (Qty: {line.quantity})</span>
-                              </div>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {Array.from({ length: line.quantity }).map((_, sIdx) => (
-                                  <div key={sIdx} className="bg-white p-2 rounded-lg border border-blue-200 flex items-center gap-2 text-xs">
-                                    <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
-                                    
-                                    <div className="flex-1 min-w-0">
-                                      <input
-                                        type="text"
-                                        placeholder="Device Serial #"
-                                        value={line.deviceSerials?.[sIdx]?.deviceSerial || ''}
-                                        onChange={(e) => updateLineDeviceSerial(idx, sIdx, e.target.value)}
-                                        className="w-full px-2 py-1 text-[11px] font-mono font-bold text-blue-900 bg-blue-50/50 rounded border border-blue-200 focus:bg-white focus:outline-none"
-                                      />
-                                    </div>
+                          {/* Device Serial & PON Serial Row per Unit or Consumable Notice */}
+                          {(() => {
+                            const prod = products.find((p) => p.id === line.productId);
+                            const isSerialized = prod ? prod.requiresSerialTracking !== false : true;
 
-                                    <div className="flex-1 min-w-0">
-                                      <input
-                                        type="text"
-                                        placeholder="PON Serial #"
-                                        value={line.deviceSerials?.[sIdx]?.ponSerial || ''}
-                                        onChange={(e) => updateLinePonSerial(idx, sIdx, e.target.value)}
-                                        className="w-full px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 bg-indigo-50/50 rounded border border-indigo-200 focus:bg-white focus:outline-none"
-                                      />
+                            if (!isSerialized) {
+                              return (
+                                <tr className="bg-slate-100/50 border-b border-slate-200">
+                                  <td colSpan={8} className="px-4 py-2">
+                                    <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
+                                      <Tag className="h-3.5 w-3.5 text-slate-400" />
+                                      <span>Bulk Consumable Item — Serial & MAC tracking skipped ({line.quantity} {line.unit})</span>
                                     </div>
+                                  </td>
+                                </tr>
+                              );
+                            }
+
+                            return (
+                              <tr className="bg-blue-50/40 border-b border-slate-200">
+                                <td colSpan={8} className="px-4 py-2.5">
+                                  <div className="text-[11px] font-bold text-blue-900 mb-1.5 flex items-center gap-1.5">
+                                    <Barcode className="h-3.5 w-3.5 text-blue-600" />
+                                    <span>Serial Numbers for {line.productName} (Qty: {line.quantity})</span>
                                   </div>
-                                ))}
-                              </div>
-                            </td>
-                          </tr>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    {Array.from({ length: line.quantity }).map((_, sIdx) => (
+                                      <div key={sIdx} className="bg-white p-2 rounded-lg border border-blue-200 flex items-center gap-2 text-xs">
+                                        <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
+                                        
+                                        <div className="flex-1 min-w-0">
+                                          <input
+                                            type="text"
+                                            placeholder="Device Serial #"
+                                            value={line.deviceSerials?.[sIdx]?.deviceSerial || ''}
+                                            onChange={(e) => updateLineDeviceSerial(idx, sIdx, e.target.value)}
+                                            className="w-full px-2 py-1 text-[11px] font-mono font-bold text-blue-900 bg-blue-50/50 rounded border border-blue-200 focus:bg-white focus:outline-none"
+                                          />
+                                        </div>
+
+                                        <div className="flex-1 min-w-0">
+                                          <input
+                                            type="text"
+                                            placeholder="PON Serial #"
+                                            value={line.deviceSerials?.[sIdx]?.ponSerial || ''}
+                                            onChange={(e) => updateLinePonSerial(idx, sIdx, e.target.value)}
+                                            className="w-full px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 bg-indigo-50/50 rounded border border-indigo-200 focus:bg-white focus:outline-none"
+                                          />
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })()}
                         </React.Fragment>
                       ))
                     )}

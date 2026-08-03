@@ -158,6 +158,20 @@ export const api = {
     });
   },
 
+  async updateStockReorderLevel(stockId: string, minReorderLevel: number): Promise<InventoryStock> {
+    return fetchJson(`/api/stock/${stockId}/reorder-level`, {
+      method: 'PATCH',
+      body: JSON.stringify({ minReorderLevel }),
+    });
+  },
+
+  async bulkUpdateStockReorderLevels(updates: { stockId: string; minReorderLevel: number }[]): Promise<{ success: boolean; count: number }> {
+    return fetchJson('/api/stock/bulk-reorder-levels', {
+      method: 'POST',
+      body: JSON.stringify({ updates }),
+    });
+  },
+
   // Assets
   async getAssets(branchId?: string): Promise<Asset[]> {
     const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';

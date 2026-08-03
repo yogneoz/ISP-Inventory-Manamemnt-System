@@ -217,7 +217,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             type="text"
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
-            placeholder="Search damaged products by Name, SKU, Barcode or Category..."
+            placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
             className={`w-full rounded-xl border pl-9 pr-4 py-2 text-xs font-medium focus:outline-none focus:ring-2 focus:ring-amber-500 ${
               isDarkMode
                 ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-500'

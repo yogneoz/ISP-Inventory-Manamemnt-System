@@ -11,7 +11,7 @@ interface ProductSearchBarProps {
 export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
   products,
   onAddOrIncrementProduct,
-  placeholder = '🔍 Search by Product Code (SKU), Barcode or Item Name (Press Enter or Scan)...',
+  placeholder = 'Scan Barcode or Search & Enter Product Name / SKU:',
 }) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);

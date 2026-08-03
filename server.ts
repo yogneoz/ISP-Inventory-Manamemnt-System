@@ -400,37 +400,53 @@ const EXCEL_ITEMS = [
   { code: 'INV003', group: 'FIXED ASSET', type: 'Inverter', name: 'UPS (FINCH 10KVA/192V)-FA', uom: 'Pcs', qty: 0, val: 0 },
 ];
 
-// Pre-seeded Products mapped from Excel Sheet
-let products: Product[] = EXCEL_ITEMS.map((item, idx) => ({
-  id: `prod-${item.code.toLowerCase()}`,
-  sku: item.code,
-  barcode: `890${String(100000000 + idx).slice(1)}`,
-  name: item.name,
-  category: item.type,
-  unit: item.uom,
-  costPrice: item.val > 0 ? item.val : 1500,
-  sellingPrice: item.val > 0 ? Math.round(item.val * 1.25) : 1875,
-  taxRate: 13,
-  minReorderLevel: 5,
-  description: `[${item.group}] ${item.type} - ${item.name}`,
-}));
+const NON_SERIALIZED_CATEGORIES = [
+  'Drop Cable', 'Cat6 Cable', 'Fiber', 'Dac Cable', 'Patch Cord',
+  'Fast Connector', 'Coupler', 'Splitter', 'Distribution Box',
+  'Av Jack', 'Binding Wire', 'Adaptor', 'Sleeves', 'Tiffin Bod', 'Cassettte'
+];
 
-// Pre-seeded Inventory Stock per Branch for all products across all 19 branches
+// Pre-seeded Products mapped from Excel Sheet
+let products: Product[] = EXCEL_ITEMS.map((item, idx) => {
+  const isConsumableOrCable =
+    NON_SERIALIZED_CATEGORIES.includes(item.type) ||
+    ['Mtr', 'Roll', 'Box'].includes(item.uom) ||
+    item.name.includes('CABLE') ||
+    item.name.includes('WIRE') ||
+    item.name.includes('CONNECTOR');
+
+  const requiresSerialTracking = !isConsumableOrCable;
+
+  return {
+    id: `prod-${item.code.toLowerCase()}`,
+    sku: item.code,
+    barcode: `890${String(100000000 + idx).slice(1)}`,
+    name: item.name,
+    category: item.type,
+    productGroup: item.group === 'FIXED ASSET' ? 'Fixed Asset' : 'Product Item',
+    unit: item.uom,
+    costPrice: item.val > 0 ? item.val : 1500,
+    sellingPrice: item.val > 0 ? Math.round(item.val * 1.25) : 1875,
+    taxRate: 13,
+    minReorderLevel: 5,
+    requiresSerialTracking,
+    trackingType: requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY',
+    description: `[${item.group}] ${item.type} - ${item.name}`,
+  };
+});
+
+// Pre-seeded Inventory Stock per Branch for all products across all 19 branches (2-3 pieces per item)
 let inventoryStock: InventoryStock[] = [];
 products.forEach((p, index) => {
-  const raw = EXCEL_ITEMS[index];
-  const openingQty = raw.qty !== undefined && raw.qty > 0 ? raw.qty : 1;
-
   branches.forEach((branch, bIdx) => {
-    // Head Office (WH001) holds main stock, while each branch holds stock
-    let qty = 0;
-    if (branch.id === 'WH001') {
-      qty = openingQty * 10;
-    } else {
-      qty = Math.max(0, ((openingQty + bIdx * 3) % 18) + (index % 3 === 0 ? 4 : 1));
-    }
+    // Keep 2-3 pieces of each product item per branch
+    const qty = 2 + ((index + bIdx) % 2);
+    const damagedQty = (index + bIdx) % 11 === 0 ? 1 : 0;
 
-    let damagedQty = (index + bIdx) % 7 === 0 ? (index % 3 + 1) : 0;
+    // Set realistic per-branch minimum reorder level based on branch demand / HQ status
+    const branchMinReorder = branch.isHeadquarters
+      ? p.minReorderLevel * 2
+      : (bIdx % 3 === 0 ? p.minReorderLevel : Math.max(1, Math.floor(p.minReorderLevel / 2)));
 
     inventoryStock.push({
       id: `stk-${branch.id.toLowerCase()}-${p.id}`,
@@ -440,12 +456,13 @@ products.forEach((p, index) => {
       damagedQty: damagedQty,
       reservedQty: 0,
       incomingQty: 0,
+      minReorderLevel: branchMinReorder,
       lastUpdated: new Date().toISOString(),
     });
   });
 });
 
-// Pre-seeded Fixed Assets from Excel Sheet
+// Pre-seeded Fixed Assets from Excel Sheet (2-3 pieces per asset category/item, keeping Fiber items)
 let assetRegister: Asset[] = EXCEL_ITEMS
   .filter((item) => item.group === 'FIXED ASSET')
   .map((item, idx) => {
@@ -916,33 +933,65 @@ app.get('/api/stock', (req, res) => {
 
 app.patch('/api/stock/:id', (req, res) => {
   const { id } = req.params;
-  const { quantityOnHand, reason } = req.body;
+  const { quantityOnHand, minReorderLevel, reason } = req.body;
   const stk = inventoryStock.find((s) => s.id === id);
   if (!stk) return res.status(404).json({ message: 'Stock record not found' });
 
-  const qtyBefore = stk.quantityOnHand;
-  stk.quantityOnHand = Number(quantityOnHand);
+  let qtyBefore = stk.quantityOnHand;
+  if (quantityOnHand !== undefined) {
+    stk.quantityOnHand = Number(quantityOnHand);
+  }
+  if (minReorderLevel !== undefined) {
+    stk.minReorderLevel = Number(minReorderLevel);
+  }
   stk.lastUpdated = new Date().toISOString();
 
   const prod = products.find((p) => p.id === stk.productId);
 
-  transactionLogs.unshift({
-    id: `txn-${Date.now()}`,
-    transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
-    productId: stk.productId,
-    productSku: prod?.sku || '',
-    productName: prod?.name || '',
-    branchId: stk.branchId,
-    changeType: 'MANUAL_ADJUSTMENT',
-    quantityBefore: qtyBefore,
-    quantityChanged: stk.quantityOnHand - qtyBefore,
-    quantityAfter: stk.quantityOnHand,
-    unitCost: prod?.costPrice || 0,
-    timestampAD: new Date().toISOString(),
-    timestampBS: '2083-04-16 BS',
-  });
+  if (quantityOnHand !== undefined) {
+    transactionLogs.unshift({
+      id: `txn-${Date.now()}`,
+      transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+      productId: stk.productId,
+      productSku: prod?.sku || '',
+      productName: prod?.name || '',
+      branchId: stk.branchId,
+      changeType: 'MANUAL_ADJUSTMENT',
+      quantityBefore: qtyBefore,
+      quantityChanged: stk.quantityOnHand - qtyBefore,
+      quantityAfter: stk.quantityOnHand,
+      unitCost: prod?.costPrice || 0,
+      timestampAD: new Date().toISOString(),
+      timestampBS: '2083-04-16 BS',
+    });
+  }
 
   res.json(stk);
+});
+
+app.patch('/api/stock/:id/reorder-level', (req, res) => {
+  const { id } = req.params;
+  const { minReorderLevel } = req.body;
+  const stk = inventoryStock.find((s) => s.id === id);
+  if (!stk) return res.status(404).json({ message: 'Stock record not found' });
+
+  stk.minReorderLevel = Number(minReorderLevel);
+  stk.lastUpdated = new Date().toISOString();
+  res.json(stk);
+});
+
+app.post('/api/stock/bulk-reorder-levels', (req, res) => {
+  const { updates } = req.body;
+  if (Array.isArray(updates)) {
+    updates.forEach((u: { stockId: string; minReorderLevel: number }) => {
+      const stk = inventoryStock.find((s) => s.id === u.stockId);
+      if (stk) {
+        stk.minReorderLevel = Number(u.minReorderLevel);
+        stk.lastUpdated = new Date().toISOString();
+      }
+    });
+  }
+  res.json({ success: true, count: updates?.length || 0 });
 });
 
 // Fixed Assets

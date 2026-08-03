@@ -367,7 +367,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search product, SKU..."
+              placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
               className={`w-full rounded-xl border pl-8 pr-3 py-1.5 text-xs font-medium ${
                 isDarkMode
                   ? 'bg-slate-900 border-slate-800 text-white placeholder-slate-500'

@@ -189,7 +189,7 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
             type="text"
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
-            placeholder="Search Matrix by Product Name, SKU, or Barcode..."
+            placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
             className={`w-full rounded-xl border pl-9 pr-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
               isDarkMode
                 ? 'bg-slate-900 border-slate-800 text-slate-200 placeholder-slate-500'
