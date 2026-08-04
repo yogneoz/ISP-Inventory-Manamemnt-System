@@ -432,6 +432,14 @@ let products: Product[] = EXCEL_ITEMS.map((item, idx) => {
     requiresSerialTracking,
     trackingType: requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY',
     description: `[${item.group}] ${item.type} - ${item.name}`,
+    ...(item.group === 'FIXED ASSET'
+      ? {
+          depreciationMethod: 'STRAIGHT_LINE' as const,
+          depreciationRate: 15,
+          usefulLifeYears: 5,
+          salvageValuePercent: 10,
+        }
+      : {}),
   };
 });
 
@@ -933,13 +941,18 @@ app.get('/api/stock', (req, res) => {
 
 app.patch('/api/stock/:id', (req, res) => {
   const { id } = req.params;
-  const { quantityOnHand, minReorderLevel, reason } = req.body;
+  const { quantityOnHand, minReorderLevel, damagedQty, reason, changeType } = req.body;
   const stk = inventoryStock.find((s) => s.id === id);
   if (!stk) return res.status(404).json({ message: 'Stock record not found' });
 
   let qtyBefore = stk.quantityOnHand;
+  let oldDamaged = stk.damagedQty || 0;
+
   if (quantityOnHand !== undefined) {
     stk.quantityOnHand = Number(quantityOnHand);
+  }
+  if (damagedQty !== undefined) {
+    stk.damagedQty = Number(damagedQty);
   }
   if (minReorderLevel !== undefined) {
     stk.minReorderLevel = Number(minReorderLevel);
@@ -948,7 +961,27 @@ app.patch('/api/stock/:id', (req, res) => {
 
   const prod = products.find((p) => p.id === stk.productId);
 
-  if (quantityOnHand !== undefined) {
+  const isDamageChange = changeType === 'DAMAGE' || (damagedQty !== undefined && stk.damagedQty !== oldDamaged);
+
+  if (isDamageChange) {
+    const damDiff = (stk.damagedQty || 0) - oldDamaged;
+    transactionLogs.unshift({
+      id: `txn-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      transactionNumber: `TXN-DMG-${Math.floor(10000 + Math.random() * 90000)}`,
+      productId: stk.productId,
+      productSku: prod?.sku || '',
+      productName: prod?.name || '',
+      branchId: stk.branchId,
+      changeType: 'DAMAGE',
+      quantityBefore: oldDamaged,
+      quantityChanged: damDiff !== 0 ? -Math.abs(damDiff) : -(stk.damagedQty || 1),
+      quantityAfter: stk.damagedQty || 0,
+      unitCost: prod?.costPrice || 0,
+      referenceDocId: reason || 'DMG-VERIFICATION',
+      timestampAD: new Date().toISOString(),
+      timestampBS: '2083-04-16 BS',
+    });
+  } else if (quantityOnHand !== undefined && (stk.quantityOnHand - qtyBefore !== 0)) {
     transactionLogs.unshift({
       id: `txn-${Date.now()}`,
       transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
@@ -1048,6 +1081,19 @@ app.post('/api/purchase-orders', (req, res) => {
     ...req.body,
   };
 
+  // Increment incoming quantity for PO target branch
+  if (newPO.branchId && Array.isArray(items)) {
+    items.forEach((item: any) => {
+      let stk = inventoryStock.find(
+        (s) => s.productId === item.productId && s.branchId === newPO.branchId
+      );
+      if (stk) {
+        stk.incomingQty = (stk.incomingQty || 0) + (Number(item.quantity) || 0);
+        stk.lastUpdated = new Date().toISOString();
+      }
+    });
+  }
+
   purchaseOrders.unshift(newPO);
   res.status(201).json(newPO);
 });
@@ -1069,14 +1115,14 @@ app.post('/api/purchase-orders/:id/receive', (req, res) => {
 
   po.status = 'RECEIVED';
 
-  // Increment branch stock
+  // Increment branch stock & clear incoming qty
   po.items.forEach((item: any) => {
     let stk = inventoryStock.find(
       (s) => s.productId === item.productId && s.branchId === po.branchId
     );
     if (!stk) {
       stk = {
-        id: `stk-${Date.now()}-${item.productId}`,
+        id: `stk-${po.branchId.toLowerCase()}-${item.productId}`,
         productId: item.productId,
         branchId: po.branchId,
         quantityOnHand: 0,
@@ -1087,6 +1133,7 @@ app.post('/api/purchase-orders/:id/receive', (req, res) => {
       inventoryStock.push(stk);
     }
 
+    stk.incomingQty = Math.max(0, (stk.incomingQty || 0) - item.quantity);
     const qtyBefore = stk.quantityOnHand;
     stk.quantityOnHand += item.quantity;
     stk.lastUpdated = new Date().toISOString();
@@ -1127,6 +1174,98 @@ app.post('/api/purchase-invoices', (req, res) => {
     invoiceNumber: `INV-2083-${Math.floor(1000 + Math.random() * 9000)}`,
     ...req.body,
   };
+
+  const targetBranchId = req.body.branchId || branches[0]?.id || 'BR-KTM';
+  const items = req.body.items || req.body.lines || [];
+
+  items.forEach((item: any) => {
+    let stk = inventoryStock.find(
+      (s) => s.productId === item.productId && s.branchId === targetBranchId
+    );
+    if (!stk) {
+      stk = {
+        id: `stk-${targetBranchId.toLowerCase()}-${item.productId}`,
+        productId: item.productId,
+        branchId: targetBranchId,
+        quantityOnHand: 0,
+        damagedQty: 0,
+        reservedQty: 0,
+        incomingQty: 0,
+        minReorderLevel: 5,
+        lastUpdated: new Date().toISOString(),
+      };
+      inventoryStock.push(stk);
+    }
+
+    const qtyBefore = stk.quantityOnHand;
+    const qtyToAdd = Number(item.quantity) || 0;
+    stk.quantityOnHand += qtyToAdd;
+    stk.lastUpdated = new Date().toISOString();
+
+    const prod = products.find((p) => p.id === item.productId);
+
+    // If product is a Fixed Asset, automatically create a Fixed Asset lot in assetRegister linked to Party Invoice Date
+    if (prod && (prod.productGroup === 'Fixed Asset' || prod.category === 'Fixed Assets')) {
+      const lineCost = (Number(item.unitPrice) || prod.costPrice) * qtyToAdd;
+      const assetLot = {
+        id: `ast-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+        tagNumber: `AST-${prod.sku || 'FA'}-${Math.floor(1000 + Math.random() * 9000)}`,
+        name: `${prod.name} (Lot Qty: ${qtyToAdd})`,
+        category: (prod.category as any) || 'Machinery',
+        branchId: targetBranchId,
+        acquisitionDateAD: newInv.invoiceDateAD || new Date().toISOString().split('T')[0],
+        acquisitionDateBS: newInv.invoiceDateBS || '2083-04-10 BS',
+        acquisitionCost: lineCost,
+        depreciationMethod: prod.depreciationMethod || 'STRAIGHT_LINE',
+        depreciationRatePercent: prod.depreciationRate ?? 15,
+        accumulatedDepreciation: 0,
+        netBookValue: lineCost,
+        status: 'ACTIVE' as const,
+        supplierName: newInv.supplierName || 'Vendor',
+        invoiceNo: newInv.invoiceNumber,
+        purchaseInvoiceId: newInv.id,
+        productId: prod.id,
+      };
+      assetRegister.unshift(assetLot);
+    }
+
+    transactionLogs.unshift({
+      id: `txn-${Date.now()}-${item.productId}`,
+      transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+      productId: item.productId,
+      productSku: item.sku || prod?.sku || '',
+      productName: item.productName || prod?.name || 'Product',
+      branchId: targetBranchId,
+      changeType: 'PURCHASE_INVOICE',
+      quantityBefore: qtyBefore,
+      quantityChanged: qtyToAdd,
+      quantityAfter: stk.quantityOnHand,
+      unitCost: item.unitPrice || prod?.costPrice || 0,
+      referenceDocId: newInv.invoiceNumber,
+      timestampAD: new Date().toISOString(),
+      timestampBS: '2083-04-16 BS',
+    });
+  });
+
+  // Update linked Purchase Order status if poReferenceId or poId provided
+  const poRef = req.body.poReferenceId || req.body.poId;
+  if (poRef) {
+    const po = purchaseOrders.find((p) => p.id === poRef || p.poNumber === poRef);
+    if (po) {
+      po.status = 'RECEIVED';
+      // Deduct incoming quantities for items matched in PO
+      po.items.forEach((poItem: any) => {
+        const stk = inventoryStock.find(
+          (s) => s.productId === poItem.productId && s.branchId === (po.branchId || targetBranchId)
+        );
+        if (stk) {
+          stk.incomingQty = Math.max(0, (stk.incomingQty || 0) - poItem.quantity);
+          stk.lastUpdated = new Date().toISOString();
+        }
+      });
+    }
+  }
+
   purchaseInvoices.unshift(newInv);
   res.status(201).json(newInv);
 });
@@ -1164,14 +1303,53 @@ app.post('/api/shipments', (req, res) => {
     ...req.body,
   };
 
-  // Decrement source stock if inter-branch
+  // Decrement source stock if inter-branch and increment incoming at destination
   if (req.body.type === 'INTER_BRANCH' && req.body.sourceBranchId) {
     req.body.items.forEach((item: any) => {
-      const stk = inventoryStock.find(
+      const sourceStk = inventoryStock.find(
         (s) => s.productId === item.productId && s.branchId === req.body.sourceBranchId
       );
-      if (stk) {
-        stk.quantityOnHand = Math.max(0, stk.quantityOnHand - item.quantitySent);
+      if (sourceStk) {
+        const qtyBefore = sourceStk.quantityOnHand;
+        sourceStk.quantityOnHand = Math.max(0, sourceStk.quantityOnHand - item.quantitySent);
+        sourceStk.lastUpdated = new Date().toISOString();
+
+        transactionLogs.unshift({
+          id: `txn-${Date.now()}-${item.productId}-src`,
+          transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+          productId: item.productId,
+          productSku: item.sku || '',
+          productName: item.productName || '',
+          branchId: req.body.sourceBranchId,
+          changeType: 'SHIPMENT_TRANSFER',
+          quantityBefore: qtyBefore,
+          quantityChanged: -item.quantitySent,
+          quantityAfter: sourceStk.quantityOnHand,
+          unitCost: 0,
+          referenceDocId: newShipment.trackingCode,
+          timestampAD: new Date().toISOString(),
+          timestampBS: '2083-04-16 BS',
+        });
+      }
+
+      if (req.body.destinationBranchId) {
+        let destStk = inventoryStock.find(
+          (s) => s.productId === item.productId && s.branchId === req.body.destinationBranchId
+        );
+        if (!destStk) {
+          destStk = {
+            id: `stk-${req.body.destinationBranchId.toLowerCase()}-${item.productId}`,
+            productId: item.productId,
+            branchId: req.body.destinationBranchId,
+            quantityOnHand: 0,
+            reservedQty: 0,
+            incomingQty: 0,
+            lastUpdated: new Date().toISOString(),
+          };
+          inventoryStock.push(destStk);
+        }
+        destStk.incomingQty = (destStk.incomingQty || 0) + item.quantitySent;
+        destStk.lastUpdated = new Date().toISOString();
       }
     });
   }
@@ -1504,24 +1682,43 @@ app.patch('/api/customer-devices/:id/status', (req, res) => {
 
 // Financial Reports Summary
 app.get('/api/reports/financial-summary', (req, res) => {
-  const totalInventoryAssetValue = inventoryStock.reduce((sum, item) => {
+  const { branchId } = req.query;
+  let targetStock = inventoryStock;
+  let targetAssets = assetRegister;
+  let targetInvoices = purchaseInvoices;
+  let targetOps = stockOperations;
+
+  if (branchId && branchId !== 'ALL') {
+    targetStock = inventoryStock.filter((s) => s.branchId === branchId);
+    targetAssets = assetRegister.filter((a) => a.branchId === branchId);
+    targetInvoices = purchaseInvoices.filter((inv) => inv.branchId === branchId);
+    targetOps = stockOperations.filter((op) => op.branchId === branchId);
+  }
+
+  const totalInventoryAssetValue = targetStock.reduce((sum, item) => {
     const prod = products.find((p) => p.id === item.productId);
     return sum + (prod ? prod.costPrice * item.quantityOnHand : 0);
   }, 0);
 
-  const totalFixedAssetValue = assetRegister.reduce((sum, a) => sum + a.netBookValue, 0);
-
-  const totalAccountsPayable = purchaseInvoices.reduce(
-    (sum, inv) => sum + (inv.grandTotal - inv.amountPaid),
+  const totalFixedAssetValue = targetAssets.reduce(
+    (sum, a) => sum + (a.netBookValue ?? 0),
     0
   );
 
-  const totalDamageLossValue = stockOperations.reduce(
-    (sum, op) => sum + op.totalValue,
+  const totalAccountsPayable = targetInvoices.reduce(
+    (sum, inv) => sum + Math.max(0, (inv.grandTotal ?? 0) - (inv.amountPaid ?? 0)),
     0
   );
 
-  const totalVatInputTax = purchaseInvoices.reduce((sum, inv) => sum + inv.vatAmount, 0);
+  const totalDamageLossValue = targetOps.reduce(
+    (sum, op) => sum + (op.totalValue ?? 0),
+    0
+  );
+
+  const totalVatInputTax = targetInvoices.reduce(
+    (sum, inv) => sum + (inv.vatAmount ?? 0),
+    0
+  );
 
   const currentFy = fiscalYears.find((f) => f.isCurrent)?.code || '2082/83';
 

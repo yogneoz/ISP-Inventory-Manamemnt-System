@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PurchaseInvoice, PurchaseInvoiceItem, Product, Branch, InventoryStock, DeviceSerialPair } from '../types';
+import { PurchaseInvoice, PurchaseInvoiceItem, PurchaseOrder, Product, Branch, InventoryStock, DeviceSerialPair } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
 import { exportToCSV } from '../utils/exportUtils';
 import { ProductSearchBar } from './ProductSearchBar';
@@ -22,6 +22,10 @@ import {
   Barcode,
   Wifi,
   Download,
+  ShoppingCart,
+  Link,
+  CheckSquare,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface PurchaseInvoicesProps {
@@ -29,10 +33,11 @@ interface PurchaseInvoicesProps {
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
+  purchaseOrders?: PurchaseOrder[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
-  onCreateInvoice: (inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'>) => Promise<void>;
+  onCreateInvoice: (inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'> & { poReferenceId?: string }) => Promise<void>;
   onRecordPayment: (id: string, amount: number) => Promise<void>;
   isDarkMode?: boolean;
 }
@@ -62,6 +67,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   products,
   branches,
   stock,
+  purchaseOrders = [],
   selectedBranchId,
   dateMode,
   autoOpenModal = false,
@@ -72,6 +78,16 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
   const [viewingInvoice, setViewingInvoice] = useState<PurchaseInvoice | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Link Purchase Order State
+  const [selectedPoId, setSelectedPoId] = useState<string>('');
+  const [isPoSelectModalOpen, setIsPoSelectModalOpen] = useState<boolean>(false);
+  const [poSearchQuery, setPoSearchQuery] = useState<string>('');
+  const [isPoChecklistOpen, setIsPoChecklistOpen] = useState<boolean>(false);
+
+  // Bill-wise Discount State
+  const [billDiscountType, setBillDiscountType] = useState<'AMOUNT' | 'PERCENT'>('AMOUNT');
+  const [billDiscountValue, setBillDiscountValue] = useState<number>(0);
 
   // Form State
   const [supplierName, setSupplierName] = useState(DB_SUPPLIERS[0]);
@@ -87,6 +103,18 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
   // Multi-Item Bill Lines (empty by default until scanned/searched)
   const [lines, setLines] = useState<InvoiceFormLine[]>([]);
+
+  // Pending POs list for selection
+  const pendingPOs = purchaseOrders.filter(
+    (po) => po.status !== 'RECEIVED' && po.status !== 'CANCELLED'
+  );
+  const activePO = purchaseOrders.find((po) => po.id === selectedPoId || po.poNumber === selectedPoId);
+
+  const filteredPendingPOs = pendingPOs.filter(
+    (po) =>
+      po.poNumber.toLowerCase().includes(poSearchQuery.toLowerCase()) ||
+      po.supplierName.toLowerCase().includes(poSearchQuery.toLowerCase())
+  );
 
   const filteredInvoices = invoices.filter((inv) => {
     const matchesBranch = selectedBranchId === 'ALL' || inv.branchId === selectedBranchId;
@@ -210,20 +238,27 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     setLines(updated);
   };
 
-  // Bill-wise Taxation Calculations
+  // Bill-wise Calculations
   const calculatedLines = lines.map((l) => {
     const gross = l.quantity * l.unitPrice;
-    const netSubtotal = Math.max(0, gross - l.discount);
     return {
       ...l,
       gross,
-      netSubtotal,
+      netSubtotal: gross,
     };
   });
 
   const grossSubtotal = calculatedLines.reduce((acc, curr) => acc + curr.gross, 0);
-  const totalDiscount = calculatedLines.reduce((acc, curr) => acc + curr.discount, 0);
-  const netBillSubtotal = grossSubtotal - totalDiscount;
+
+  // Bill-wise Discount calculation
+  let totalDiscount = 0;
+  if (billDiscountType === 'PERCENT') {
+    totalDiscount = Math.min(grossSubtotal, (grossSubtotal * (billDiscountValue || 0)) / 100);
+  } else {
+    totalDiscount = Math.min(grossSubtotal, billDiscountValue || 0);
+  }
+
+  const netBillSubtotal = Math.max(0, grossSubtotal - totalDiscount);
 
   // Bill-wise Tax Rate: 13% if TAXABLE_13, 0% if TAX_EXEMPTED
   const isBillTaxable = taxationType === 'TAXABLE_13';
@@ -264,6 +299,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     await onCreateInvoice({
       supplierName,
       vendorBillNumber,
+      poReferenceId: selectedPoId || undefined,
       branchId,
       invoiceDateAD: todayAD,
       invoiceDateBS: invBs.formattedBSShort,
@@ -575,6 +611,83 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </div>
               </div>
 
+              {/* Link Pending Purchase Order (Sleek Top Action Banner) */}
+              <div className="bg-gradient-to-r from-indigo-50 to-blue-50 p-3.5 rounded-xl border border-indigo-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                {!activePO ? (
+                  <div className="flex items-center justify-between w-full">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg">
+                        <ShoppingCart className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-900">
+                          Purchase Order Reference (Optional)
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          {pendingPOs.length > 0
+                            ? `${pendingPOs.length} pending PO(s) available for receiving.`
+                            : 'No pending POs found. Direct bill mode active.'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsPoSelectModalOpen(true)}
+                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
+                    >
+                      <Link className="h-3.5 w-3.5" />
+                      <span>Link / Import PO</span>
+                      {pendingPOs.length > 0 && (
+                        <span className="ml-1 bg-indigo-800 text-white text-[10px] px-1.5 py-0.5 rounded-full font-mono">
+                          {pendingPOs.length}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between w-full">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg">
+                        <CheckSquare className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                          <span>Linked PO: #{activePO.poNumber}</span>
+                          <span className="text-[10px] font-mono px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold border border-emerald-300">
+                            {activePO.supplierName}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Expected Items: {activePO.items.length} product line(s)
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsPoChecklistOpen(true)}
+                        className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                      >
+                        <Eye className="h-3.5 w-3.5 text-indigo-600" />
+                        <span>PO Item Checklist</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPoId('');
+                          setIsPoChecklistOpen(false);
+                        }}
+                        className="px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors cursor-pointer"
+                      >
+                        Unlink
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Item Search Bar / Barcode Scan Input (No Add Button) */}
               <div className="space-y-2">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
@@ -597,15 +710,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       <th className="p-2.5 w-24">SKU</th>
                       <th className="p-2.5 w-24 text-center">Qty</th>
                       <th className="p-2.5 w-28 text-right">Cost Rate</th>
-                      <th className="p-2.5 w-24 text-right">Discount</th>
-                      <th className="p-2.5 w-28 text-right">Line Subtotal</th>
+                      <th className="p-2.5 w-32 text-right">Line Subtotal</th>
                       <th className="p-2.5 w-10 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {lines.length === 0 ? (
                       <tr>
-                        <td colSpan={8} className="p-8 text-center text-slate-400 text-xs italic">
+                        <td colSpan={7} className="p-8 text-center text-slate-400 text-xs italic">
                           No items added yet. Use the product search bar above to scan or search items.
                         </td>
                       </tr>
@@ -618,15 +730,41 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             </td>
                             <td className="p-2.5 font-bold text-slate-900">
                               <div>{line.productName}</div>
+                              {activePO && (() => {
+                                const poItem = activePO.items.find((p) => p.productId === line.productId);
+                                if (poItem) {
+                                  const isExact = line.quantity === poItem.quantity;
+                                  const isExceed = line.quantity > poItem.quantity;
+                                  return (
+                                    <div className={`mt-1 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                      isExact
+                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                        : isExceed
+                                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                        : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                    }`}>
+                                      <CheckCircle2 className="h-3 w-3" />
+                                      <span>In PO #{activePO.poNumber} (Ordered: {poItem.quantity})</span>
+                                    </div>
+                                  );
+                                } else {
+                                  return (
+                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                                      <AlertTriangle className="h-3 w-3 text-amber-600" />
+                                      <span>⚠️ Extra / Not in PO #{activePO.poNumber}</span>
+                                    </div>
+                                  );
+                                }
+                              })()}
                               {(() => {
                                 const prod = products.find((p) => p.id === line.productId);
                                 const isSerialized = prod ? prod.requiresSerialTracking !== false : true;
                                 return isSerialized ? (
-                                  <div className="text-[10px] text-blue-600 font-medium">
+                                  <div className="text-[10px] text-blue-600 font-medium mt-0.5">
                                     Device & PON Serial Tracking ({line.quantity} Unit{line.quantity > 1 ? 's' : ''})
                                   </div>
                                 ) : (
-                                  <div className="text-[10px] text-emerald-600 font-medium">
+                                  <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
                                     Bulk Consumable Item ({line.quantity} {line.unit})
                                   </div>
                                 );
@@ -653,15 +791,6 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 className="w-24 text-right rounded-lg border border-slate-300 bg-white p-1 text-xs font-mono font-medium text-slate-900"
                               />
                             </td>
-                            <td className="p-2.5 text-right">
-                              <input
-                                type="number"
-                                min={0}
-                                value={line.discount}
-                                onChange={(e) => updateLineDiscount(idx, Number(e.target.value))}
-                                className="w-20 text-right rounded-lg border border-slate-300 bg-white p-1 text-xs font-mono text-amber-600 font-semibold"
-                              />
-                            </td>
                             <td className="p-2.5 text-right font-mono font-extrabold text-slate-900">
                               {line.netSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
@@ -684,7 +813,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             if (!isSerialized) {
                               return (
                                 <tr className="bg-slate-100/50 border-b border-slate-200">
-                                  <td colSpan={8} className="px-4 py-2">
+                                  <td colSpan={7} className="px-4 py-2">
                                     <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
                                       <Tag className="h-3.5 w-3.5 text-slate-400" />
                                       <span>Bulk Consumable Item — Serial & MAC tracking skipped ({line.quantity} {line.unit})</span>
@@ -696,7 +825,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
                             return (
                               <tr className="bg-blue-50/40 border-b border-slate-200">
-                                <td colSpan={8} className="px-4 py-2.5">
+                                <td colSpan={7} className="px-4 py-2.5">
                                   <div className="text-[11px] font-bold text-blue-900 mb-1.5 flex items-center gap-1.5">
                                     <Barcode className="h-3.5 w-3.5 text-blue-600" />
                                     <span>Serial Numbers for {line.productName} (Qty: {line.quantity})</span>
@@ -893,6 +1022,205 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 1: Searchable PO Selection Dialog */}
+      {isPoSelectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden text-slate-800">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5 text-indigo-600" />
+                <h3 className="font-bold text-slate-900 text-sm">
+                  Select Purchase Order to Link / Receive
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPoSelectModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search by PO Number or Vendor Name..."
+                  value={poSearchQuery}
+                  onChange={(e) => setPoSearchQuery(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 pl-9 pr-3 py-2 text-xs text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
+                {filteredPendingPOs.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-400">
+                    No pending purchase orders match your search.
+                  </div>
+                ) : (
+                  filteredPendingPOs.map((po) => {
+                    const isCurrent = po.id === selectedPoId;
+                    return (
+                      <div
+                        key={po.id}
+                        className={`p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 ${
+                          isCurrent
+                            ? 'bg-indigo-50/80 border-indigo-300 shadow-xs'
+                            : 'bg-white border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-extrabold text-xs text-indigo-900">
+                              PO #{po.poNumber}
+                            </span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 uppercase">
+                              {po.status}
+                            </span>
+                          </div>
+                          <div className="text-xs font-bold text-slate-800 truncate mt-0.5">
+                            {po.supplierName}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-3">
+                            <span>📅 {po.orderDateAD}</span>
+                            <span>📦 {po.items.length} item line(s)</span>
+                            <span className="font-mono font-semibold text-slate-700">रु {po.totalAmount.toLocaleString()}</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPoId(po.id);
+                            if (po.supplierName) setSupplierName(po.supplierName);
+                            if (po.branchId) setBranchId(po.branchId);
+                            setIsPoSelectModalOpen(false);
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0 ${
+                            isCurrent
+                              ? 'bg-indigo-700 text-white shadow-xs'
+                              : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white border border-indigo-200'
+                          }`}
+                        >
+                          {isCurrent ? 'Linked ✓' : 'Select PO'}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-between items-center text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPoId('');
+                  setIsPoSelectModalOpen(false);
+                }}
+                className="text-slate-500 hover:text-slate-800 font-medium"
+              >
+                Clear Selection (Direct Purchase)
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPoSelectModalOpen(false)}
+                className="px-4 py-1.5 bg-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-300"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 2: Active PO Item Checklist Dialog */}
+      {isPoChecklistOpen && activePO && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden text-slate-800">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center gap-2">
+                <CheckSquare className="h-5 w-5 text-indigo-600" />
+                <div>
+                  <h3 className="font-bold text-slate-900 text-sm">
+                    PO Verification Checklist — #{activePO.poNumber}
+                  </h3>
+                  <div className="text-[11px] text-slate-500">Supplier: {activePO.supplierName}</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPoChecklistOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
+              <div className="text-xs text-slate-600 bg-blue-50 p-3 rounded-xl border border-blue-200">
+                💡 <strong>How receiving works:</strong> As you scan or search product items into the Purchase Invoice form below, this checklist automatically updates received counts.
+              </div>
+
+              <div className="space-y-2">
+                {activePO.items.map((poItem) => {
+                  const matchedLine = lines.find((l) => l.productId === poItem.productId);
+                  const scannedQty = matchedLine ? matchedLine.quantity : 0;
+                  const isComplete = scannedQty === poItem.quantity;
+                  const isOver = scannedQty > poItem.quantity;
+                  const isStarted = scannedQty > 0;
+
+                  return (
+                    <div
+                      key={poItem.id}
+                      className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                        isComplete
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                          : isOver
+                          ? 'bg-rose-50 border-rose-300 text-rose-950'
+                          : isStarted
+                          ? 'bg-amber-50 border-amber-300 text-amber-950'
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-slate-900">{poItem.productName}</div>
+                        <div className="text-[11px] text-slate-500">
+                          Ordered Quantity: <strong className="text-slate-800">{poItem.quantity} {poItem.unit}</strong> @ Rs {poItem.unitPrice.toLocaleString()}
+                        </div>
+                      </div>
+
+                      <div className="text-right font-mono">
+                        <div className={`font-extrabold text-sm ${
+                          isComplete ? 'text-emerald-700' : isOver ? 'text-rose-700' : isStarted ? 'text-amber-700' : 'text-slate-400'
+                        }`}>
+                          {scannedQty} / {poItem.quantity}
+                        </div>
+                        <div className="text-[10px] font-bold">
+                          {isComplete ? '✓ Fully Scanned' : isOver ? '⚠️ Exceeds Order' : isStarted ? '⏳ Partially Scanned' : 'Not Scanned Yet'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 border-t border-slate-200 text-right">
+              <button
+                type="button"
+                onClick={() => setIsPoChecklistOpen(false)}
+                className="px-4 py-1.5 bg-indigo-600 text-white font-bold text-xs rounded-lg hover:bg-indigo-700"
+              >
+                Done Inspecting
+              </button>
             </div>
           </div>
         </div>

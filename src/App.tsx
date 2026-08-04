@@ -144,7 +144,7 @@ export default function App() {
       ] = await Promise.all([
         api.getBranches(),
         api.getProducts(),
-        api.getStock(selectedBranchId),
+        api.getStock('ALL'),
         api.getAssets(selectedBranchId),
         api.getCustomerDevices(selectedBranchId),
         api.getPurchaseOrders(selectedBranchId),
@@ -154,7 +154,7 @@ export default function App() {
         api.getFiscalYears(),
         api.getAuditLogs(),
         api.getTransactionLogs(),
-        api.getFinancialSummary(),
+        api.getFinancialSummary(selectedBranchId),
         api.getSuppliers(),
         api.getUsers(),
       ]);
@@ -243,9 +243,11 @@ export default function App() {
   const handleUpdateStockLevel = async (
     stockId: string,
     newQty: number,
-    reason: string
+    reason: string,
+    damagedQty?: number,
+    changeType?: string
   ) => {
-    await api.updateStockLevel(stockId, newQty, reason);
+    await api.updateStockLevel(stockId, newQty, reason, damagedQty, changeType);
     refreshAllData();
   };
 
@@ -549,6 +551,7 @@ export default function App() {
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   onNavigateTab={setActiveTab}
+                  onSelectBranch={handleSelectBranch}
                   onOpenAiModal={() => setIsAiModalOpen(true)}
                   onGroupLowStockPO={handleGroupLowStockPO}
                   onUpdateStockLevel={handleUpdateStockLevel}
@@ -755,6 +758,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   autoOpenModal={true}
@@ -770,6 +774,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  purchaseOrders={purchaseOrders}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   autoOpenModal={false}

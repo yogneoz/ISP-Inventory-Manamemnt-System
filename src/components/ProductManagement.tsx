@@ -14,7 +14,69 @@ import {
   Barcode,
   Layers,
   CheckCircle2,
+  Printer,
+  TrendingDown,
 } from 'lucide-react';
+
+const CODE39_MAP: Record<string, string> = {
+  '0': '10100110110', '1': '11010010101', '2': '10110010101', '3': '11011001010', '4': '10100110101',
+  '5': '11010011010', '6': '10110011010', '7': '10100101101', '8': '11010010110', '9': '10110010110',
+  'A': '11010100101', 'B': '10110100101', 'C': '11011010010', 'D': '10101100101', 'E': '11010110010',
+  'F': '10110110010', 'G': '10100101101', 'H': '11010010101', 'I': '10110010101', 'J': '10101101001',
+  'K': '11010101001', 'L': '10110101001', 'M': '11011010100', 'N': '10101101001', 'O': '11010110100',
+  'P': '10110110100', 'Q': '10100110101', 'R': '11010011010', 'S': '10110011010', 'T': '10101101100',
+  'U': '11001010101', 'V': '10011010101', 'W': '11001101010', 'X': '10010110101', 'Y': '11001011010',
+  'Z': '10011011010', '-': '10010101101', '.': '11001010110', ' ': '10011010110', '*': '10010110110',
+  '$': '10010010010', '/': '10010010100', '+': '10010100100', '%': '10100100100',
+};
+
+export const Code39BarcodeSVG: React.FC<{
+  code: string;
+  height?: number;
+  barWidth?: number;
+  showText?: boolean;
+}> = ({ code, height = 45, barWidth = 1.8, showText = true }) => {
+  const cleanCode = (code || 'ADP001').toUpperCase().replace(/[^0-9A-Z\-.\s$/+%]/g, '') || 'ADP001';
+  const fullText = `*${cleanCode}*`;
+
+  let patternString = '';
+  for (let i = 0; i < fullText.length; i++) {
+    const char = fullText[i];
+    patternString += (CODE39_MAP[char] || CODE39_MAP['*']) + '0';
+  }
+
+  const svgWidth = Math.max(120, patternString.length * barWidth);
+
+  return (
+    <div className="inline-flex flex-col items-center select-none">
+      <svg
+        width={svgWidth}
+        height={height}
+        viewBox={`0 0 ${svgWidth} ${height}`}
+        className="bg-white p-1 rounded border border-slate-200"
+        shapeRendering="crispEdges"
+      >
+        {patternString.split('').map((bit, idx) =>
+          bit === '1' ? (
+            <rect
+              key={idx}
+              x={idx * barWidth}
+              y={0}
+              width={barWidth}
+              height={height}
+              fill="#000000"
+            />
+          ) : null
+        )}
+      </svg>
+      {showText && (
+        <span className="font-mono font-extrabold text-[11px] tracking-widest text-slate-900 mt-1">
+          {cleanCode}
+        </span>
+      )}
+    </div>
+  );
+};
 
 interface ProductManagementProps {
   products: Product[];
@@ -46,6 +108,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
+  // Barcode Printing State
+  const [printingProduct, setPrintingProduct] = useState<Product | null>(null);
+  const [labelCopies, setLabelCopies] = useState<number>(1);
+  const [showPriceOnLabel, setShowPriceOnLabel] = useState<boolean>(true);
+
   // Form state
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState('');
@@ -59,6 +126,12 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [minReorderLevel, setMinReorderLevel] = useState<number>(10);
   const [requiresSerialTracking, setRequiresSerialTracking] = useState<boolean>(true);
   const [description, setDescription] = useState('');
+
+  // Fixed Asset Depreciation Form State
+  const [depreciationMethod, setDepreciationMethod] = useState<'STRAIGHT_LINE' | 'DECLINING_BALANCE' | 'WRITTEN_DOWN_VALUE'>('STRAIGHT_LINE');
+  const [depreciationRate, setDepreciationRate] = useState<number>(15);
+  const [usefulLifeYears, setUsefulLifeYears] = useState<number>(5);
+  const [salvageValuePercent, setSalvageValuePercent] = useState<number>(10);
 
   const categories = Array.from(new Set(products.map((p) => p.category)));
 
@@ -92,8 +165,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
   const openCreateModal = () => {
     setEditingProduct(null);
-    setSku(`IZ-${Math.floor(100000 + Math.random() * 900000)}`);
-    setBarcode(`890${Math.floor(100000000 + Math.random() * 900000000)}`);
+    const newSku = `ADP${Math.floor(100 + Math.random() * 900)}`;
+    setSku(newSku);
+    setBarcode(newSku);
     setName('');
     setCategory('Electronics');
     setProductGroup('Product Item');
@@ -104,13 +178,17 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     setMinReorderLevel(10);
     setRequiresSerialTracking(true);
     setDescription('');
+    setDepreciationMethod('STRAIGHT_LINE');
+    setDepreciationRate(15);
+    setUsefulLifeYears(5);
+    setSalvageValuePercent(10);
     setIsModalOpen(true);
   };
 
   const openEditModal = (p: Product) => {
     setEditingProduct(p);
     setSku(p.sku);
-    setBarcode(p.barcode);
+    setBarcode(p.barcode || p.sku);
     setName(p.name);
     setCategory(p.category);
     setProductGroup(p.productGroup || 'Product Item');
@@ -121,16 +199,26 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     setMinReorderLevel(p.minReorderLevel);
     setRequiresSerialTracking(p.requiresSerialTracking !== false);
     setDescription(p.description || '');
+    setDepreciationMethod(p.depreciationMethod || 'STRAIGHT_LINE');
+    setDepreciationRate(p.depreciationRate ?? 15);
+    setUsefulLifeYears(p.usefulLifeYears ?? 5);
+    setSalvageValuePercent(p.salvageValuePercent ?? 10);
     setIsModalOpen(true);
+  };
+
+  const openPrintBarcodeModal = (p: Product) => {
+    setPrintingProduct(p);
+    setLabelCopies(1);
+    setShowPriceOnLabel(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
-    const payload = {
+    const payload: Partial<Product> = {
       sku,
-      barcode,
+      barcode: barcode || sku,
       name,
       category,
       productGroup,
@@ -142,18 +230,50 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
       requiresSerialTracking,
       trackingType: (requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY') as 'SERIAL_MAC_PON' | 'QUANTITY_ONLY',
       description,
+      ...(productGroup === 'Fixed Asset'
+        ? {
+            depreciationMethod,
+            depreciationRate: Number(depreciationRate),
+            usefulLifeYears: Number(usefulLifeYears),
+            salvageValuePercent: Number(salvageValuePercent),
+          }
+        : {
+            depreciationMethod: undefined,
+            depreciationRate: undefined,
+            usefulLifeYears: undefined,
+            salvageValuePercent: undefined,
+          }),
     };
 
     if (editingProduct) {
       await onUpdateProduct(editingProduct.id, payload);
     } else {
-      await onCreateProduct(payload);
+      await onCreateProduct(payload as Omit<Product, 'id'>);
     }
     setIsModalOpen(false);
   };
 
   return (
     <div className="flex flex-col h-[calc(100vh-6.5rem)] overflow-hidden space-y-4">
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #barcode-print-area, #barcode-print-area * {
+            visibility: visible !important;
+          }
+          #barcode-print-area {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            background: white !important;
+            color: black !important;
+          }
+        }
+      `}</style>
+
       {/* Header bar */}
       <div className="flex-none flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -165,7 +285,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
           </h2>
           <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
             {mode === 'product-master'
-              ? 'Master SKU catalog specification: Product Name, Barcode, Group (Fixed Asset/Item), Category, UoM, Cost & Selling Price, VAT %, and Reorder levels.'
+              ? 'Master SKU catalog specification: Product Code, Barcode, Fixed Asset Depreciation settings, Category, UoM, Pricing, VAT %, and Reorder levels.'
               : 'Live multi-branch inventory stock overview: on-hand balances, warehouse locations, and zero-stock filters.'}
           </p>
         </div>
@@ -189,7 +309,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             type="text"
             value={localSearch}
             onChange={(e) => setLocalSearch(e.target.value)}
-            placeholder="Scan Barcode or Search Product Name / SKU:"
+            placeholder="Scan Barcode or Search Product Code (ADP001) / Name:"
             className={`w-full rounded-lg border pl-8 pr-2.5 py-1 text-xs focus:outline-none focus:border-indigo-500 ${
               isDarkMode
                 ? 'bg-slate-900 border-slate-800 text-slate-200 placeholder-slate-500'
@@ -255,7 +375,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
         </div>
       </div>
 
-      {/* Products Table with Frozen Header and Scrollable Body */}
+      {/* Products Table */}
       <div className={`flex-1 min-h-0 flex flex-col rounded-xl border shadow-md overflow-hidden ${
         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
       }`}>
@@ -265,9 +385,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
               isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
             }`}>
               <tr>
-                <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Product SKU / Barcode</th>
+                <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Product Code / Barcode</th>
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Product Details</th>
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Product Group</th>
+                <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Depreciation (Fixed Asset)</th>
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit">Category</th>
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Tracking Mode</th>
                 <th className="px-2.5 py-1.5 sticky top-0 bg-inherit text-center">Available Stock</th>
@@ -282,7 +403,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
               {filteredProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="p-6 text-center text-slate-500 text-xs">
+                  <td colSpan={13} className="p-6 text-center text-slate-500 text-xs">
                     No matching available stock items found. Toggle "Available Stock (&gt;0)" to view all stock items including zero-stock products.
                   </td>
                 </tr>
@@ -295,10 +416,12 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                     }`}>
                       <td className="px-2.5 py-1.5">
-                        <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{p.sku}</div>
+                        <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                          <span>{p.sku}</span>
+                        </div>
                         <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
-                          <Barcode className="h-3 w-3" />
-                          <span>{p.barcode}</span>
+                          <Barcode className="h-3 w-3 text-slate-400" />
+                          <span>{p.barcode || p.sku}</span>
                         </div>
                       </td>
                       <td className="px-2.5 py-1.5">
@@ -315,6 +438,25 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         }`}>
                           {grp}
                         </span>
+                      </td>
+                      <td className="px-2.5 py-1.5">
+                        {grp === 'Fixed Asset' ? (
+                          <div className="flex flex-col text-[10px]">
+                            <span className="font-bold text-purple-700 dark:text-purple-300">
+                              {p.depreciationMethod === 'WRITTEN_DOWN_VALUE'
+                                ? 'WDV'
+                                : p.depreciationMethod === 'DECLINING_BALANCE'
+                                ? 'Declining'
+                                : 'SLM'}{' '}
+                              @ {p.depreciationRate ?? 15}%/yr
+                            </span>
+                            <span className="text-slate-500 text-[9px]">
+                              {p.usefulLifeYears ?? 5} yrs life • {p.salvageValuePercent ?? 10}% salvage
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 italic">—</span>
+                        )}
                       </td>
                       <td className="px-2.5 py-1.5">
                         <span className={`rounded-md px-2 py-0.5 text-[10px] font-medium border ${
@@ -369,6 +511,13 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       <td className="px-2.5 py-1.5 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
+                            onClick={() => openPrintBarcodeModal(p)}
+                            title="Print Barcode Label for Product Code"
+                            className="p-1.5 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded transition-colors cursor-pointer"
+                          >
+                            <Printer className="h-3.5 w-3.5" />
+                          </button>
+                          <button
                             onClick={() => openEditModal(p)}
                             title="Edit Product"
                             className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
@@ -393,6 +542,131 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
         </div>
       </div>
 
+      {/* Print Barcode Modal */}
+      {printingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs overflow-y-auto">
+          <div className={`w-full max-w-lg rounded-2xl shadow-2xl border overflow-hidden my-8 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+          }`}>
+            <div id="barcode-print-area">
+              <div className={`p-4 border-b flex items-center justify-between ${
+                isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
+              } print:hidden`}>
+                <div className="flex items-center gap-2">
+                  <Printer className="h-5 w-5 text-indigo-500" />
+                  <h3 className="font-bold text-sm">Print Product Code Barcode Label</h3>
+                </div>
+                <button
+                  onClick={() => setPrintingProduct(null)}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="text-xs space-y-1 print:hidden">
+                  <div className="font-bold text-sm text-indigo-600 dark:text-indigo-400">
+                    Product Code: {printingProduct.sku}
+                  </div>
+                  <div className="font-semibold text-slate-800 dark:text-slate-200">
+                    {printingProduct.name}
+                  </div>
+                  <div className="text-slate-500 text-[11px]">
+                    Category: {printingProduct.category} | Group: {printingProduct.productGroup || 'Product Item'}
+                  </div>
+                </div>
+
+                {/* Print Controls */}
+                <div className="grid grid-cols-2 gap-3 p-3 rounded-xl border bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 print:hidden">
+                  <div>
+                    <label className="block text-[11px] font-semibold mb-1 opacity-80">
+                      Label Copies
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={labelCopies}
+                      onChange={(e) => setLabelCopies(Math.max(1, Math.min(100, Number(e.target.value))))}
+                      className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none ${
+                        isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-white text-slate-900'
+                      }`}
+                    />
+                  </div>
+                  <div className="flex items-center pt-5">
+                    <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showPriceOnLabel}
+                        onChange={(e) => setShowPriceOnLabel(e.target.checked)}
+                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      Include Price on Label
+                    </label>
+                  </div>
+                </div>
+
+                {/* Printable Labels Container */}
+                <div className="border rounded-xl p-4 bg-slate-100 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 flex flex-wrap gap-4 justify-center max-h-80 overflow-y-auto">
+                  {Array.from({ length: labelCopies }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="w-56 p-3 bg-white text-slate-900 rounded-lg border border-slate-300 shadow-sm flex flex-col items-center text-center print:break-inside-avoid print:shadow-none print:border-black"
+                    >
+                      <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 line-clamp-1 w-full">
+                        {printingProduct.category}
+                      </div>
+                      <div className="text-xs font-bold text-slate-900 line-clamp-1 w-full my-0.5">
+                        {printingProduct.name}
+                      </div>
+
+                      {/* Vector Barcode for Product Code */}
+                      <div className="my-1.5">
+                        <Code39BarcodeSVG
+                          code={printingProduct.sku || printingProduct.barcode}
+                          height={45}
+                          barWidth={1.8}
+                          showText={true}
+                        />
+                      </div>
+
+                      {showPriceOnLabel && (
+                        <div className="text-xs font-mono font-extrabold text-slate-900 mt-0.5">
+                          NPR {printingProduct.sellingPrice.toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className={`p-4 border-t flex items-center justify-between ${
+                isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
+              } print:hidden`}>
+                <button
+                  type="button"
+                  onClick={() => setPrintingProduct(null)}
+                  className={`px-4 py-2 rounded-xl text-xs font-semibold border cursor-pointer ${
+                    isDarkMode ? 'border-slate-700 hover:bg-slate-800' : 'border-slate-300 hover:bg-slate-100'
+                  }`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-md transition-all cursor-pointer"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>Print Barcode Label{labelCopies > 1 ? 's' : ''}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Product Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
@@ -403,9 +677,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
               isDarkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'
             }`}>
               <h3 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                {editingProduct ? 'Edit Product SKU' : 'Create New Product SKU'}
+                {editingProduct ? 'Edit Product SKU Specification' : 'Create New Product SKU'}
               </h3>
               <button
+                type="button"
                 onClick={() => setIsModalOpen(false)}
                 className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg cursor-pointer"
               >
@@ -417,13 +692,18 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold mb-1 opacity-80">
-                    SKU Code
+                    Product Code (SKU)
                   </label>
                   <input
                     type="text"
                     required
                     value={sku}
-                    onChange={(e) => setSku(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSku(val);
+                      setBarcode(val);
+                    }}
+                    placeholder="e.g. ADP001"
                     className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${
                       isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
                     }`}
@@ -438,6 +718,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     required
                     value={barcode}
                     onChange={(e) => setBarcode(e.target.value)}
+                    placeholder="e.g. ADP001"
                     className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${
                       isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
                     }`}
@@ -454,7 +735,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Dell Latitude Laptop 15-inch"
+                  placeholder="e.g. 0 DB ADAPTAR-FA or Dell Latitude Laptop"
                   className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
                     isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
                   }`}
@@ -500,12 +781,13 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         setMinReorderLevel(0);
                       }
                     }}
-                    placeholder="e.g. Fixed Assets, Electronics, Furniture"
+                    placeholder="e.g. Adaptor, Fixed Assets, Electronics"
                     className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
                       isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
                     }`}
                   />
                   <datalist id="product-categories-list">
+                    <option value="Adaptor" />
                     <option value="Fixed Assets" />
                     <option value="Electronics" />
                     <option value="Furniture" />
@@ -514,6 +796,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     <option value="IT Hardware" />
                   </datalist>
                 </div>
+
                 <div>
                   <label className="block text-[11px] font-semibold mb-1 opacity-80">
                     Unit
@@ -534,6 +817,87 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   </select>
                 </div>
               </div>
+
+              {/* Fixed Asset Depreciation Configuration Block */}
+              {productGroup === 'Fixed Asset' && (
+                <div className={`p-3 rounded-xl border space-y-2.5 ${
+                  isDarkMode ? 'bg-purple-950/20 border-purple-800/40' : 'bg-purple-50/70 border-purple-200'
+                }`}>
+                  <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300 text-xs font-bold">
+                    <TrendingDown className="h-4 w-4" />
+                    <span>Fixed Asset Depreciation Settings</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold mb-1 opacity-80">
+                        Depreciation Method
+                      </label>
+                      <select
+                        value={depreciationMethod}
+                        onChange={(e) => setDepreciationMethod(e.target.value as any)}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 ${
+                          isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-white text-slate-900'
+                        }`}
+                      >
+                        <option value="STRAIGHT_LINE">Straight Line Method (SLM)</option>
+                        <option value="DECLINING_BALANCE">Declining Balance Method</option>
+                        <option value="WRITTEN_DOWN_VALUE">Written Down Value (WDV)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold mb-1 opacity-80">
+                        Annual Depreciation Rate (%)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.1}
+                        value={depreciationRate}
+                        onChange={(e) => setDepreciationRate(Number(e.target.value))}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 ${
+                          isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-white text-slate-900'
+                        }`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold mb-1 opacity-80">
+                        Useful Life (Years)
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={usefulLifeYears}
+                        onChange={(e) => setUsefulLifeYears(Number(e.target.value))}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 ${
+                          isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-white text-slate-900'
+                        }`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold mb-1 opacity-80">
+                        Salvage / Scrap Value (%)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={0.1}
+                        value={salvageValuePercent}
+                        onChange={(e) => setSalvageValuePercent(Number(e.target.value))}
+                        className={`w-full rounded-lg border px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:border-purple-500 ${
+                          isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-white text-slate-900'
+                        }`}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-3 gap-3">
                 <div>

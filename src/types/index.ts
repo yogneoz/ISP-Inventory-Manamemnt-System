@@ -46,6 +46,12 @@ export interface Product {
   trackingType?: 'SERIAL_MAC_PON' | 'QUANTITY_ONLY';
   description?: string;
   imageUrl?: string;
+
+  // Depreciation Settings (for productGroup === 'Fixed Asset')
+  depreciationMethod?: 'STRAIGHT_LINE' | 'DECLINING_BALANCE' | 'WRITTEN_DOWN_VALUE';
+  depreciationRate?: number; // Annual percentage e.g. 15 for 15%
+  usefulLifeYears?: number; // Useful life in years e.g. 5
+  salvageValuePercent?: number; // Salvage value % e.g. 10
 }
 
 export interface Category {
@@ -80,17 +86,21 @@ export interface Asset {
   id: string;
   tagNumber: string;
   name: string;
-  category: 'IT Equipment' | 'Furniture' | 'Machinery' | 'Vehicles' | 'Fixtures';
+  category: 'IT Equipment' | 'Furniture' | 'Machinery' | 'Vehicles' | 'Fixtures' | string;
   branchId: string;
   acquisitionDateAD: string;
   acquisitionDateBS: string;
   acquisitionCost: number;
-  depreciationMethod: 'STRAIGHT_LINE' | 'REDUCING_BALANCE';
+  depreciationMethod: 'STRAIGHT_LINE' | 'REDUCING_BALANCE' | 'DECLINING_BALANCE' | 'WRITTEN_DOWN_VALUE';
   depreciationRatePercent: number;
   accumulatedDepreciation: number;
   netBookValue: number;
   status: 'ACTIVE' | 'MAINTENANCE' | 'DISPOSED';
   disposalDateAD?: string;
+  supplierName?: string;
+  invoiceNo?: string;
+  purchaseInvoiceId?: string;
+  productId?: string;
 }
 
 export interface POLineItem {
@@ -282,7 +292,7 @@ export interface TransactionLog {
   productSku: string;
   productName: string;
   branchId: string;
-  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'PULLOUT' | 'DAMAGE' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT';
+  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'PULLOUT' | 'DAMAGE' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE';
   quantityBefore: number;
   quantityChanged: number;
   quantityAfter: number;

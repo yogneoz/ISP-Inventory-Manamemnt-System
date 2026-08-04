@@ -37,6 +37,10 @@ export const StockValuation: React.FC<StockValuationProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [subView, setSubView] = useState<'ITEMIZED' | 'CATEGORY' | 'BRANCH'>('ITEMIZED');
 
+  React.useEffect(() => {
+    setActiveBranchId(selectedBranchId);
+  }, [selectedBranchId]);
+
   const categories = Array.from(new Set(products.map((p) => p.category)));
   const visibleBranches = activeBranchId === 'ALL'
     ? branches
@@ -61,9 +65,12 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     const marginPercent = retailValuation > 0 ? (potentialMargin / retailValuation) * 100 : 0;
     const damagedLoss = totalDamaged * prod.costPrice;
 
-    const isLow = prod.minReorderLevel > 0
-      ? totalOnHand <= prod.minReorderLevel
-      : totalOnHand < 0;
+    const isLow = visibleBranches.some((b) => {
+      const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
+      const onHand = item ? item.quantityOnHand : 0;
+      const threshold = item?.minReorderLevel ?? prod.minReorderLevel;
+      return threshold > 0 ? onHand <= threshold : onHand <= 0;
+    });
 
     const isOutOfStock = totalOnHand <= 0;
 

@@ -151,10 +151,10 @@ export const api = {
     return fetchJson(`/api/stock${query}`);
   },
 
-  async updateStockLevel(stockId: string, quantityOnHand: number, reason: string): Promise<InventoryStock> {
+  async updateStockLevel(stockId: string, quantityOnHand: number, reason: string, damagedQty?: number, changeType?: string): Promise<InventoryStock> {
     return fetchJson(`/api/stock/${stockId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ quantityOnHand, reason }),
+      body: JSON.stringify({ quantityOnHand, reason, damagedQty, changeType }),
     });
   },
 
@@ -297,8 +297,9 @@ export const api = {
   },
 
   // Financial Summary
-  async getFinancialSummary(): Promise<FinancialSummary> {
-    return fetchJson('/api/reports/financial-summary');
+  async getFinancialSummary(branchId?: string): Promise<FinancialSummary> {
+    const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
+    return fetchJson(`/api/reports/financial-summary${query}`);
   },
 
   // Customer Devices & Serial Numbers

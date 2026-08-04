@@ -325,9 +325,21 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
 
               <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
                 <div className="flex justify-between text-slate-600">
-                  <span>Acquisition Date:</span>
+                  <span>Party Invoice / Purchase Date:</span>
                   <span className="font-mono font-bold">{selectedAssetDetail.acquisitionDateAD} ({selectedAssetDetail.acquisitionDateBS})</span>
                 </div>
+                {selectedAssetDetail.invoiceNo && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Party Invoice Ref #:</span>
+                    <span className="font-mono font-bold text-indigo-600">{selectedAssetDetail.invoiceNo}</span>
+                  </div>
+                )}
+                {selectedAssetDetail.supplierName && (
+                  <div className="flex justify-between text-slate-600">
+                    <span>Supplier / Vendor:</span>
+                    <span className="font-semibold text-slate-800">{selectedAssetDetail.supplierName}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-slate-600">
                   <span>Gross Acquisition Cost:</span>
                   <span className="font-mono font-bold">{selectedAssetDetail.acquisitionCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>

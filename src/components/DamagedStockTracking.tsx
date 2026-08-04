@@ -23,7 +23,7 @@ interface DamagedStockTrackingProps {
   branches: Branch[];
   stock: InventoryStock[];
   selectedBranchId: string;
-  onUpdateStockLevel?: (stockId: string, newQty: number, reason: string) => Promise<void>;
+  onUpdateStockLevel?: (stockId: string, newQty: number, reason: string, damagedQty?: number, changeType?: string) => Promise<void>;
   onNavigateTab?: (tab: NavTab) => void;
   isDarkMode?: boolean;
 }
@@ -105,8 +105,13 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   const handleDamagedSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingStock || !onUpdateStockLevel) return;
-    // We update stock via callback
-    await onUpdateStockLevel(editingStock.stockItem.id, editingStock.stockItem.quantityOnHand, `Damaged Stock set to ${newDamagedQty}: ${reason}`);
+    await onUpdateStockLevel(
+      editingStock.stockItem.id,
+      editingStock.stockItem.quantityOnHand,
+      `Damaged Stock set to ${newDamagedQty}: ${reason}`,
+      newDamagedQty,
+      'DAMAGE'
+    );
     setEditingStock(null);
   };
 

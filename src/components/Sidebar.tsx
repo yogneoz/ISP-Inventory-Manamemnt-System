@@ -96,19 +96,22 @@ interface SidebarProps {
   onSwitchUser?: (email: string, pass: string) => void;
 }
 
+interface NavChildDef {
+  id: NavTab;
+  label: string;
+  icon: React.ElementType;
+  badge?: number;
+  badgeColor?: string;
+  hasSeparatorAbove?: boolean;
+}
+
 interface NavGroupDef {
   id: string;
   title: string;
   shortLabel: string;
   icon: React.ElementType;
   badgeCount?: number;
-  children: {
-    id: NavTab;
-    label: string;
-    icon: React.ElementType;
-    badge?: number;
-    badgeColor?: string;
-  }[];
+  children: NavChildDef[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -130,18 +133,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Build filtered navigation groups based on role permissions
   const groups: NavGroupDef[] = [];
 
-  // 1. Dashboard Group
+  // 1. Overview & Analytics Group
   const dashboardChildren = [
-    { id: 'dashboard' as NavTab, label: 'Overview', icon: LayoutDashboard },
+    { id: 'dashboard' as NavTab, label: 'Executive Dashboard', icon: LayoutDashboard },
+    { id: 'stock-valuation' as NavTab, label: 'Stock Valuation & Insights', icon: DollarSign },
+    { id: 'customers' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
+  ];
+  groups.push({
+    id: 'dashboard',
+    title: 'Overview & Analytics',
+    shortLabel: 'Overview',
+    icon: LayoutDashboard,
+    children: dashboardChildren,
+  });
+
+  // 2. Inventory & Stock Matrix Group
+  const inventoryChildren = [
+    { id: 'stock-ledger' as NavTab, label: 'Stock Movement Ledger', icon: BookOpen },
     ...(!isBranchUser ? [{ id: 'all-stock' as NavTab, label: 'All Available Stock', icon: Package }] : []),
     {
       id: 'branch-stock' as NavTab,
-      label: isBranchUser ? 'My Branch Stock' : 'Stock By Branch',
+      label: isBranchUser ? 'My Branch Stock' : 'Branch Stock Matrix',
       icon: Store,
     },
     {
       id: 'reorder-stock' as NavTab,
-      label: 'Reorder Stock Matrix',
+      label: 'Reorder Level Manager',
       icon: Bell,
       badge: lowStockCount,
       badgeColor: 'bg-rose-500 text-white',
@@ -151,22 +168,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Damaged Stock Matrix',
       icon: AlertTriangle,
     },
-    { id: 'stock-valuation' as NavTab, label: 'Stock Valuation', icon: DollarSign },
-    { id: 'stock-ledger' as NavTab, label: 'Stock Movement Ledger', icon: BookOpen },
-    ...(!isClerk ? [{ id: 'fixed-assets' as NavTab, label: 'Fixed Asset Register', icon: Building }] : []),
-    { id: 'customers' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
   ];
   groups.push({
-    id: 'dashboard',
-    title: 'Dashboard',
-    shortLabel: 'Dashboard',
-    icon: LayoutDashboard,
+    id: 'inventory',
+    title: 'Inventory & Stock Matrix',
+    shortLabel: 'Inventory',
+    icon: Package,
     badgeCount: lowStockCount,
-    children: dashboardChildren,
+    children: inventoryChildren,
   });
 
-  // 2. Procurement Group
-  const procurementChildren = [
+  // 3. Procurement Group
+  const procurementChildren: NavChildDef[] = [
     ...(!isClerk
       ? [
           {
@@ -176,90 +189,121 @@ export const Sidebar: React.FC<SidebarProps> = ({
             badge: pendingPoCount,
             badgeColor: 'bg-indigo-600 text-white',
           },
+          {
+            id: 'create-purchase' as NavTab,
+            label: 'Create Purchase Invoice',
+            icon: PlusCircle,
+          },
         ]
       : []),
-    { id: 'po-list' as NavTab, label: 'Purchase Order View', icon: FileText },
-    ...(!isClerk ? [{ id: 'create-purchase' as NavTab, label: 'Create Purchase', icon: PlusCircle }] : []),
-    { id: 'purchase-list' as NavTab, label: 'Purchase Invoices', icon: Receipt },
+    {
+      id: 'po-list' as NavTab,
+      label: 'Purchase Order View',
+      icon: FileText,
+      hasSeparatorAbove: true,
+    },
+    {
+      id: 'purchase-list' as NavTab,
+      label: 'Purchase Invoice View',
+      icon: Receipt,
+    },
+    {
+      id: 'export-reports' as NavTab,
+      label: 'Procurement & Purchase Reports',
+      icon: Download,
+      hasSeparatorAbove: true,
+    },
   ];
   groups.push({
     id: 'procurement',
-    title: 'Procurement',
+    title: 'Procurement & Purchasing',
     shortLabel: 'Purchases',
     icon: ShoppingCart,
     badgeCount: pendingPoCount,
     children: procurementChildren,
   });
 
-  // 3. Logistics Group
+  // 4. Logistics Group
   const logisticsChildren = [
-    ...(isSuperAdmin ? [{ id: 'create-shipment' as NavTab, label: 'Create Shipment', icon: Send }] : []),
+    ...(isSuperAdmin ? [{ id: 'create-shipment' as NavTab, label: 'Create Shipment Transfer', icon: Send }] : []),
     {
       id: 'receive-shipment' as NavTab,
-      label: 'Receive Shipment',
+      label: 'Receive Shipment Transfer',
       icon: Inbox,
       badge: inTransitShipmentCount,
       badgeColor: 'bg-amber-500 text-white',
     },
-    { id: 'shipment-list' as NavTab, label: 'Shipment History', icon: History },
+    { id: 'shipment-list' as NavTab, label: 'Shipment Transfer History', icon: History },
   ];
   groups.push({
     id: 'logistics',
-    title: 'Logistics',
+    title: 'Logistics & Transfers',
     shortLabel: 'Logistics',
     icon: Truck,
     badgeCount: inTransitShipmentCount,
     children: logisticsChildren,
   });
 
-  // 4. Stock Operations Group
+  // 5. Stock Operations Group
   const stockOpsChildren = [
-    { id: 'pullout' as NavTab, label: 'Pullout', icon: ArrowUpRight },
-    { id: 'damage' as NavTab, label: 'Damage', icon: HeartOff },
-    { id: 'stock-out' as NavTab, label: 'Stock Out', icon: PackageMinus },
+    { id: 'pullout' as NavTab, label: 'Stock Pullout Operations', icon: ArrowUpRight },
+    { id: 'damage' as NavTab, label: 'Damaged Stock Operations', icon: HeartOff },
+    { id: 'stock-out' as NavTab, label: 'Stock Out & Dispatches', icon: PackageMinus },
     ...(!isClerk && !isAccountant ? [{ id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench }] : []),
   ];
   groups.push({
     id: 'stockops',
     title: 'Stock Operations',
-    shortLabel: 'Stock Ops',
+    shortLabel: 'Operations',
     icon: Layers,
     children: stockOpsChildren,
   });
 
-  // 5. Inventory Setup Group (Above Admin)
+  // 6. Fixed Assets Group
+  if (!isClerk) {
+    groups.push({
+      id: 'fixed-assets-group',
+      title: 'Fixed Assets & Tax',
+      shortLabel: 'Assets',
+      icon: Building,
+      children: [
+        { id: 'fixed-assets' as NavTab, label: 'Fixed Asset Register', icon: Building },
+        { id: 'depreciation-register' as NavTab, label: 'Tax Depreciation Schedule', icon: Calculator },
+      ],
+    });
+  }
+
+  // 7. Inventory Setup Group
   const inventorySetupChildren = [
-    { id: 'product-master' as NavTab, label: 'Product Master Page', icon: Package },
+    { id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package },
     { id: 'category-management' as NavTab, label: 'Category Management', icon: Grid },
     { id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler },
     ...(!isClerk ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }] : []),
-    ...(!isClerk ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Management', icon: Users }] : []),
-    ...(isSuperAdmin ? [{ id: 'users' as NavTab, label: 'Users Management', icon: UserCheck }] : []),
-    { id: 'import-stock' as NavTab, label: 'Import Stock', icon: UploadCloud },
-    { id: 'export-stock' as NavTab, label: 'Export All Stock', icon: DownloadCloud },
+    ...(!isClerk ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users }] : []),
+    ...(isSuperAdmin ? [{ id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck }] : []),
+    { id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud },
+    { id: 'export-stock' as NavTab, label: 'Export Stock Data', icon: DownloadCloud },
   ];
   groups.push({
     id: 'inventory-setup',
-    title: 'Inventory Setup',
+    title: 'Master Setup & Data',
     shortLabel: 'Setup',
     icon: SlidersHorizontal,
     children: inventorySetupChildren,
   });
 
-  // 6. Administration Group
+  // 8. Administration Group
   if (isSuperAdmin) {
     groups.push({
       id: 'admin',
-      title: 'Administration',
+      title: 'Administration & Governance',
       shortLabel: 'Admin',
       icon: Settings,
       children: [
         { id: 'financial-statements' as NavTab, label: 'Financial Statements', icon: Scale },
-        { id: 'vat-register' as NavTab, label: 'VAT Register', icon: Receipt },
-        { id: 'depreciation-register' as NavTab, label: 'Depreciation Register', icon: Calculator },
+        { id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt },
         { id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck },
-        { id: 'audit' as NavTab, label: 'Activities Log', icon: ClipboardList },
-        { id: 'export-reports' as NavTab, label: 'Export Reports', icon: Download },
+        { id: 'audit' as NavTab, label: 'Audit Activities Log', icon: ClipboardList },
       ],
     });
   }
@@ -404,16 +448,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* SECONDARY SUBMENU FLYOUT PANEL (OVERLAY - 220px wide) */}
+      {/* SECONDARY SUBMENU FLYOUT PANEL (OVERLAY - 288px wide) */}
       {isSubPanelExpanded && (
         <div
-          className={`absolute left-[76px] top-0 bottom-0 z-30 w-56 border-r shadow-2xl flex flex-col justify-between transition-all duration-200 animate-in fade-in slide-in-from-left-1 ${
+          className={`absolute left-[76px] top-0 bottom-0 z-30 w-72 border-r shadow-2xl flex flex-col justify-between transition-all duration-200 animate-in fade-in slide-in-from-left-1 ${
             isDarkMode ? 'border-slate-800/90 bg-[#0c0e13]/98' : 'border-slate-200/90 bg-white/98 backdrop-blur-md'
           }`}
         >
           {/* Mobile Header bar with close button */}
           {onCloseMobile && (
-            <div className="flex md:hidden items-center justify-between px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/80">
+            <div className="flex md:hidden items-center justify-between px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900/80">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Navigation</span>
               <button
                 onClick={onCloseMobile}
@@ -427,15 +471,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Submenu Title & Collapse Header */}
           <div
-            className={`px-3.5 py-3 border-b flex items-center justify-between ${
-              isDarkMode ? 'border-slate-800/80 bg-slate-900/40' : 'border-slate-100 bg-slate-50/70'
+            className={`px-4 py-3.5 border-b flex items-center justify-between ${
+              isDarkMode ? 'border-slate-800/80 bg-slate-900/50' : 'border-slate-100 bg-slate-50/80'
             }`}
           >
-            <div className="flex items-center gap-2 overflow-hidden">
+            <div className="flex items-center gap-2.5 overflow-hidden">
               {currentGroupDef && (
                 <>
-                  <currentGroupDef.icon className="h-4 w-4 text-indigo-500 flex-shrink-0" />
-                  <span className="text-xs font-bold uppercase tracking-wider truncate text-slate-700 dark:text-slate-200">
+                  <currentGroupDef.icon className="h-4.5 w-4.5 text-indigo-500 flex-shrink-0" />
+                  <span className="text-xs font-bold uppercase tracking-wider truncate text-slate-800 dark:text-slate-100">
                     {currentGroupDef.title}
                   </span>
                 </>
@@ -443,8 +487,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <button
               onClick={() => setIsSubPanelExpanded(false)}
-              className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              title="Collapse to small bar"
+              className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Collapse sub-menu"
             >
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -452,9 +496,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Quick Submenu Search/Filter (renders if group has > 4 sub-items) */}
           {currentGroupDef && currentGroupDef.children.length > 4 && (
-            <div className="px-2.5 py-2 border-b border-slate-100 dark:border-slate-800/60">
+            <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800/60">
               <div
-                className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border text-xs ${
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
                   isDarkMode
                     ? 'bg-slate-900/60 border-slate-800 text-slate-300'
                     : 'bg-slate-100/80 border-slate-200 text-slate-700'
@@ -463,7 +507,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Search className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
                 <input
                   type="text"
-                  placeholder="Filter menu..."
+                  placeholder="Filter menu options..."
                   value={menuFilter}
                   onChange={(e) => setMenuFilter(e.target.value)}
                   className="w-full bg-transparent text-[11px] focus:outline-none placeholder:text-slate-400"
@@ -478,43 +522,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
 
           {/* Sub-menu Nav Items List */}
-          <div className="py-2 px-2 flex-1 overflow-y-auto space-y-1 custom-scrollbar">
-            {filteredSubItems.map((child) => {
+          <div className="py-2.5 px-2.5 flex-1 overflow-y-auto space-y-1 custom-scrollbar">
+            {filteredSubItems.map((child, idx) => {
               const isActive = activeTab === child.id;
               const ItemIcon = child.icon;
 
               return (
-                <button
-                  key={child.id}
-                  onClick={() => handleSubItemClick(child.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all cursor-pointer font-medium ${
-                    isActive
-                      ? isDarkMode
-                        ? 'bg-indigo-600/20 text-indigo-300 font-semibold border-l-3 border-indigo-500 shadow-xs'
-                        : 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs'
-                      : isDarkMode
-                      ? 'border-l-3 border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-                      : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <ItemIcon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
-                    <span className="truncate text-left">{child.label}</span>
-                  </div>
-
-                  {child.badge !== undefined && child.badge > 0 && (
-                    <span
-                      className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0 ${
-                        child.badgeColor ||
-                        (isDarkMode
-                          ? 'bg-slate-800 text-slate-300 border border-slate-700'
-                          : 'bg-slate-200 text-slate-700')
-                      }`}
-                    >
-                      {child.badge}
-                    </span>
+                <React.Fragment key={child.id}>
+                  {child.hasSeparatorAbove && idx > 0 && (
+                    <div className="my-2 px-1 flex items-center">
+                      <div className="h-[1px] w-full bg-slate-200 dark:bg-slate-800/80" />
+                    </div>
                   )}
-                </button>
+                  <button
+                    onClick={() => handleSubItemClick(child.id)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs transition-all cursor-pointer font-medium ${
+                      isActive
+                        ? isDarkMode
+                          ? 'bg-indigo-600/20 text-indigo-300 font-semibold border-l-3 border-indigo-500 shadow-xs'
+                          : 'bg-indigo-50 text-indigo-900 font-semibold border-l-3 border-indigo-700 shadow-xs'
+                        : isDarkMode
+                        ? 'border-l-3 border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                        : 'border-l-3 border-transparent text-slate-600 hover:text-indigo-900 hover:bg-slate-100'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <ItemIcon className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
+                      <span className="truncate text-left text-[12px]">{child.label}</span>
+                    </div>
+
+                    {child.badge !== undefined && child.badge > 0 && (
+                      <span
+                        className={`ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0 ${
+                          child.badgeColor ||
+                          (isDarkMode
+                            ? 'bg-slate-800 text-slate-300 border border-slate-700'
+                            : 'bg-slate-200 text-slate-700')
+                        }`}
+                      >
+                        {child.badge}
+                      </span>
+                    )}
+                  </button>
+                </React.Fragment>
               );
             })}
           </div>

@@ -106,22 +106,12 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     );
   });
 
-  // Line items for POS entry (start with prepopulated lines if given, otherwise empty or 1 line)
+  // Line items for POS entry (start with prepopulated lines if given, otherwise empty)
   const [lines, setLines] = useState<OrderFormLine[]>(() => {
     if (prepopulatedLines && prepopulatedLines.length > 0) {
       return prepopulatedLines;
     }
-    return products.length > 0
-      ? [
-          {
-            productId: products[0].id,
-            quantity: 1,
-            unitPrice: products[0].costPrice,
-            discount: 0,
-            isTaxExempt: false,
-          },
-        ]
-      : [];
+    return [];
   });
 
   // Keep lines synced with prepopulatedLines prop when provided
@@ -132,19 +122,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   }, [prepopulatedLines]);
 
   const handleResetForm = () => {
-    setLines(
-      products.length > 0
-        ? [
-            {
-              productId: products[0].id,
-              quantity: 1,
-              unitPrice: products[0].costPrice,
-              discount: 0,
-              isTaxExempt: false,
-            },
-          ]
-        : []
-    );
+    setLines(prepopulatedLines && prepopulatedLines.length > 0 ? prepopulatedLines : []);
     setSupplierName('Apex Trade & Telecom Supplies Pvt. Ltd.');
     setIsSupplierDropdownOpen(false);
     setBillWiseDiscount(0);
@@ -160,15 +138,16 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       const prod = products.find((p) => p.id === s.productId);
       if (!prod) return;
 
+      const branchMinReorder = s.minReorderLevel ?? prod.minReorderLevel;
       const isLow =
-        prod.minReorderLevel > 0
-          ? s.quantityOnHand <= prod.minReorderLevel
-          : s.quantityOnHand < 0;
+        branchMinReorder > 0
+          ? s.quantityOnHand <= branchMinReorder
+          : s.quantityOnHand <= 0;
 
       if (isLow) {
         const deficit =
-          prod.minReorderLevel > 0
-            ? Math.max(1, prod.minReorderLevel - s.quantityOnHand)
+          branchMinReorder > 0
+            ? Math.max(1, branchMinReorder - s.quantityOnHand)
             : Math.abs(s.quantityOnHand);
 
         if (deficit <= 0) return;
@@ -480,19 +459,14 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                             <Eye className="h-3.5 w-3.5" />
                           </button>
 
-                          {po.status !== 'CANCELLED' && po.status !== 'PURCHASED' && (
-                            <button
-                              onClick={async () => {
-                                if (onUpdatePOStatus) {
-                                  await onUpdatePOStatus(po.id, 'PURCHASED');
-                                }
-                              }}
-                              className="flex items-center gap-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 px-2 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 transition-colors cursor-pointer"
-                              title="Mark PO as Purchased"
+                          {po.status !== 'CANCELLED' && po.status !== 'RECEIVED' && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 px-2 py-1 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30"
+                              title="To receive stock & register device serials, select this PO when creating a Purchase Invoice (PI)"
                             >
-                              <CheckSquare className="h-3.5 w-3.5" />
-                              <span>Purchased</span>
-                            </button>
+                              <FileText className="h-3.5 w-3.5" />
+                              <span>Process via PI</span>
+                            </span>
                           )}
 
                           {po.status !== 'CANCELLED' && (
