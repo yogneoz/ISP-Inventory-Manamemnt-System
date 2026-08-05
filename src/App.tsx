@@ -47,6 +47,8 @@ import { CategoryManagement } from './components/CategoryManagement';
 import { UomManagement } from './components/UomManagement';
 import { ImportStock } from './components/ImportStock';
 import { ExportStock } from './components/ExportStock';
+import { LocationsManagement } from './components/LocationsManagement';
+import { ImportCustomers } from './components/ImportCustomers';
 import { AiAssistantModal } from './components/AiAssistantModal';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
@@ -303,6 +305,26 @@ export default function App() {
     asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'>
   ) => {
     await api.createAsset(asset);
+
+    // Stock-Out Integration: If asset has a productId associated, decrement branch inventory stock
+    if (asset.productId) {
+      await api.createStockOperation({
+        type: 'STOCK_OUT',
+        branchId: asset.branchId,
+        productId: asset.productId,
+        productName: asset.name,
+        quantityChanged: -1,
+        costPerUnit: asset.acquisitionCost,
+        totalValue: asset.acquisitionCost,
+        reason: `Fixed Asset Issued / Assigned: Tag ${asset.tagNumber} (${asset.name})`,
+        inspectorName: currentUser?.name || 'Asset Manager',
+        dateAD: asset.acquisitionDateAD,
+        dateBS: asset.acquisitionDateBS,
+        fiscalYear: financialSummary?.currentFiscalYear || '2081/82',
+        status: 'LOGGED',
+      });
+    }
+
     refreshAllData();
   };
 
@@ -718,6 +740,23 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'locations' && (
+                <LocationsManagement
+                  branches={branches}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'import-customers' && (
+                <ImportCustomers
+                  branches={branches}
+                  onImportCustomersSuccess={async (newCustomers) => {
+                    refreshAllData();
+                  }}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
               {activeTab === 'create-po' && (
                 <PurchaseOrders
                   purchaseOrders={purchaseOrders}
@@ -787,7 +826,7 @@ export default function App() {
               {activeTab === 'create-shipment' && (
                 <Shipments
                   currentUser={currentUser}
-                  activeTab={activeTab}
+                  activeTab="create-shipment"
                   shipments={shipments}
                   products={products}
                   branches={branches}
@@ -803,22 +842,53 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'receive-shipment' && (
-                <Shipments
-                  currentUser={currentUser}
-                  activeTab={activeTab}
-                  shipments={shipments}
+              {activeTab === 'create-transfer' && (
+                <StockOperations
+                  operations={stockOperations}
                   products={products}
                   branches={branches}
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
+                  initialType="CREATE_TRANSFER"
+                  autoOpenModal={false}
+                  isDarkMode={isDarkMode}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
+                  onCreateOperation={handleCreateOperation}
+                  onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
                     await api.createShipment(sh);
                     refreshAllData();
                   }}
                   onReceiveShipment={handleReceiveShipment}
+                  onUpdateAssetStatus={handleUpdateAssetStatus}
+                />
+              )}
+
+              {activeTab === 'receive-shipment' && (
+                <StockOperations
+                  operations={stockOperations}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  initialType="RECEIVE_TRANSFER"
+                  autoOpenModal={false}
                   isDarkMode={isDarkMode}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
+                  onCreateOperation={handleCreateOperation}
+                  onReceiveOperation={handleReceiveOperation}
+                  onCreateShipment={async (sh) => {
+                    await api.createShipment(sh);
+                    refreshAllData();
+                  }}
+                  onReceiveShipment={handleReceiveShipment}
+                  onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
 
@@ -852,8 +922,17 @@ export default function App() {
                   initialType="PULLOUT"
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
+                  onCreateShipment={async (sh) => {
+                    await api.createShipment(sh);
+                    refreshAllData();
+                  }}
+                  onReceiveShipment={handleReceiveShipment}
+                  onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
 
@@ -868,8 +947,17 @@ export default function App() {
                   initialType="DAMAGE"
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
+                  onCreateShipment={async (sh) => {
+                    await api.createShipment(sh);
+                    refreshAllData();
+                  }}
+                  onReceiveShipment={handleReceiveShipment}
+                  onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
 
@@ -884,19 +972,41 @@ export default function App() {
                   initialType="STOCK_OUT"
                   autoOpenModal={false}
                   isDarkMode={isDarkMode}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
+                  onCreateShipment={async (sh) => {
+                    await api.createShipment(sh);
+                    refreshAllData();
+                  }}
+                  onReceiveShipment={handleReceiveShipment}
+                  onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
 
               {activeTab === 'assign-asset' && (
-                <FixedAssetRegister
-                  assets={assets}
+                <StockOperations
+                  operations={stockOperations}
+                  products={products}
                   branches={branches}
+                  stock={stock}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
-                  autoOpenModal={true}
-                  onCreateAsset={handleCreateAsset}
+                  initialType="ASSIGN_ASSET"
+                  autoOpenModal={false}
+                  isDarkMode={isDarkMode}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
+                  onCreateOperation={handleCreateOperation}
+                  onReceiveOperation={handleReceiveOperation}
+                  onCreateShipment={async (sh) => {
+                    await api.createShipment(sh);
+                    refreshAllData();
+                  }}
+                  onReceiveShipment={handleReceiveShipment}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}

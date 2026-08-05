@@ -1,50 +1,40 @@
 import React, { useState } from 'react';
-import { Branch, Product } from '../types';
-import { UploadCloud, FileSpreadsheet, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, RefreshCw } from 'lucide-react';
+import { Branch, CustomerRecord } from '../types';
+import { UserPlus, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, RefreshCw, Smartphone } from 'lucide-react';
 
-interface ImportStockProps {
+interface ImportCustomersProps {
   branches: Branch[];
-  products: Product[];
-  onCreateProduct: (prod: Omit<Product, 'id'>) => Promise<void>;
-  onRefreshData?: () => void;
+  onImportCustomersSuccess?: (newCustomers: CustomerRecord[]) => void;
   isDarkMode?: boolean;
 }
 
-interface ParsedImportRow {
-  sku: string;
-  barcode: string;
-  name: string;
-  productGroup: 'Product Item' | 'Fixed Asset';
-  category: string;
-  unit: string;
-  costPrice: number;
-  sellingPrice: number;
-  taxRate: number;
-  minReorderLevel: number;
-  targetBranchId: string;
-  initialQty: number;
+interface ParsedCustomerRow {
+  customerId: string;
+  customerName: string;
+  username: string;
+  contactNumber: string;
+  targetBranchCode: string;
+  address: string;
+  email?: string;
   isValid: boolean;
-  isDuplicate: boolean;
   notes: string;
 }
 
-export const ImportStock: React.FC<ImportStockProps> = ({
+export const ImportCustomers: React.FC<ImportCustomersProps> = ({
   branches,
-  products,
-  onCreateProduct,
-  onRefreshData,
+  onImportCustomersSuccess,
   isDarkMode = false,
 }) => {
   const [selectedFileName, setSelectedFileName] = useState<string | null>(null);
-  const [parsedRows, setParsedRows] = useState<ParsedImportRow[]>([]);
+  const [parsedRows, setParsedRows] = useState<ParsedCustomerRow[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [importSuccessMessage, setImportSuccessMessage] = useState<string | null>(null);
 
-  const sampleCsvData = `SKU,Barcode,ProductName,ProductGroup,Category,Unit,CostPrice,SellingPrice,TaxRate,MinReorder,TargetBranch,InitialQty
-IZ-109281,890102938101,Fiber Optic Patch Cord SC/UPC-LC/UPC 3M,Product Item,Fiber Accessories & Cables,Pcs,450,750,13,25,ALL,120
-IZ-109282,890102938102,Dual Band Wi-Fi 6 GPON ONT Fiber Router,Product Item,Routers & ONTs,Pcs,4200,6500,13,15,BR-KTM,40
-IZ-109283,890102938103,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed Assets,Set,145000,185000,13,0,BR-KTM,3
-IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Networking Cables,Roll,12500,16800,13,8,BR-PKR,15`;
+  const sampleCsvData = `CustomerID,CustomerName,Username,ContactNumber,Branch,Address,Email
+CUS-10291,Aarav Sharma,aarav.sharma,9851092810,BR-KTM,Durbar Marg Ward 4 Kathmandu,aarav@gmail.com
+CUS-10292,Pooja Gurung,pooja.g,9846019283,BR-PKR,Lakeside Ward 6 Pokhara,pooja.g@yahoo.com
+CUS-10293,Subash Shrestha,subash.sh,9801029381,BR-KTM,Jawalakhel Ward 2 Lalitpur,subash@outlook.com
+CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bina@gmail.com`;
 
   const parseCsvContent = (content: string, filename?: string) => {
     if (filename) setSelectedFileName(filename);
@@ -54,60 +44,37 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
       return;
     }
 
-    const rows: ParsedImportRow[] = [];
-    const existingSkus = new Set(products.map((p) => p.sku.toLowerCase().trim()));
+    const rows: ParsedCustomerRow[] = [];
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
       const cols = line.split(',').map((c) => c.trim().replace(/^["']|["']$/g, ''));
 
-      if (cols.length < 3) continue;
+      if (cols.length < 4) continue;
 
-      const sku = cols[0] || `IZ-${Math.floor(100000 + Math.random() * 900000)}`;
-      const barcode = cols[1] || `890${Math.floor(100000000 + Math.random() * 900000000)}`;
-      const name = cols[2] || 'Imported Stock Item';
-      const rawGrp = cols[3] || 'Product Item';
-      const productGroup: 'Product Item' | 'Fixed Asset' =
-        rawGrp.toLowerCase().includes('asset') || rawGrp.toLowerCase().includes('fixed')
-          ? 'Fixed Asset'
-          : 'Product Item';
+      const customerId = cols[0] || `CUS-${Math.floor(10000 + Math.random() * 90000)}`;
+      const customerName = cols[1] || 'Imported Customer';
+      const username = cols[2] || customerId.toLowerCase();
+      const contactNumber = cols[3] || '9800000000';
+      const targetBranchCode = cols[4] || 'BR-KTM';
+      const address = cols[5] || 'Kathmandu Nepal';
+      const email = cols[6] || `${username}@izone.np`;
 
-      const category = cols[4] || 'General Inventory';
-      const unit = cols[5] || 'Pcs';
-      const costPrice = parseFloat(cols[6]) || 0;
-      const sellingPrice = parseFloat(cols[7]) || 0;
-      const taxRate = parseFloat(cols[8]) || 13;
-      const minReorderLevel = parseInt(cols[9]) || 10;
-      const targetBranchCode = cols[10] || 'ALL';
-      const initialQty = parseInt(cols[11]) || 0;
-
-      const matchingBranch = branches.find(
-        (b) => b.code.toLowerCase() === targetBranchCode.toLowerCase() || b.id.toLowerCase() === targetBranchCode.toLowerCase()
-      );
-      const targetBranchId = matchingBranch ? matchingBranch.id : branches[0]?.id || 'ALL';
-
-      const isDuplicateSku = existingSkus.has(sku.toLowerCase());
-      const isValid = Boolean(sku && name && costPrice >= 0);
-      let notes = 'New SKU ready to insert';
-      if (isDuplicateSku) notes = 'Existing SKU detected (will update existing entry)';
-      if (!name) notes = 'Missing Product Name';
+      const isValid = Boolean(customerId && customerName && contactNumber);
+      let notes = 'Valid Customer Record';
+      if (!customerName) notes = 'Missing Customer Name';
+      if (!contactNumber) notes = 'Missing Contact Number';
 
       rows.push({
-        sku,
-        barcode,
-        name,
-        productGroup,
-        category,
-        unit,
-        costPrice,
-        sellingPrice,
-        taxRate,
-        minReorderLevel,
-        targetBranchId,
-        initialQty,
+        customerId,
+        customerName,
+        username,
+        contactNumber,
+        targetBranchCode,
+        address,
+        email,
         isValid,
-        isDuplicate: isDuplicateSku,
         notes,
       });
     }
@@ -129,7 +96,7 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
   };
 
   const handleLoadSample = () => {
-    parseCsvContent(sampleCsvData, 'Sample_Stock_Data.csv');
+    parseCsvContent(sampleCsvData, 'Sample_Customer_List.csv');
   };
 
   const handleDownloadSampleCsv = () => {
@@ -137,7 +104,7 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'iZone_Stock_Import_Template.csv';
+    a.download = 'iZone_Customer_Import_Template.csv';
     a.click();
   };
 
@@ -147,39 +114,35 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
     setImportSuccessMessage(null);
 
     try {
-      let createdCount = 0;
-      let updatedCount = 0;
-
-      for (const row of parsedRows) {
-        if (!row.isValid) continue;
-        
-        await onCreateProduct({
-          sku: row.sku,
-          barcode: row.barcode,
-          name: row.name,
-          productGroup: row.productGroup,
-          category: row.category,
-          unit: row.unit,
-          costPrice: row.costPrice,
-          sellingPrice: row.sellingPrice,
-          taxRate: row.taxRate,
-          minReorderLevel: row.minReorderLevel,
-          description: `Imported stock file: ${selectedFileName || 'Template'}. Initial Qty: ${row.initialQty} ${row.unit}`,
+      const importedCustomers: CustomerRecord[] = parsedRows
+        .filter((r) => r.isValid)
+        .map((r) => {
+          const matchingBranch = branches.find(
+            (b) => b.code.toLowerCase() === r.targetBranchCode.toLowerCase() || b.id.toLowerCase() === r.targetBranchCode.toLowerCase()
+          );
+          return {
+            id: `CUS-${Math.floor(1000 + Math.random() * 9000)}`,
+            customerId: r.customerId,
+            customerName: r.customerName,
+            username: r.username,
+            contactNumber: r.contactNumber,
+            branchId: matchingBranch ? matchingBranch.id : branches[0]?.id || 'BR-KTM',
+            address: r.address,
+            email: r.email,
+            status: 'ACTIVE',
+            assignedDevicesCount: 0,
+          };
         });
 
-        if (row.isDuplicate) {
-          updatedCount++;
-        } else {
-          createdCount++;
-        }
+      if (onImportCustomersSuccess) {
+        onImportCustomersSuccess(importedCustomers);
       }
 
-      if (onRefreshData) onRefreshData();
-      setImportSuccessMessage(`Import complete: ${createdCount} new products added, ${updatedCount} existing SKUs updated!`);
+      setImportSuccessMessage(`Successfully imported ${importedCustomers.length} customer records into system directory!`);
       setParsedRows([]);
       setSelectedFileName(null);
     } catch (err: any) {
-      alert(`Import error: ${err.message || 'Failed to import records'}`);
+      alert(`Import error: ${err.message || 'Failed to import customer records'}`);
     } finally {
       setIsProcessing(false);
     }
@@ -193,11 +156,11 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
           <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
-            <UploadCloud className="h-5 w-5 text-indigo-500" />
-            <span>Import Stock Data</span>
+            <UserPlus className="h-5 w-5 text-indigo-500" />
+            <span>Import Customer Data</span>
           </h2>
           <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Upload stock spreadsheet template directly. Automatically detects existing SKUs and updates product details without creating duplicate copies.
+            Bulk import customer master records (Customer ID, Customer Name, Username, Contact Number, Branch, Address) via spreadsheet template.
           </p>
         </div>
 
@@ -216,8 +179,8 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
             onClick={handleLoadSample}
             className="flex items-center gap-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-3 py-2 text-xs font-semibold hover:bg-indigo-100 transition-all cursor-pointer"
           >
-            <FileSpreadsheet className="h-4 w-4" />
-            <span>Load Sample File</span>
+            <Smartphone className="h-4 w-4" />
+            <span>Load Sample Customers</span>
           </button>
         </div>
       </div>
@@ -240,7 +203,7 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
 
       {/* Main Split Screen */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
-        {/* Direct File Upload Dropzone */}
+        {/* Upload Dropzone */}
         <div className={`lg:col-span-5 flex flex-col justify-between rounded-2xl border p-5 shadow-sm ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
         }`}>
@@ -248,7 +211,7 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
             <div className="flex items-center justify-between mb-3">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <FileText className="h-4 w-4 text-indigo-500" />
-                <span>Upload CSV / Excel File</span>
+                <span>Upload Customer File</span>
               </label>
               <span className="text-[10px] text-slate-400 font-mono">.csv, .txt</span>
             </div>
@@ -275,16 +238,16 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
                     {selectedFileName}
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-0.5">
-                    {parsedRows.length} rows loaded & validated
+                    {parsedRows.length} customer records loaded
                   </span>
                 </div>
               ) : (
                 <div>
                   <span className="font-bold text-xs text-slate-800 dark:text-slate-200 block">
-                    Click to browse or drag & drop CSV template file
+                    Click to browse or drag & drop customer CSV file
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-1">
-                    Supports iZone CSV format with auto-duplicate detection
+                    Fields: Customer ID, Customer Name, Username, Contact Number, Branch, Address
                   </span>
                 </div>
               )}
@@ -292,18 +255,18 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
 
             <div className="mt-4 p-3.5 rounded-xl border border-indigo-100 dark:border-indigo-950 bg-indigo-50/50 dark:bg-indigo-950/30 text-[11px] text-slate-600 dark:text-slate-300 space-y-1.5">
               <div className="font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
-                <RefreshCw className="h-3.5 w-3.5" />
-                <span>Smart Duplicate SKU Protection</span>
+                <UserPlus className="h-3.5 w-3.5" />
+                <span>Admin Governance Protection</span>
               </div>
               <p>
-                If a row contains an existing SKU, the system will update cost price, selling price, and category without creating duplicate copies.
+                Imported customers will immediately be accessible across device assignment workflows and customer hardware registers.
               </p>
             </div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <span className="text-[11px] text-slate-400 font-medium">
-              {parsedRows.length} Rows Ready
+              {parsedRows.length} Records Validated
             </span>
             <button
               disabled={parsedRows.length === 0 || isProcessing}
@@ -314,7 +277,7 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
                   : 'hover:bg-indigo-500 cursor-pointer'
               }`}
             >
-              <span>Execute Smart Import</span>
+              <span>Import Customer Records</span>
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -329,7 +292,7 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
           }`}>
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              <span>Parsed Import Preview</span>
+              <span>Customer Import Preview</span>
             </span>
             <span className="text-[11px] text-slate-500 font-medium">
               Valid: {parsedRows.filter((r) => r.isValid).length} / {parsedRows.length}
@@ -342,10 +305,10 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
                 isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-2.5">SKU / Name</th>
-                  <th className="p-2.5">Group & Category</th>
-                  <th className="p-2.5 text-right">Cost / Sell</th>
-                  <th className="p-2.5 text-center">Initial Qty</th>
+                  <th className="p-2.5">Customer ID / Name</th>
+                  <th className="p-2.5">Username & Contact</th>
+                  <th className="p-2.5">Branch Code</th>
+                  <th className="p-2.5">Installation Address</th>
                   <th className="p-2.5">Status</th>
                 </tr>
               </thead>
@@ -353,7 +316,7 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
                 {parsedRows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-12 text-center text-slate-500 text-xs">
-                      No file uploaded yet. Upload a CSV file or click "Load Sample File" above.
+                      No file loaded yet. Upload a CSV file or click "Load Sample Customers" above.
                     </td>
                   </tr>
                 ) : (
@@ -362,29 +325,26 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
                       isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                     }`}>
                       <td className="p-2.5">
-                        <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px]">{row.sku}</div>
-                        <div className="font-semibold text-slate-900 dark:text-white line-clamp-1">{row.name}</div>
+                        <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px]">{row.customerId}</div>
+                        <div className="font-semibold text-slate-900 dark:text-white line-clamp-1">{row.customerName}</div>
                       </td>
                       <td className="p-2.5 text-[11px]">
-                        <div className="font-medium text-slate-800 dark:text-slate-200">{row.category}</div>
-                        <div className="text-[10px] text-slate-500">{row.productGroup}</div>
+                        <div className="font-medium text-slate-800 dark:text-slate-200">@{row.username}</div>
+                        <div className="text-[10px] text-slate-500 font-mono">{row.contactNumber}</div>
                       </td>
-                      <td className="p-2.5 text-right font-mono text-[11px]">
-                        <div>रु {row.costPrice.toLocaleString()}</div>
-                        <div className="text-slate-400 text-[10px]">रु {row.sellingPrice.toLocaleString()}</div>
+                      <td className="p-2.5 font-mono text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                        {row.targetBranchCode}
                       </td>
-                      <td className="p-2.5 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                        {row.initialQty} {row.unit}
+                      <td className="p-2.5 text-[11px] text-slate-600 dark:text-slate-400 line-clamp-1">
+                        {row.address}
                       </td>
                       <td className="p-2.5">
                         <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                          row.isDuplicate
-                            ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800'
-                            : row.isValid
+                          row.isValid
                             ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
                             : 'bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800'
                         }`}>
-                          {row.isDuplicate ? <RefreshCw className="h-3 w-3 text-amber-500" /> : row.isValid ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                          {row.isValid ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
                           <span>{row.notes}</span>
                         </span>
                       </td>

@@ -45,6 +45,8 @@ import {
   DownloadCloud,
   Boxes,
   FolderTree,
+  MapPin,
+  UserPlus,
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -58,6 +60,7 @@ export type NavTab =
   | 'stock-ledger'
   | 'fixed-assets'
   | 'customers'
+  | 'locations'
   | 'product-master'
   | 'category-management'
   | 'uom-management'
@@ -68,6 +71,7 @@ export type NavTab =
   | 'create-purchase'
   | 'purchase-list'
   | 'create-shipment'
+  | 'create-transfer'
   | 'receive-shipment'
   | 'shipment-list'
   | 'pullout'
@@ -77,6 +81,7 @@ export type NavTab =
   | 'branches'
   | 'suppliers'
   | 'users'
+  | 'import-customers'
   | 'permissions'
   | 'financial-statements'
   | 'vat-register'
@@ -223,40 +228,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
     children: procurementChildren,
   });
 
-  // 4. Logistics Group
-  const logisticsChildren = [
-    ...(isSuperAdmin ? [{ id: 'create-shipment' as NavTab, label: 'Create Shipment Transfer', icon: Send }] : []),
+  // 4. Warehouse Logistics Group
+  const warehouseLogisticsChildren = [
+    ...(isSuperAdmin || currentUser?.branchId === 'BR-KTM' || !currentUser?.branchId || currentUser?.branchId === 'ALL'
+      ? [{ id: 'create-shipment' as NavTab, label: 'Warehouse Shipment Dispatch', icon: Send }]
+      : []),
+    { id: 'shipment-list' as NavTab, label: 'Shipment & Transfer History', icon: History },
+  ];
+  groups.push({
+    id: 'logistics',
+    title: 'Warehouse Logistics',
+    shortLabel: 'Warehouse',
+    icon: Truck,
+    badgeCount: inTransitShipmentCount,
+    children: warehouseLogisticsChildren,
+  });
+
+  // 5. Branch Operations & Transfers Group
+  const branchOpsChildren = [
+    { id: 'create-transfer' as NavTab, label: 'Create Inter-Branch Transfer', icon: Send },
     {
       id: 'receive-shipment' as NavTab,
-      label: 'Receive Shipment Transfer',
+      label: 'Receive Branch Stock Transfer',
       icon: Inbox,
       badge: inTransitShipmentCount,
       badgeColor: 'bg-amber-500 text-white',
     },
-    { id: 'shipment-list' as NavTab, label: 'Shipment Transfer History', icon: History },
-  ];
-  groups.push({
-    id: 'logistics',
-    title: 'Logistics & Transfers',
-    shortLabel: 'Logistics',
-    icon: Truck,
-    badgeCount: inTransitShipmentCount,
-    children: logisticsChildren,
-  });
-
-  // 5. Stock Operations Group
-  const stockOpsChildren = [
-    { id: 'pullout' as NavTab, label: 'Stock Pullout Operations', icon: ArrowUpRight },
-    { id: 'damage' as NavTab, label: 'Damaged Stock Operations', icon: HeartOff },
-    { id: 'stock-out' as NavTab, label: 'Stock Out & Dispatches', icon: PackageMinus },
+    { id: 'pullout' as NavTab, label: 'Dispatch Stock Pullout to HQ', icon: ArrowUpRight },
+    { id: 'damage' as NavTab, label: 'Label Damaged Stock', icon: HeartOff },
     ...(!isClerk && !isAccountant ? [{ id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench }] : []),
+    { id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus },
   ];
   groups.push({
     id: 'stockops',
-    title: 'Stock Operations',
-    shortLabel: 'Operations',
+    title: 'Branch Operations & Transfers',
+    shortLabel: 'Branch Ops',
     icon: Layers,
-    children: stockOpsChildren,
+    children: branchOpsChildren,
   });
 
   // 6. Fixed Assets Group
@@ -275,12 +283,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // 7. Inventory Setup Group
   const inventorySetupChildren = [
+    { id: 'customers' as NavTab, label: 'Customer Management', icon: Smartphone },
+    { id: 'locations' as NavTab, label: 'Location Management (POP/GPS)', icon: MapPin },
     { id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package },
     { id: 'category-management' as NavTab, label: 'Category Management', icon: Grid },
     { id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler },
     ...(!isClerk ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }] : []),
     ...(!isClerk ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users }] : []),
-    ...(isSuperAdmin ? [{ id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck }] : []),
     { id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud },
     { id: 'export-stock' as NavTab, label: 'Export Stock Data', icon: DownloadCloud },
   ];
@@ -300,6 +309,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       shortLabel: 'Admin',
       icon: Settings,
       children: [
+        { id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck },
+        { id: 'import-customers' as NavTab, label: 'Import Customers', icon: UserPlus },
         { id: 'financial-statements' as NavTab, label: 'Financial Statements', icon: Scale },
         { id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt },
         { id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck },

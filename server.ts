@@ -1049,11 +1049,10 @@ app.post('/api/assets', (req, res) => {
 
 app.patch('/api/assets/:id/status', (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
   const asset = assetRegister.find((a) => a.id === id);
   if (!asset) return res.status(404).json({ message: 'Asset not found' });
 
-  asset.status = status;
+  Object.assign(asset, req.body);
   res.json(asset);
 });
 

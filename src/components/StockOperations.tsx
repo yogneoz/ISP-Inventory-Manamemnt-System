@@ -1,5 +1,17 @@
 import React, { useState } from 'react';
-import { StockOperation, Product, Branch, InventoryStock, PulloutItem } from '../types';
+import {
+  StockOperation,
+  Product,
+  Branch,
+  InventoryStock,
+  PulloutItem,
+  User,
+  Shipment,
+  Asset,
+  LocationRecord,
+  CustomerRecord,
+} from '../types';
+import { initialLocationsData, initialCustomersData } from '../data/initialData';
 import { formatDualDate } from '../utils/nepaliCalendar';
 import {
   AlertOctagon,
@@ -20,6 +32,17 @@ import {
   Info,
   ShieldCheck,
   Tag,
+  Send,
+  Inbox,
+  Wrench,
+  PackageMinus,
+  MapPin,
+  UserCheck,
+  DollarSign,
+  ArrowRight,
+  ExternalLink,
+  ShieldAlert,
+  ArrowUpRight,
 } from 'lucide-react';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
@@ -30,11 +53,19 @@ interface StockOperationsProps {
   stock?: InventoryStock[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
-  initialType?: StockOperation['type'];
+  initialType?: string;
   autoOpenModal?: boolean;
   isDarkMode?: boolean;
+  currentUser?: User | null;
+  shipments?: Shipment[];
+  assets?: Asset[];
+  locations?: LocationRecord[];
+  customers?: CustomerRecord[];
   onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
   onReceiveOperation?: (id: string) => Promise<void>;
+  onCreateShipment?: (sh: Partial<Shipment>) => Promise<void>;
+  onReceiveShipment?: (id: string) => Promise<void>;
+  onUpdateAssetStatus?: (id: string, updates: Asset['status'] | Partial<Asset>) => Promise<void>;
 }
 
 export const StockOperations: React.FC<StockOperationsProps> = ({
@@ -47,12 +78,34 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   initialType = 'PULLOUT',
   autoOpenModal = false,
   isDarkMode = false,
+  currentUser = null,
+  shipments = [],
+  assets = [],
+  locations = initialLocationsData,
+  customers = initialCustomersData,
   onCreateOperation,
   onReceiveOperation,
+  onCreateShipment,
+  onReceiveShipment,
+  onUpdateAssetStatus,
 }) => {
-  const [activeTab, setActiveTab] = useState<'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'LOGS'>(
-    initialType === 'DAMAGE' ? 'DAMAGE_TRACKING' : 'PULLOUT_BINS'
-  );
+  // Determine role permissions for Damage Labeling
+  const isSuperOrInventory =
+    currentUser?.role === 'SUPER_ADMIN' || (currentUser?.role as string) === 'INVENTORY_CONTROLLER';
+
+  // Map initial tab
+  const getInitialTab = (): 'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'PRODUCT_SALE' | 'LOGS' => {
+    if (initialType === 'DAMAGE') return 'DAMAGE_TRACKING';
+    if (initialType === 'RECEIVE_TRANSFER' || initialType === 'RECEIVE') return 'RECEIVE_TRANSFER';
+    if (initialType === 'CREATE_TRANSFER' || initialType === 'TRANSFER') return 'CREATE_TRANSFER';
+    if (initialType === 'ASSIGN_ASSET' || initialType === 'ASSIGN') return 'ASSIGN_ASSET';
+    if (initialType === 'STOCK_OUT' || initialType === 'PRODUCT_SALE') return 'PRODUCT_SALE';
+    return 'PULLOUT_BINS';
+  };
+
+  const [activeTab, setActiveTab] = useState<
+    'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'PRODUCT_SALE' | 'LOGS'
+  >(getInitialTab());
 
   // Filter state
   const [branchFilter, setBranchFilter] = useState<string>(selectedBranchId);
@@ -62,31 +115,60 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // Modals state
   const [isPulloutModalOpen, setIsPulloutModalOpen] = useState(autoOpenModal && initialType === 'PULLOUT');
   const [isDamageModalOpen, setIsDamageModalOpen] = useState(autoOpenModal && initialType === 'DAMAGE');
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
 
-  // Pullout Bin Form State
-  const [sourceBranchId, setSourceBranchId] = useState<string>(
-    branches.find((b) => !b.isHeadquarters)?.id || branches[0]?.id || ''
-  );
+  // Selected asset for assignment modal
+  const [selectedAssetForAssign, setSelectedAssetForAssign] = useState<Asset | null>(null);
+
+  // --- FORM STATES ---
+
+  // 1. Pullout Bin Form State
+  const userBranchId = currentUser?.branchId || branches.find((b) => !b.isHeadquarters)?.id || branches[0]?.id || '';
+  const [sourceBranchId, setSourceBranchId] = useState<string>(userBranchId);
   const [destWarehouseId, setDestWarehouseId] = useState<string>(
-    branches.find((b) => b.isHeadquarters)?.id || 'WH001'
+    branches.find((b) => b.isHeadquarters)?.id || 'BR-KTM'
   );
-  const [binInspector, setBinInspector] = useState<string>('Senior Quality & Logistics Officer');
+  const [binInspector, setBinInspector] = useState<string>(currentUser?.name || 'Logistics Officer');
   const [binNotes, setBinNotes] = useState<string>('Overstock / Damaged stock return dispatch to central warehouse');
   const [pulloutItems, setPulloutItems] = useState<PulloutItem[]>([]);
-
-  // Product Search State for Pullout Form
   const [prodSearchInput, setProdSearchInput] = useState<string>('');
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
 
-  // Single Damage Labeling Form State
-  const [damageBranchId, setDamageBranchId] = useState<string>(branches[0]?.id || '');
+  // 2. Damage Labeling Form State (RESTRICTED FOR BRANCH USERS)
+  const defaultDamageBranch = !isSuperOrInventory && currentUser?.branchId ? currentUser.branchId : (branches[0]?.id || '');
+  const [damageBranchId, setDamageBranchId] = useState<string>(defaultDamageBranch);
   const [damageProductId, setDamageProductId] = useState<string>(products[0]?.id || '');
   const [damageQty, setDamageQty] = useState<number>(1);
-  const [damageReason, setDamageReason] = useState<string>('Transit damage / defective unit');
-  const [damageInspector, setDamageInspector] = useState<string>('Branch Quality Inspector');
+  const [damageReason, setDamageReason] = useState<string>('Overstock transit damage / defective hardware unit');
+  const [damageInspector, setDamageInspector] = useState<string>(currentUser?.name || 'Branch Quality Inspector');
 
-  // Filtered list of products for search
+  // 3. Create Transfer Form State
+  const [xferSourceBranchId, setXferSourceBranchId] = useState<string>(userBranchId);
+  const [xferDestBranchId, setXferDestBranchId] = useState<string>(
+    branches.find((b) => b.id !== userBranchId)?.id || branches[1]?.id || ''
+  );
+  const [xferProductId, setXferProductId] = useState<string>(products[0]?.id || '');
+  const [xferQty, setXferQty] = useState<number>(1);
+  const [xferNotes, setXferNotes] = useState<string>('Inter-branch inventory transfer dispatch');
+
+  // 4. Assign Fixed Asset Form State
+  const [assignTargetType, setAssignTargetType] = useState<'LOCATION' | 'CUSTOMER'>('LOCATION');
+  const [assignLocationId, setAssignLocationId] = useState<string>(locations[0]?.id || '');
+  const [assignCustomerId, setAssignCustomerId] = useState<string>(customers[0]?.id || '');
+  const [assignNotes, setAssignNotes] = useState<string>('Installed & commissioned as operational fixed asset');
+
+  // 5. Product Sale Form State
+  const [saleCustomerId, setSaleCustomerId] = useState<string>(customers[0]?.id || '');
+  const [saleBranchId, setSaleBranchId] = useState<string>(userBranchId);
+  const [saleProductId, setSaleProductId] = useState<string>(products[0]?.id || '');
+  const [saleQty, setSaleQty] = useState<number>(1);
+  const [salePrice, setSalePrice] = useState<number>(products[0]?.sellingPrice || 1000);
+  const [saleDiscount, setSaleDiscount] = useState<number>(0);
+  const [salePaymentMethod, setSalePaymentMethod] = useState<string>('Cash / Direct Payment');
+  const [saleNotes, setSaleNotes] = useState<string>('Direct retail product item sale to customer');
+
+  // Filtered products for pullout search
   const matchingProducts = products.filter((p) => {
     if (!prodSearchInput.trim()) return false;
     const q = prodSearchInput.toLowerCase().trim();
@@ -98,7 +180,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     );
   });
 
-  // Helper to add product to Pullout items list
   const handleAddProductToPullout = (prod: Product) => {
     const existing = pulloutItems.find((i) => i.productId === prod.id);
     if (existing) {
@@ -112,7 +193,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     } else {
       const srcStock = stock.find((s) => s.productId === prod.id && s.branchId === sourceBranchId);
       const availDamaged = srcStock?.damagedQty || 0;
-      // Default condition to DAMAGED_STOCK if branch has damaged stock, else OVERSTOCK
       const defaultCond = availDamaged > 0 ? 'DAMAGED_STOCK' : 'OVERSTOCK';
 
       setPulloutItems([
@@ -127,7 +207,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           condition: defaultCond,
           unitCost: prod.costPrice,
           totalValue: prod.costPrice,
-          reason: defaultCond === 'DAMAGED_STOCK' ? 'Damaged inventory return' : 'Surplus stock return to warehouse',
+          reason: defaultCond === 'DAMAGED_STOCK' ? 'Damaged inventory return' : 'Surplus overstock return to warehouse',
         },
       ]);
     }
@@ -152,7 +232,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     setPulloutItems(pulloutItems.filter((i) => i.id !== id));
   };
 
-  // Submit Pullout Bin Dispatch
+  // 1. Submit Pullout Dispatch
   const handleSubmitPulloutBin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (pulloutItems.length === 0) {
@@ -162,7 +242,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
     const srcBranch = branches.find((b) => b.id === sourceBranchId);
     const destWh = branches.find((b) => b.id === destWarehouseId);
-
     const grandTotal = pulloutItems.reduce((sum, item) => sum + item.totalValue, 0);
 
     await onCreateOperation({
@@ -182,19 +261,21 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     setPulloutItems([]);
   };
 
-  // Submit Local Damage Tagging
+  // 2. Submit Local Damage Tagging
   const handleSubmitDamageTag = async (e: React.FormEvent) => {
     e.preventDefault();
+    const targetBranch = !isSuperOrInventory && currentUser?.branchId ? currentUser.branchId : damageBranchId;
     const prod = products.find((p) => p.id === damageProductId);
     if (!prod) return;
 
     await onCreateOperation({
       type: 'DAMAGE',
-      branchId: damageBranchId,
+      branchId: targetBranch,
       productId: damageProductId,
       productName: prod.name,
       quantityChanged: Number(damageQty),
       costPerUnit: prod.costPrice,
+      totalValue: Number(damageQty) * prod.costPrice,
       reason: damageReason,
       inspectorName: damageInspector,
       status: 'LOGGED',
@@ -203,7 +284,153 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     setIsDamageModalOpen(false);
   };
 
-  // Filter operations based on tab and branch
+  // 3. Submit Create Transfer
+  const handleSubmitCreateTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const prod = products.find((p) => p.id === xferProductId);
+    const srcBranch = branches.find((b) => b.id === xferSourceBranchId);
+    const destBranch = branches.find((b) => b.id === xferDestBranchId);
+
+    if (!prod || !srcBranch || !destBranch) return;
+
+    if (xferSourceBranchId === xferDestBranchId) {
+      alert('Source and Destination branches must be different.');
+      return;
+    }
+
+    // Generate serial pairs if product requires serial/MAC/PON tracking
+    const deviceSerials = [];
+    if (prod.requiresSerialTracking || prod.trackingType === 'SERIAL_MAC_PON') {
+      for (let i = 0; i < Number(xferQty); i++) {
+        deviceSerials.push({
+          deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+        });
+      }
+    }
+
+    if (onCreateShipment) {
+      await onCreateShipment({
+        trackingCode: `TRF-BR-${Math.floor(100000 + Math.random() * 900000)}`,
+        type: 'INTER_BRANCH',
+        sourceBranchId: xferSourceBranchId,
+        sourceBranchName: srcBranch.name,
+        destinationBranchId: xferDestBranchId,
+        destinationBranchName: destBranch.name,
+        dispatchDateAD: new Date().toISOString().split('T')[0],
+        dispatchDateBS: '2083-04-16 BS',
+        estimatedArrivalAD: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
+        status: 'DISPATCHED',
+        items: [
+          {
+            id: `item-${Date.now()}`,
+            productId: prod.id,
+            productName: prod.name,
+            sku: prod.sku,
+            unit: prod.unit,
+            quantity: Number(xferQty),
+            quantitySent: Number(xferQty),
+            deviceSerials: deviceSerials.length > 0 ? deviceSerials : undefined,
+          },
+        ],
+        notes: xferNotes,
+      });
+      alert(`Inter-Branch Stock Transfer TRF-BR-${Math.floor(100000 + Math.random() * 900000)} successfully dispatched with serial tracking intact!`);
+      setActiveTab('RECEIVE_TRANSFER');
+    }
+  };
+
+  // 4. Submit Assign Fixed Asset
+  const handleOpenAssignModal = (asset: Asset) => {
+    setSelectedAssetForAssign(asset);
+    setIsAssignModalOpen(true);
+  };
+
+  const handleSubmitAssignAsset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAssetForAssign || !onUpdateAssetStatus) return;
+
+    const todayAD = new Date().toISOString().split('T')[0];
+    const todayBS = '2083-04-16 BS';
+
+    if (assignTargetType === 'LOCATION') {
+      const locObj = locations.find((l) => l.id === assignLocationId);
+      await onUpdateAssetStatus(selectedAssetForAssign.id, {
+        status: 'ASSIGNED_TO_LOCATION',
+        assignedType: 'LOCATION',
+        assignedLocationId: assignLocationId,
+        assignedLocationName: locObj?.name || assignLocationId,
+        assignmentDateAD: todayAD,
+        assignmentDateBS: todayBS,
+        assignmentNotes: assignNotes,
+      });
+    } else {
+      const custObj = customers.find((c) => c.id === assignCustomerId);
+      await onUpdateAssetStatus(selectedAssetForAssign.id, {
+        status: 'ASSIGNED_TO_CUSTOMER',
+        assignedType: 'CUSTOMER',
+        assignedCustomerId: assignCustomerId,
+        assignedCustomerName: custObj ? `${custObj.customerName} (${custObj.customerId})` : assignCustomerId,
+        assignmentDateAD: todayAD,
+        assignmentDateBS: todayBS,
+        assignmentNotes: assignNotes,
+      });
+    }
+
+    setIsAssignModalOpen(false);
+    setSelectedAssetForAssign(null);
+  };
+
+  const handleUnassignAsset = async (asset: Asset) => {
+    if (!onUpdateAssetStatus) return;
+    if (confirm(`Unassign "${asset.name}" (${asset.tagNumber}) and return it to Available Stock?`)) {
+      await onUpdateAssetStatus(asset.id, {
+        status: 'ACTIVE',
+        assignedType: undefined,
+        assignedLocationId: undefined,
+        assignedLocationName: undefined,
+        assignedCustomerId: undefined,
+        assignedCustomerName: undefined,
+        assignmentDateAD: undefined,
+        assignmentDateBS: undefined,
+        assignmentNotes: undefined,
+      });
+    }
+  };
+
+  // 5. Submit Product Sale to Customer
+  const handleSubmitProductSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const prod = products.find((p) => p.id === saleProductId);
+    const cust = customers.find((c) => c.id === saleCustomerId);
+    const branchObj = branches.find((b) => b.id === saleBranchId);
+
+    if (!prod || !cust) return;
+
+    const totalSaleAmount = (Number(saleQty) * Number(salePrice)) - Number(saleDiscount);
+
+    await onCreateOperation({
+      type: 'STOCK_OUT',
+      branchId: saleBranchId,
+      branchName: branchObj?.name,
+      productId: saleProductId,
+      productName: prod.name,
+      quantityChanged: -Math.abs(Number(saleQty)),
+      costPerUnit: prod.costPrice,
+      sellingUnitPrice: Number(salePrice),
+      totalValue: totalSaleAmount,
+      customerId: cust.id,
+      customerName: `${cust.customerName} (${cust.customerId})`,
+      paymentMethod: salePaymentMethod,
+      reason: `Customer Product Sale: ${cust.customerName} - ${saleNotes}`,
+      inspectorName: currentUser?.name || 'Sales Representative',
+      status: 'LOGGED',
+    });
+
+    alert(`Product Sale logged successfully! Total Bill Amount: रु ${totalSaleAmount.toLocaleString()}`);
+  };
+
+  // Filters for Stock Operations Logs
   const filteredOperations = operations.filter((op) => {
     const matchesBranch =
       branchFilter === 'ALL' ||
@@ -212,19 +439,23 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
     if (!matchesBranch) return false;
 
-    if (activeTab === 'PULLOUT_BINS') {
-      return op.type === 'PULLOUT';
-    } else if (activeTab === 'DAMAGE_TRACKING') {
-      return op.type === 'DAMAGE';
-    }
-    return true; // LOGS tab shows all
+    if (activeTab === 'PULLOUT_BINS') return op.type === 'PULLOUT';
+    if (activeTab === 'DAMAGE_TRACKING') return op.type === 'DAMAGE';
+    if (activeTab === 'PRODUCT_SALE') return op.type === 'STOCK_OUT';
+    return true;
   });
 
   const pulloutOperations = operations.filter((op) => op.type === 'PULLOUT');
   const damageOperations = operations.filter((op) => op.type === 'DAMAGE');
+  const saleOperations = operations.filter((op) => op.type === 'STOCK_OUT');
 
-  const totalPulloutVal = pulloutOperations.reduce((sum, op) => sum + op.totalValue, 0);
-  const totalDamageVal = damageOperations.reduce((sum, op) => sum + op.totalValue, 0);
+  // Available vs Assigned Fixed Assets
+  const availableStockAssets = assets.filter(
+    (a) => a.status === 'ACTIVE' && (!a.assignedType || a.status !== 'ASSIGNED_TO_LOCATION' && a.status !== 'ASSIGNED_TO_CUSTOMER')
+  );
+  const assignedAssets = assets.filter(
+    (a) => a.status === 'ASSIGNED_TO_LOCATION' || a.status === 'ASSIGNED_TO_CUSTOMER' || Boolean(a.assignedType)
+  );
 
   return (
     <div className="space-y-6">
@@ -234,15 +465,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
-            <AlertOctagon className="h-5 w-5 text-rose-500" />
-            <span>Pullouts & Damage Inventory Management</span>
+            <AlertOctagon className="h-5 w-5 text-indigo-500" />
+            <span>Stock Operations & Logistics Center</span>
           </h2>
           <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">
-            Dispatch overstock & damaged stock back to main warehouse or track damaged stock locally across branches.
+            Manage overstock pullouts, branch damage labeling, inter-branch transfers, fixed asset site assignments, and customer product sales.
           </p>
         </div>
 
-        {/* Action Buttons */}
+        {/* Top Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setIsDamageModalOpen(true)}
@@ -253,7 +484,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             }`}
           >
             <AlertTriangle className="h-4 w-4 text-amber-500" />
-            <span>Label Local Damaged Stock</span>
+            <span>Label Damaged Stock</span>
           </button>
 
           <button
@@ -261,18 +492,18 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
           >
             <Plus className="h-4 w-4" />
-            <span>Create Pullout Bin (Return to Warehouse)</span>
+            <span>Create Pullout Bin</span>
           </button>
         </div>
       </div>
 
-      {/* Main Mode Tabs */}
-      <div className={`flex items-center gap-1 border-b pb-1 ${
+      {/* Navigation Sub-Tabs */}
+      <div className={`flex items-center gap-1 border-b pb-1 overflow-x-auto ${
         isDarkMode ? 'border-slate-800' : 'border-slate-200'
       }`}>
         <button
           onClick={() => setActiveTab('PULLOUT_BINS')}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'PULLOUT_BINS'
               ? 'bg-indigo-600 text-white shadow-sm'
               : isDarkMode
@@ -281,12 +512,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           }`}
         >
           <Truck className="h-4 w-4" />
-          <span>Warehouse Pullout Bins ({pulloutOperations.length})</span>
+          <span>1. Warehouse Pullout ({pulloutOperations.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('DAMAGE_TRACKING')}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'DAMAGE_TRACKING'
               ? 'bg-rose-600 text-white shadow-sm'
               : isDarkMode
@@ -295,12 +526,68 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           }`}
         >
           <AlertTriangle className="h-4 w-4" />
-          <span>Branch Damaged Stock Tracking ({damageOperations.length})</span>
+          <span>2. Damaged Stock ({damageOperations.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('RECEIVE_TRANSFER')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === 'RECEIVE_TRANSFER'
+              ? 'bg-amber-600 text-white shadow-sm'
+              : isDarkMode
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Inbox className="h-4 w-4" />
+          <span>3. Receive Transfer ({shipments.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('CREATE_TRANSFER')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === 'CREATE_TRANSFER'
+              ? 'bg-sky-600 text-white shadow-sm'
+              : isDarkMode
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Send className="h-4 w-4" />
+          <span>4. Create Transfer</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('ASSIGN_ASSET')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === 'ASSIGN_ASSET'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : isDarkMode
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <Wrench className="h-4 w-4" />
+          <span>5. Assign Fixed Asset ({availableStockAssets.length} Avail)</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('PRODUCT_SALE')}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === 'PRODUCT_SALE'
+              ? 'bg-purple-600 text-white shadow-sm'
+              : isDarkMode
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <PackageMinus className="h-4 w-4" />
+          <span>6. Product Sale ({saleOperations.length})</span>
         </button>
 
         <button
           onClick={() => setActiveTab('LOGS')}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'LOGS'
               ? 'bg-slate-700 text-white shadow-sm'
               : isDarkMode
@@ -309,355 +596,131 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           }`}
         >
           <Package className="h-4 w-4" />
-          <span>All Stock Operation Logs ({operations.length})</span>
+          <span>Logs ({operations.length})</span>
         </button>
       </div>
 
-      {/* Overview Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className={`p-4 rounded-2xl border shadow-xs ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Total Pullout Dispatches</div>
-          <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            {pulloutOperations.length} Bins
-          </div>
-          <div className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-1 font-semibold">
-            Total Value: रु {totalPulloutVal.toLocaleString()}
-          </div>
-        </div>
-
-        <div className={`p-4 rounded-2xl border shadow-xs ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">Locally Tagged Damaged Stock</div>
-          <div className={`text-2xl font-bold font-mono mt-1 text-rose-600 dark:text-rose-400`}>
-            {damageOperations.length} Records
-          </div>
-          <div className="text-[11px] text-rose-500 mt-1 font-semibold">
-            Total Value: रु {totalDamageVal.toLocaleString()}
-          </div>
-        </div>
-
-        <div className={`p-4 rounded-2xl border shadow-xs ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
-          <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wider">In-Transit Pullout Bins</div>
-          <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-            {pulloutOperations.filter((op) => op.status === 'DISPATCHED').length} Pending Receipt
-          </div>
-          <div className="text-[11px] text-slate-400 mt-1 font-medium">
-            Awaiting Warehouse stock check
-          </div>
-        </div>
-      </div>
-
-      {/* TAB 1: PULLOUT BINS VIEW */}
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 1: PULLOUT BINS (Warehouse Return) */}
+      {/* ------------------------------------------------------------- */}
       {activeTab === 'PULLOUT_BINS' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="text-xs font-semibold text-slate-500">
-              Dispatched Pullout Bins (Surplus & Damaged Stock Returning to HQ)
-            </div>
-
-            {/* Filter */}
-            <div className="flex items-center gap-2">
-              <Filter className="h-3.5 w-3.5 text-slate-400" />
-              <select
-                value={branchFilter}
-                onChange={(e) => setBranchFilter(e.target.value)}
-                className={`rounded-xl border px-3 py-1.5 text-xs font-medium cursor-pointer ${
-                  isDarkMode
-                    ? 'bg-slate-900 border-slate-800 text-slate-200'
-                    : 'bg-white border-slate-200 text-slate-800'
-                }`}
-              >
-                <option value="ALL">All Source Branches</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Pullout Bins List */}
-          <div className={`rounded-2xl border shadow-lg overflow-hidden ${
+          <div className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
           }`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className={`font-bold uppercase text-[10px] tracking-wider border-b ${
-                  isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-                }`}>
-                  <tr>
-                    <th className="p-3.5">Reference #</th>
-                    <th className="p-3.5">Source Branch</th>
-                    <th className="p-3.5">Target Warehouse</th>
-                    <th className="p-3.5 text-center">Bin Items</th>
-                    <th className="p-3.5 text-right">Total Bin Value</th>
-                    <th className="p-3.5">Officer / Inspector</th>
-                    <th className="p-3.5">Dispatch Date</th>
-                    <th className="p-3.5 text-center">Status</th>
-                    <th className="p-3.5 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                  {filteredOperations.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="p-8 text-center text-slate-500 text-xs">
-                        No pullout bins created yet. Click "Create Pullout Bin" to return overstock or damaged stock to central warehouse.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredOperations.map((op) => {
-                      const isExpanded = expandedBinId === op.id;
-                      const itemCount = op.items ? op.items.length : op.quantityChanged ? 1 : 0;
+            <div className="flex items-center justify-between mb-3">
+              <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                <Truck className="h-4 w-4 text-indigo-500" />
+                <span>Overstock & Damaged Stock Warehouse Pullout Dispatches</span>
+              </h3>
+              <span className="text-xs text-slate-400 font-mono">
+                Showing {filteredOperations.length} dispatches
+              </span>
+            </div>
 
-                      return (
-                        <React.Fragment key={op.id}>
-                          <tr className={`transition-colors ${
-                            isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
-                          }`}>
-                            <td className={`p-3.5 font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                              <div className="flex items-center gap-1.5">
-                                <Truck className="h-3.5 w-3.5 text-indigo-500" />
-                                <span>{op.referenceNumber}</span>
-                              </div>
-                            </td>
-                            <td className={`p-3.5 font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                              {op.branchName || op.branchId}
-                            </td>
-                            <td className={`p-3.5 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-                              {op.destinationWarehouseName || 'Central Warehouse'}
-                            </td>
-                            <td className="p-3.5 text-center">
-                              <span className="rounded-full bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 px-2.5 py-0.5 text-[10px] font-extrabold border border-indigo-200 dark:border-indigo-800">
-                                {itemCount} {itemCount === 1 ? 'item' : 'items'}
-                              </span>
-                            </td>
-                            <td className={`p-3.5 text-right font-mono font-bold text-xs ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                              रु {op.totalValue.toLocaleString()}
-                            </td>
-                            <td className="p-3.5 text-slate-500 text-[11px] font-medium">
-                              {op.inspectorName}
-                            </td>
-                            <td className="p-3.5 text-slate-500 font-mono text-[11px]">
-                              {formatDualDate(op.dateAD, dateMode)}
-                            </td>
-                            <td className="p-3.5 text-center">
-                              <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${
-                                op.status === 'RECEIVED'
-                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
-                              }`}>
-                                {op.status || 'DISPATCHED'}
-                              </span>
-                            </td>
-                            <td className="p-3.5 text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                {op.status === 'DISPATCHED' && onReceiveOperation && (
-                                  <button
-                                    onClick={() => onReceiveOperation(op.id)}
-                                    className="rounded-lg bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-500 transition-all cursor-pointer shadow-xs"
-                                  >
-                                    Receive at HQ
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => setExpandedBinId(isExpanded ? null : op.id)}
-                                  className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                                    isDarkMode
-                                      ? 'border-slate-800 text-slate-400 hover:bg-slate-800 hover:text-white'
-                                      : 'border-slate-200 text-slate-600 hover:bg-slate-100'
-                                  }`}
-                                  title="View items inside bin"
-                                >
-                                  {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {filteredOperations.map((op) => (
+                <div
+                  key={op.id}
+                  className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${
+                    isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                        {op.referenceNumber}
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 border border-amber-500/30">
+                        {op.status || 'DISPATCHED'}
+                      </span>
+                    </div>
 
-                          {/* Expanded Multi-Item Drawer */}
-                          {isExpanded && (
-                            <tr className={isDarkMode ? 'bg-slate-900/40' : 'bg-slate-50/80'}>
-                              <td colSpan={9} className="p-4 border-t border-b border-indigo-200/50 dark:border-indigo-900/30">
-                                <div className="space-y-3">
-                                  <div className="flex items-center justify-between text-xs font-bold text-indigo-950 dark:text-indigo-300">
-                                    <div className="flex items-center gap-2">
-                                      <Package className="h-4 w-4" />
-                                      <span>Pullout Bin Line Items ({op.items ? op.items.length : 1})</span>
-                                    </div>
-                                    <span className="text-[11px] text-slate-500 font-normal">Reason: {op.reason}</span>
-                                  </div>
+                    <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      Source: {op.branchName || op.branchId} → Warehouse: {op.destinationWarehouseName || 'Central Hub'}
+                    </div>
 
-                                  <div className={`rounded-xl border overflow-hidden ${
-                                    isDarkMode ? 'border-slate-800 bg-[#0a0c10]' : 'border-slate-200 bg-white'
-                                  }`}>
-                                    <table className="w-full text-left text-xs">
-                                      <thead className={`text-[10px] uppercase font-bold ${
-                                        isDarkMode ? 'bg-slate-900 text-slate-400' : 'bg-slate-100 text-slate-600'
-                                      }`}>
-                                        <tr>
-                                          <th className="p-2.5">Product SKU & Name</th>
-                                          <th className="p-2.5 text-center">Condition</th>
-                                          <th className="p-2.5 text-right">Qty Pulled</th>
-                                          <th className="p-2.5 text-right">Unit Cost</th>
-                                          <th className="p-2.5 text-right">Total Subtotal</th>
-                                          <th className="p-2.5">Line Reason</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-100'}`}>
-                                        {op.items && op.items.length > 0 ? (
-                                          op.items.map((it) => (
-                                            <tr key={it.id}>
-                                              <td className="p-2.5 font-semibold">
-                                                <div>{it.productName}</div>
-                                                <div className="text-[10px] text-indigo-500 font-mono">SKU: {it.sku}</div>
-                                              </td>
-                                              <td className="p-2.5 text-center">
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                                  it.condition === 'DAMAGED_STOCK'
-                                                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                                                    : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                                                }`}>
-                                                  {it.condition}
-                                                </span>
-                                              </td>
-                                              <td className="p-2.5 text-right font-mono font-bold">
-                                                {it.quantity} {it.unit || 'Pcs'}
-                                              </td>
-                                              <td className="p-2.5 text-right font-mono">रु {it.unitCost.toLocaleString()}</td>
-                                              <td className="p-2.5 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                                रु {it.totalValue.toLocaleString()}
-                                              </td>
-                                              <td className="p-2.5 text-slate-500 text-[11px]">{it.reason || '-'}</td>
-                                            </tr>
-                                          ))
-                                        ) : (
-                                          <tr>
-                                            <td className="p-2.5 font-semibold">{op.productName}</td>
-                                            <td className="p-2.5 text-center font-bold">PULLOUT</td>
-                                            <td className="p-2.5 text-right font-mono font-bold">{Math.abs(op.quantityChanged || 0)}</td>
-                                            <td className="p-2.5 text-right font-mono">रु {(op.costPerUnit || 0).toLocaleString()}</td>
-                                            <td className="p-2.5 text-right font-mono font-bold">रु {op.totalValue.toLocaleString()}</td>
-                                            <td className="p-2.5 text-slate-500">{op.reason}</td>
-                                          </tr>
-                                        )}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                    <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{op.reason}</p>
+
+                    {op.items && op.items.length > 0 && (
+                      <div className="mt-2 text-[11px] font-medium text-slate-600 dark:text-slate-400 bg-white/50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
+                        <span className="font-bold">Contents: </span>
+                        {op.items.map((i) => `${i.productName} (${i.quantity} ${i.unit || 'pcs'} - ${i.condition})`).join(', ')}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200 dark:border-slate-800">
+                    <span className="text-slate-400 font-mono text-[11px]">{op.dateAD}</span>
+                    <span className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
+                      रु {op.totalValue.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* TAB 2: LOCAL DAMAGE TRACKING */}
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 2: DAMAGED STOCK LABELING & TRACKING */}
+      {/* ------------------------------------------------------------- */}
       {activeTab === 'DAMAGE_TRACKING' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="text-xs font-semibold text-slate-500">
-              Local Branch & Warehouse Damaged Inventory Tracking
+          {!isSuperOrInventory && (
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-center gap-2.5 text-xs font-medium">
+              <ShieldAlert className="h-5 w-5 text-amber-500 flex-shrink-0" />
+              <span>
+                <strong>Branch Role Restriction Active:</strong> As a branch user, you can label damaged stock exclusively for your assigned branch stock. Super Admins and Inventory Controllers can manage damage across all branches.
+              </span>
             </div>
+          )}
 
-            <div className="flex items-center gap-2">
-              <Filter className="h-3.5 w-3.5 text-slate-400" />
-              <select
-                value={branchFilter}
-                onChange={(e) => setBranchFilter(e.target.value)}
-                className={`rounded-xl border px-3 py-1.5 text-xs font-medium cursor-pointer ${
-                  isDarkMode
-                    ? 'bg-slate-900 border-slate-800 text-slate-200'
-                    : 'bg-white border-slate-200 text-slate-800'
-                }`}
-              >
-                <option value="ALL">All Branch Locations & Warehouses</option>
-                {branches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className={`rounded-2xl border shadow-lg overflow-hidden ${
+          <div className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
           }`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                <AlertTriangle className="h-4 w-4 text-rose-500" />
+                <span>Locally Tagged Damaged Stock Logs</span>
+              </h3>
+              <button
+                onClick={() => setIsDamageModalOpen(true)}
+                className="flex items-center gap-1.5 rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-500 shadow-sm transition-all cursor-pointer"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Label New Damaged Item</span>
+              </button>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className={`font-bold uppercase text-[10px] tracking-wider border-b ${
-                  isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+                <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+                  isDarkMode ? 'bg-slate-900/80 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
                 }`}>
                   <tr>
-                    <th className="p-3.5">Reference #</th>
-                    <th className="p-3.5">Location (Branch/HQ)</th>
-                    <th className="p-3.5">Product Name</th>
-                    <th className="p-3.5 text-right">Damaged Qty</th>
-                    <th className="p-3.5 text-right">Loss Cost Basis</th>
-                    <th className="p-3.5 text-right">Total Loss (NPR)</th>
-                    <th className="p-3.5">Quality Inspector</th>
-                    <th className="p-3.5">Log Date</th>
-                    <th className="p-3.5">Damage Cause / Explanation</th>
+                    <th className="p-2.5">Reference #</th>
+                    <th className="p-2.5">Branch</th>
+                    <th className="p-2.5">Product Name</th>
+                    <th className="p-2.5">Qty Damaged</th>
+                    <th className="p-2.5">Estimated Cost</th>
+                    <th className="p-2.5">Damage Reason</th>
+                    <th className="p-2.5">Inspector</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                  {filteredOperations.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="p-8 text-center text-slate-500 text-xs">
-                        No damaged stock logged for this selection. Use "Label Local Damaged Stock" to record damage at any branch or warehouse.
-                      </td>
+                  {filteredOperations.map((op) => (
+                    <tr key={op.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                      <td className="p-2.5 font-mono font-bold text-rose-600 dark:text-rose-400">{op.referenceNumber}</td>
+                      <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200">{op.branchId}</td>
+                      <td className="p-2.5 font-medium text-slate-900 dark:text-white">{op.productName}</td>
+                      <td className="p-2.5 font-mono font-bold text-rose-600">{Math.abs(op.quantityChanged || 1)} Pcs</td>
+                      <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">रु {op.totalValue.toLocaleString()}</td>
+                      <td className="p-2.5 text-slate-500">{op.reason}</td>
+                      <td className="p-2.5 font-medium text-slate-600 dark:text-slate-400">{op.inspectorName}</td>
                     </tr>
-                  ) : (
-                    filteredOperations.map((op) => {
-                      const branch = branches.find((b) => b.id === op.branchId);
-                      return (
-                        <tr key={op.id} className={`transition-colors ${
-                          isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
-                        }`}>
-                          <td className={`p-3.5 font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                            {op.referenceNumber}
-                          </td>
-                          <td className={`p-3.5 font-semibold ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-                            {branch?.name || op.branchId}
-                          </td>
-                          <td className={`p-3.5 font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                            {op.productName}
-                          </td>
-                          <td className="p-3.5 text-right font-extrabold font-mono text-rose-600 dark:text-rose-400">
-                            {Math.abs(op.quantityChanged || 0)}
-                          </td>
-                          <td className={`p-3.5 text-right font-mono ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-                            रु {(op.costPerUnit || 0).toLocaleString()}
-                          </td>
-                          <td className="p-3.5 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
-                            रु {op.totalValue.toLocaleString()}
-                          </td>
-                          <td className="p-3.5 text-slate-500 text-[11px] font-medium">
-                            {op.inspectorName}
-                          </td>
-                          <td className="p-3.5 text-slate-500 font-mono text-[11px]">
-                            {formatDualDate(op.dateAD, dateMode)}
-                          </td>
-                          <td className="p-3.5 text-slate-500 text-[11px] max-w-xs truncate">
-                            {op.reason}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -665,360 +728,698 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         </div>
       )}
 
-      {/* TAB 3: ALL OPERATION LOGS */}
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 3: RECEIVE TRANSFER */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'RECEIVE_TRANSFER' && (
+        <div className="space-y-4">
+          <div className={`p-4 rounded-2xl border ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`font-bold text-sm flex items-center gap-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                <Inbox className="h-4 w-4 text-amber-500" />
+                <span>Inter-Branch Transfer Dispatches & Incoming Stock</span>
+              </h3>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400 font-medium">Filter Branch:</span>
+                <select
+                  value={branchFilter}
+                  onChange={(e) => setBranchFilter(e.target.value)}
+                  className={`rounded-xl border px-3 py-1 text-xs font-medium focus:outline-none ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                >
+                  <option value="ALL">All Branches</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {shipments
+                .filter((sh) => branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter)
+                .map((sh) => (
+                  <div
+                    key={sh.id}
+                    className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${
+                      isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
+                          {sh.trackingCode}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                          sh.status === 'RECEIVED' || sh.status === 'DELIVERED'
+                            ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300'
+                            : 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300'
+                        }`}>
+                          {sh.status}
+                        </span>
+                      </div>
+
+                      <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mt-1">
+                        <span>{sh.sourceBranchName || sh.sourceBranchId}</span>
+                        <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
+                        <span>{sh.destinationBranchName || sh.destinationBranchId}</span>
+                      </div>
+
+                      <div className="mt-2 text-[11px] text-slate-600 dark:text-slate-300 bg-white/60 dark:bg-slate-800/60 p-2 rounded-lg border border-slate-200/50">
+                        <span className="font-bold">Transfer Items: </span>
+                        {sh.items?.map((i) => `${i.productName} (${i.quantity} ${i.unit || 'pcs'})`).join(', ')}
+                      </div>
+
+                      {sh.notes && <p className="text-[11px] text-slate-400 mt-1 italic">{sh.notes}</p>}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
+                      <span className="text-[11px] font-mono text-slate-400">Dispatch Date: {sh.dispatchDateAD}</span>
+
+                      {sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED' && onReceiveShipment ? (
+                        <button
+                          onClick={() => onReceiveShipment(sh.id)}
+                          className="flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-500 shadow-xs cursor-pointer"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          <span>Confirm & Receive Stock</span>
+                        </button>
+                      ) : (
+                        <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          <span>Stock Received</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 4: CREATE TRANSFER */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'CREATE_TRANSFER' && (
+        <div className={`p-6 rounded-2xl border max-w-2xl mx-auto shadow-sm ${
+          isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+        }`}>
+          <h3 className="text-base font-serif font-bold flex items-center gap-2 mb-4 pb-3 border-b border-slate-200 dark:border-slate-800">
+            <Send className="h-5 w-5 text-sky-500" />
+            <span>Create Inter-Branch Stock Transfer</span>
+          </h3>
+
+          <form onSubmit={handleSubmitCreateTransfer} className="space-y-4 text-xs">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold mb-1">Source Dispatch Branch *</label>
+                <select
+                  value={xferSourceBranchId}
+                  onChange={(e) => setXferSourceBranchId(e.target.value)}
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                >
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1">Destination Receiving Branch *</label>
+                <select
+                  value={xferDestBranchId}
+                  onChange={(e) => setXferDestBranchId(e.target.value)}
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                >
+                  {branches
+                    .filter((b) => b.id !== xferSourceBranchId)
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                    ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">Select Product to Transfer *</label>
+              <select
+                value={xferProductId}
+                onChange={(e) => setXferProductId(e.target.value)}
+                className={`w-full rounded-xl border p-2.5 ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                }`}
+              >
+                {products.map((p) => {
+                  const srcStock = stock.find((s) => s.productId === p.id && s.branchId === xferSourceBranchId);
+                  return (
+                    <option key={p.id} value={p.id}>
+                      [{p.sku}] {p.name} (Available: {srcStock?.quantityOnHand || 0} {p.unit})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">Transfer Quantity *</label>
+              <input
+                type="number"
+                min={1}
+                required
+                value={xferQty}
+                onChange={(e) => setXferQty(Number(e.target.value))}
+                className={`w-full rounded-xl border p-2.5 font-mono ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                }`}
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">Dispatch Notes / Courier Reference</label>
+              <textarea
+                rows={2}
+                value={xferNotes}
+                onChange={(e) => setXferNotes(e.target.value)}
+                className={`w-full rounded-xl border p-2.5 ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                }`}
+              />
+            </div>
+
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+              <button
+                type="submit"
+                className="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-bold hover:bg-sky-500 shadow-md flex items-center gap-2 cursor-pointer"
+              >
+                <Send className="h-4 w-4" />
+                <span>Dispatch Transfer Shipment</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 5: ASSIGN FIXED ASSET (Locations & Customer Sites) */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'ASSIGN_ASSET' && (
+        <div className="space-y-4">
+          <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-800 dark:text-indigo-300 flex items-center justify-between text-xs font-medium">
+            <div className="flex items-center gap-2">
+              <Wrench className="h-5 w-5 text-indigo-500 flex-shrink-0" />
+              <span>
+                <strong>Fixed Asset Location & Customer Assignment:</strong> Fixed Assets deployed in POP Server Rooms, Fiber Network Nodes, or Customer Sites are assigned directly to their operational location and removed from available unassigned stock.
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Available Fixed Assets in Stock */}
+            <div className={`p-4 rounded-2xl border ${
+              isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+            }`}>
+              <h3 className={`font-bold text-sm mb-3 flex items-center justify-between ${
+                isDarkMode ? 'text-white' : 'text-slate-900'
+              }`}>
+                <span className="flex items-center gap-2">
+                  <Package className="h-4 w-4 text-emerald-500" />
+                  <span>Available Fixed Assets in Stock ({availableStockAssets.length})</span>
+                </span>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-bold">Unassigned</span>
+              </h3>
+
+              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                {availableStockAssets.length === 0 ? (
+                  <p className="text-xs text-slate-400 p-6 text-center">No unassigned fixed assets available in stock.</p>
+                ) : (
+                  availableStockAssets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${
+                        isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div>
+                        <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 block">
+                          Tag: {asset.tagNumber}
+                        </span>
+                        <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">{asset.name}</h4>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Cost: रु {asset.acquisitionCost.toLocaleString()} | Category: {asset.category}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => handleOpenAssignModal(asset)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 shadow-xs cursor-pointer flex-shrink-0"
+                      >
+                        <Wrench className="h-3.5 w-3.5" />
+                        <span>Assign Asset</span>
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Assigned Fixed Assets Register */}
+            <div className={`p-4 rounded-2xl border ${
+              isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+            }`}>
+              <h3 className={`font-bold text-sm mb-3 flex items-center justify-between ${
+                isDarkMode ? 'text-white' : 'text-slate-900'
+              }`}>
+                <span className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-indigo-500" />
+                  <span>Assigned & Deployed Fixed Assets ({assignedAssets.length})</span>
+                </span>
+                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono font-bold">In-Use / Installed</span>
+              </h3>
+
+              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                {assignedAssets.length === 0 ? (
+                  <p className="text-xs text-slate-400 p-6 text-center">No assigned assets logged yet.</p>
+                ) : (
+                  assignedAssets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      className={`p-3 rounded-xl border flex flex-col justify-between space-y-2 ${
+                        isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 block">
+                            Tag: {asset.tagNumber}
+                          </span>
+                          <h4 className="font-bold text-xs text-slate-900 dark:text-white">{asset.name}</h4>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-600 border border-purple-500/30">
+                          {asset.assignedType === 'LOCATION' ? 'POP / Node Site' : 'Customer Site'}
+                        </span>
+                      </div>
+
+                      <div className="p-2 rounded-lg bg-white/60 dark:bg-slate-800/60 border border-slate-200/60 text-xs space-y-0.5">
+                        <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
+                          <MapPin className="h-3 w-3 text-indigo-500" />
+                          <span>
+                            {asset.assignedType === 'LOCATION'
+                              ? asset.assignedLocationName || asset.assignedLocationId
+                              : asset.assignedCustomerName || asset.assignedCustomerId}
+                          </span>
+                        </div>
+                        {asset.assignmentNotes && (
+                          <div className="text-[10px] text-slate-400 italic">{asset.assignmentNotes}</div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1 text-[10px]">
+                        <span className="text-slate-400 font-mono">Assigned: {asset.assignmentDateAD || '2026-08-01'}</span>
+                        <button
+                          onClick={() => handleUnassignAsset(asset)}
+                          className="text-rose-600 dark:text-rose-400 hover:underline font-bold cursor-pointer"
+                        >
+                          Unassign / Return to Stock
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 6: PRODUCT SALE TO CUSTOMER */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'PRODUCT_SALE' && (
+        <div className={`p-6 rounded-2xl border max-w-2xl mx-auto shadow-sm ${
+          isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+        }`}>
+          <h3 className="text-base font-serif font-bold flex items-center gap-2 mb-4 pb-3 border-b border-slate-200 dark:border-slate-800">
+            <PackageMinus className="h-5 w-5 text-purple-500" />
+            <span>Product Sale to Customer (Stock Out)</span>
+          </h3>
+
+          <form onSubmit={handleSubmitProductSale} className="space-y-4 text-xs">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold mb-1">Select Customer *</label>
+                <select
+                  value={saleCustomerId}
+                  onChange={(e) => setSaleCustomerId(e.target.value)}
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                >
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.customerName} ({c.customerId}) - {c.address}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1">Fulfilling Branch *</label>
+                <select
+                  value={saleBranchId}
+                  onChange={(e) => setSaleBranchId(e.target.value)}
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                >
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">Product Item *</label>
+              <select
+                value={saleProductId}
+                onChange={(e) => {
+                  setSaleProductId(e.target.value);
+                  const p = products.find((pr) => pr.id === e.target.value);
+                  if (p) setSalePrice(p.sellingPrice);
+                }}
+                className={`w-full rounded-xl border p-2.5 ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                }`}
+              >
+                {products.map((p) => {
+                  const stk = stock.find((s) => s.productId === p.id && s.branchId === saleBranchId);
+                  return (
+                    <option key={p.id} value={p.id}>
+                      [{p.sku}] {p.name} (Stock: {stk?.quantityOnHand || 0} {p.unit} | Cost: रु {p.costPrice})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block font-bold mb-1">Sale Quantity *</label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={saleQty}
+                  onChange={(e) => setSaleQty(Number(e.target.value))}
+                  className={`w-full rounded-xl border p-2.5 font-mono ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1">Selling Price / Unit (रु) *</label>
+                <input
+                  type="number"
+                  min={0}
+                  required
+                  value={salePrice}
+                  onChange={(e) => setSalePrice(Number(e.target.value))}
+                  className={`w-full rounded-xl border p-2.5 font-mono ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1">Discount (रु)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={saleDiscount}
+                  onChange={(e) => setSaleDiscount(Number(e.target.value))}
+                  className={`w-full rounded-xl border p-2.5 font-mono ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold mb-1">Payment Method</label>
+                <select
+                  value={salePaymentMethod}
+                  onChange={(e) => setSalePaymentMethod(e.target.value)}
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                >
+                  <option value="Cash / Direct Payment">Cash / Direct Payment</option>
+                  <option value="eSewa / Khalti Digital Mobile Wallet">eSewa / Khalti Digital Mobile Wallet</option>
+                  <option value="Bank Transfer / Fonepay QR">Bank Transfer / Fonepay QR</option>
+                  <option value="Customer Account Credit">Customer Account Credit</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1">Total Net Billing Amount</label>
+                <div className="p-2.5 rounded-xl border bg-indigo-50 dark:bg-indigo-950/60 border-indigo-200 dark:border-indigo-800 font-mono font-bold text-indigo-700 dark:text-indigo-300 text-sm">
+                  रु {((saleQty * salePrice) - saleDiscount).toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">Sale Notes / Remarks</label>
+              <textarea
+                rows={2}
+                value={saleNotes}
+                onChange={(e) => setSaleNotes(e.target.value)}
+                className={`w-full rounded-xl border p-2.5 ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                }`}
+              />
+            </div>
+
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+              <button
+                type="submit"
+                className="px-5 py-2.5 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-500 shadow-md flex items-center gap-2 cursor-pointer"
+              >
+                <PackageMinus className="h-4 w-4" />
+                <span>Submit Product Sale</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 7: LOGS */}
+      {/* ------------------------------------------------------------- */}
       {activeTab === 'LOGS' && (
-        <div className={`rounded-2xl border shadow-lg overflow-hidden ${
+        <div className={`p-4 rounded-2xl border ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
         }`}>
+          <h3 className={`font-bold text-sm mb-3 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+            Audit Log of All Stock Operations ({operations.length})
+          </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className={`font-bold uppercase text-[10px] tracking-wider border-b ${
-                isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+              <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+                isDarkMode ? 'bg-slate-900/80 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-3.5">Ref #</th>
-                  <th className="p-3.5">Type</th>
-                  <th className="p-3.5">Location</th>
-                  <th className="p-3.5">Product / Items</th>
-                  <th className="p-3.5 text-right">Total Value</th>
-                  <th className="p-3.5">Inspector</th>
-                  <th className="p-3.5">Date</th>
-                  <th className="p-3.5">Reason</th>
+                  <th className="p-2.5">Ref #</th>
+                  <th className="p-2.5">Type</th>
+                  <th className="p-2.5">Branch</th>
+                  <th className="p-2.5">Product / Details</th>
+                  <th className="p-2.5">Value</th>
+                  <th className="p-2.5">Inspector / Officer</th>
+                  <th className="p-2.5">Date</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                {operations.map((op) => {
-                  const br = branches.find((b) => b.id === op.branchId);
-                  return (
-                    <tr key={op.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                      <td className="p-3.5 font-mono font-bold">{op.referenceNumber}</td>
-                      <td className="p-3.5">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
-                          op.type === 'PULLOUT'
-                            ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300'
-                            : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                        }`}>
-                          {op.type}
-                        </span>
-                      </td>
-                      <td className="p-3.5 font-medium">{br?.name || op.branchId}</td>
-                      <td className="p-3.5 font-bold">
-                        {op.items ? `${op.items.length} Multiple Items` : op.productName}
-                      </td>
-                      <td className="p-3.5 text-right font-mono font-bold">रु {op.totalValue.toLocaleString()}</td>
-                      <td className="p-3.5 text-slate-500">{op.inspectorName}</td>
-                      <td className="p-3.5 font-mono text-[11px] text-slate-500">{formatDualDate(op.dateAD, dateMode)}</td>
-                      <td className="p-3.5 text-slate-500 max-w-xs truncate">{op.reason}</td>
-                    </tr>
-                  );
-                })}
+                {operations.map((op) => (
+                  <tr key={op.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                    <td className="p-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">{op.referenceNumber}</td>
+                    <td className="p-2.5 font-bold">{op.type}</td>
+                    <td className="p-2.5">{op.branchId}</td>
+                    <td className="p-2.5">{op.productName || op.reason}</td>
+                    <td className="p-2.5 font-mono font-bold">रु {op.totalValue.toLocaleString()}</td>
+                    <td className="p-2.5">{op.inspectorName}</td>
+                    <td className="p-2.5 font-mono text-slate-400">{op.dateAD}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* MODAL 1: MULTI-STOCK PULLOUT BIN DISPATCH FORM */}
+      {/* ============================================================ */}
+      {/* MODAL 1: Create Pullout Bin */}
+      {/* ============================================================ */}
       {isPulloutModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-3xl rounded-2xl shadow-2xl border overflow-hidden flex flex-col max-h-[90vh] ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className={`w-full max-w-2xl rounded-3xl border shadow-2xl overflow-hidden p-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
-            {/* Header */}
-            <div className={`flex items-center justify-between border-b px-6 py-4 ${
-              isDarkMode ? 'border-slate-800 bg-[#12161f]' : 'border-slate-200 bg-slate-50'
-            }`}>
-              <div className="flex items-center gap-2">
-                <Truck className="h-5 w-5 text-indigo-600" />
-                <h3 className={`font-bold text-base ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                  Create Multi-Stock Pullout Bin Dispatch
-                </h3>
-              </div>
-              <button
-                onClick={() => setIsPulloutModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
-              >
-                <X className="h-5 w-5" />
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="text-base font-serif font-bold flex items-center gap-2">
+                <Truck className="h-5 w-5 text-indigo-500" />
+                <span>Create Overstock / Damaged Stock Pullout Bin</span>
+              </h3>
+              <button onClick={() => setIsPulloutModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                ✕
               </button>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleSubmitPulloutBin} className="p-6 overflow-y-auto space-y-5 flex-1">
-              {/* Branch Routing */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <form onSubmit={handleSubmitPulloutBin} className="space-y-4 mt-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">
-                    Source Branch (Dispatching Location)
-                  </label>
+                  <label className="block font-bold mb-1">Source Branch *</label>
                   <select
                     value={sourceBranchId}
                     onChange={(e) => setSourceBranchId(e.target.value)}
-                    className={`w-full rounded-xl border px-3 py-2 text-xs font-medium ${
-                      isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                    className={`w-full rounded-xl border p-2.5 ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                     }`}
                   >
                     {branches.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name} ({b.code})
-                      </option>
+                      <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">
-                    Destination Central Warehouse
-                  </label>
+                  <label className="block font-bold mb-1">Destination Central Warehouse *</label>
                   <select
                     value={destWarehouseId}
                     onChange={(e) => setDestWarehouseId(e.target.value)}
-                    className={`w-full rounded-xl border px-3 py-2 text-xs font-medium ${
-                      isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
+                    className={`w-full rounded-xl border p-2.5 ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                     }`}
                   >
-                    {branches.filter((b) => b.isHeadquarters || b.id === 'WH001').map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name} ⭐ (Central Storage)
-                      </option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              {/* Product Search Bar */}
-              <div className="relative">
-                <label className="block text-xs font-bold text-slate-500 mb-1">
-                  🔍 Search & Add Stock Items to Pullout Bin (Name, SKU or Barcode)
-                </label>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                    <input
-                      type="text"
-                      value={prodSearchInput}
-                      onChange={(e) => {
-                        setProdSearchInput(e.target.value);
-                        setIsSearchOpen(true);
-                      }}
-                      onFocus={() => setIsSearchOpen(true)}
-                      placeholder="Type SKU (e.g. DRP001), Barcode or Product Name to add..."
-                      className={`w-full rounded-xl border pl-9 pr-4 py-2 text-xs font-medium ${
-                        isDarkMode
-                          ? 'bg-slate-900 border-indigo-500/50 text-white placeholder-slate-500'
-                          : 'bg-white border-indigo-300 text-slate-900 placeholder-slate-400'
-                      }`}
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setIsBarcodeScannerOpen(true)}
-                    className="flex items-center gap-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-3 py-2 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all cursor-pointer"
-                  >
-                    <Barcode className="h-4 w-4 text-indigo-500" />
-                    <span>Scan</span>
-                  </button>
-                </div>
-
-                {/* Autocomplete Dropdown */}
-                {isSearchOpen && matchingProducts.length > 0 && (
-                  <div className={`absolute z-30 mt-1 w-full max-h-56 overflow-y-auto rounded-xl border shadow-xl ${
-                    isDarkMode ? 'bg-[#0f1218] border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
-                  }`}>
-                    {matchingProducts.map((p) => {
-                      const pStock = stock.find((s) => s.productId === p.id && s.branchId === sourceBranchId);
-                      return (
-                        <button
+              <div>
+                <label className="block font-bold mb-1">Add Items to Pullout Bin</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search product SKU or name to add..."
+                    value={prodSearchInput}
+                    onChange={(e) => {
+                      setProdSearchInput(e.target.value);
+                      setIsSearchOpen(true);
+                    }}
+                    className={`w-full rounded-xl border p-2.5 ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                    }`}
+                  />
+                  {isSearchOpen && matchingProducts.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border shadow-xl bg-white dark:bg-slate-900 divide-y dark:divide-slate-800">
+                      {matchingProducts.slice(0, 6).map((p) => (
+                        <div
                           key={p.id}
-                          type="button"
                           onClick={() => handleAddProductToPullout(p)}
-                          className={`w-full text-left px-4 py-2.5 text-xs flex items-center justify-between border-b last:border-0 hover:bg-indigo-50 dark:hover:bg-slate-800/80 cursor-pointer ${
-                            isDarkMode ? 'border-slate-800' : 'border-slate-100'
-                          }`}
+                          className="p-2.5 hover:bg-indigo-50 dark:hover:bg-slate-800 cursor-pointer flex justify-between items-center"
                         >
                           <div>
-                            <div className="font-bold">{p.name}</div>
-                            <div className="text-[10px] text-indigo-500 font-mono">
-                              SKU: {p.sku} • Cost: रु {p.costPrice.toLocaleString()}
-                            </div>
+                            <span className="font-bold text-slate-900 dark:text-white">{p.name}</span>
+                            <span className="text-[10px] text-slate-400 block">SKU: {p.sku} | Unit: {p.unit}</span>
                           </div>
-                          <div className="text-right font-mono text-[11px]">
-                            <span className="font-bold text-indigo-600 dark:text-indigo-400">
-                              {pStock?.quantityOnHand || 0} {p.unit} Usable
-                            </span>
-                            {(pStock?.damagedQty || 0) > 0 && (
-                              <div className="text-[10px] text-rose-500 font-semibold">
-                                {pStock?.damagedQty} Damaged
-                              </div>
-                            )}
-                          </div>
+                          <span className="font-mono font-bold text-indigo-600">रु {p.costPrice}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Added Pullout Items List */}
+              <div className="space-y-2 max-h-40 overflow-y-auto border rounded-xl p-2">
+                {pulloutItems.length === 0 ? (
+                  <p className="text-slate-400 text-center py-4 text-xs">No items added to pullout bin yet.</p>
+                ) : (
+                  pulloutItems.map((item) => (
+                    <div key={item.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
+                      <div className="flex-1">
+                        <span className="font-bold text-slate-900 dark:text-white">{item.productName}</span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <select
+                            value={item.condition}
+                            onChange={(e) => handleUpdatePulloutItem(item.id, { condition: e.target.value as any })}
+                            className="text-[10px] rounded border px-1.5 py-0.5 bg-white dark:bg-slate-900"
+                          >
+                            <option value="OVERSTOCK">OVERSTOCK</option>
+                            <option value="DAMAGED_STOCK">DAMAGED_STOCK</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          value={item.quantity}
+                          onChange={(e) => handleUpdatePulloutItem(item.id, { quantity: Number(e.target.value) })}
+                          className="w-16 rounded border p-1 text-center font-mono text-xs bg-white dark:bg-slate-900"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemovePulloutItem(item.id)}
+                          className="text-rose-500 hover:text-rose-700 cursor-pointer p-1"
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </button>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
 
-              {/* Multi-Item Table in Bin Draft */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
-                  <span>Bin Contents ({pulloutItems.length} items added)</span>
-                  {pulloutItems.length > 0 && (
-                    <span className="text-indigo-600 dark:text-indigo-400">
-                      Bin Subtotal: रु {pulloutItems.reduce((s, i) => s + i.totalValue, 0).toLocaleString()}
-                    </span>
-                  )}
-                </div>
-
-                <div className={`rounded-xl border overflow-hidden ${
-                  isDarkMode ? 'border-slate-800 bg-[#0a0c10]' : 'border-slate-200 bg-slate-50/50'
-                }`}>
-                  <table className="w-full text-left text-xs">
-                    <thead className={`text-[10px] uppercase font-bold ${
-                      isDarkMode ? 'bg-slate-900 text-slate-400' : 'bg-slate-200 text-slate-700'
-                    }`}>
-                      <tr>
-                        <th className="p-2.5">Item & SKU</th>
-                        <th className="p-2.5">Condition</th>
-                        <th className="p-2.5 text-center">Qty to Return</th>
-                        <th className="p-2.5 text-right">Unit Cost</th>
-                        <th className="p-2.5 text-right">Total Value</th>
-                        <th className="p-2.5">Reason Note</th>
-                        <th className="p-2.5 text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                      {pulloutItems.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="p-6 text-center text-slate-400 text-xs">
-                            No items added to bin yet. Search product above to add to bin.
-                          </td>
-                        </tr>
-                      ) : (
-                        pulloutItems.map((item) => (
-                          <tr key={item.id}>
-                            <td className="p-2.5">
-                              <div className="font-bold text-xs">{item.productName}</div>
-                              <div className="text-[10px] font-mono text-indigo-500">SKU: {item.sku}</div>
-                            </td>
-                            <td className="p-2.5">
-                              <select
-                                value={item.condition}
-                                onChange={(e) =>
-                                  handleUpdatePulloutItem(item.id, {
-                                    condition: e.target.value as any,
-                                  })
-                                }
-                                className={`rounded-lg border px-2 py-1 text-[11px] font-bold cursor-pointer ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
-                                }`}
-                              >
-                                <option value="OVERSTOCK">OVERSTOCK (Usable)</option>
-                                <option value="DAMAGED_STOCK">DAMAGED (Defective)</option>
-                                <option value="EXPIRED">EXPIRED</option>
-                                <option value="RECALLED">RECALLED</option>
-                              </select>
-                            </td>
-                            <td className="p-2.5 text-center">
-                              <input
-                                type="number"
-                                min={1}
-                                value={item.quantity}
-                                onChange={(e) =>
-                                  handleUpdatePulloutItem(item.id, {
-                                    quantity: Math.max(1, Number(e.target.value)),
-                                  })
-                                }
-                                className={`w-16 text-center font-mono font-bold rounded-lg border px-2 py-1 ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'
-                                }`}
-                              />
-                            </td>
-                            <td className="p-2.5 text-right font-mono">
-                              रु {item.unitCost.toLocaleString()}
-                            </td>
-                            <td className="p-2.5 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                              रु {item.totalValue.toLocaleString()}
-                            </td>
-                            <td className="p-2.5">
-                              <input
-                                type="text"
-                                value={item.reason || ''}
-                                onChange={(e) =>
-                                  handleUpdatePulloutItem(item.id, { reason: e.target.value })
-                                }
-                                placeholder="Reason for returning item..."
-                                className={`w-full rounded-lg border px-2 py-1 text-[11px] ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'
-                                }`}
-                              />
-                            </td>
-                            <td className="p-2.5 text-center">
-                              <button
-                                type="button"
-                                onClick={() => handleRemovePulloutItem(item.id)}
-                                className="p-1 text-rose-500 hover:text-rose-700 cursor-pointer"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
+              <div>
+                <label className="block font-bold mb-1">Dispatch Reason / Notes</label>
+                <textarea
+                  rows={2}
+                  value={binNotes}
+                  onChange={(e) => setBinNotes(e.target.value)}
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
               </div>
 
-              {/* Officer & Dispatch Notes */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">
-                    Authorizing Officer / Logistics Inspector
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={binInspector}
-                    onChange={(e) => setBinInspector(e.target.value)}
-                    className={`w-full rounded-xl border px-3 py-1.5 text-xs ${
-                      isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                    }`}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">
-                    General Dispatch Notes
-                  </label>
-                  <input
-                    type="text"
-                    value={binNotes}
-                    onChange={(e) => setBinNotes(e.target.value)}
-                    className={`w-full rounded-xl border px-3 py-1.5 text-xs ${
-                      isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300 text-slate-900'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              {/* Submit Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsPulloutModalOpen(false)}
-                  className={`rounded-xl px-4 py-2 text-xs font-semibold border cursor-pointer ${
-                    isDarkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-                  }`}
+                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={pulloutItems.length === 0}
-                  className="rounded-xl bg-indigo-600 px-5 py-2 text-xs font-bold text-white hover:bg-indigo-500 shadow-md cursor-pointer disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 shadow-md cursor-pointer"
                 >
-                  Dispatch Pullout Bin to Warehouse
+                  Dispatch Pullout Bin
                 </button>
               </div>
             </form>
@@ -1026,113 +1427,101 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         </div>
       )}
 
-      {/* MODAL 2: LOCAL DAMAGE LABELING FORM */}
+      {/* ============================================================ */}
+      {/* MODAL 2: Label Local Damaged Stock */}
+      {/* ============================================================ */}
       {isDamageModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className={`w-full max-w-lg rounded-3xl border shadow-2xl overflow-hidden p-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
-            <div className={`flex items-center justify-between border-b px-5 py-4 ${
-              isDarkMode ? 'border-slate-800 bg-[#12161f]' : 'border-slate-200 bg-slate-50'
-            }`}>
-              <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="text-base font-serif font-bold flex items-center gap-2">
                 <AlertTriangle className="h-5 w-5 text-rose-500" />
-                <h3 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                  Label Damaged Stock in Local Inventory
-                </h3>
-              </div>
-              <button
-                onClick={() => setIsDamageModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                <X className="h-4 w-4" />
+                <span>Label Local Damaged Stock</span>
+              </h3>
+              <button onClick={() => setIsDamageModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                ✕
               </button>
             </div>
 
-            <form onSubmit={handleSubmitDamageTag} className="p-5 space-y-3.5">
+            <form onSubmit={handleSubmitDamageTag} className="space-y-4 mt-4 text-xs">
+              {!isSuperOrInventory && (
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-[11px] font-bold flex items-center gap-1.5">
+                  <ShieldAlert className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                  <span>Branch User Rule: Locked to your assigned branch ({currentUser?.branchId})</span>
+                </div>
+              )}
+
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">
-                  Branch or Warehouse Location
-                </label>
+                <label className="block font-bold mb-1">Target Branch *</label>
                 <select
+                  disabled={!isSuperOrInventory}
                   value={damageBranchId}
                   onChange={(e) => setDamageBranchId(e.target.value)}
-                  className={`w-full rounded-xl border px-3 py-2 text-xs font-medium ${
-                    isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'
-                  }`}
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  } ${!isSuperOrInventory ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
                   {branches.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name} ({b.code})
-                    </option>
+                    <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">
-                  Product Item
-                </label>
+                <label className="block font-bold mb-1">Damaged Product *</label>
                 <select
                   value={damageProductId}
                   onChange={(e) => setDamageProductId(e.target.value)}
-                  className={`w-full rounded-xl border px-3 py-2 text-xs font-medium ${
-                    isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                   }`}
                 >
                   {products.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} ({p.sku}) - Cost: रु {p.costPrice.toLocaleString()}
+                      [{p.sku}] {p.name} ({p.unit})
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">
-                    Damaged Quantity
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    required
-                    value={damageQty}
-                    onChange={(e) => setDamageQty(Math.max(1, Number(e.target.value)))}
-                    className={`w-full rounded-xl border px-3 py-1.5 text-xs font-mono font-bold text-rose-600 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-300'
-                    }`}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-1">
-                    Inspector Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={damageInspector}
-                    onChange={(e) => setDamageInspector(e.target.value)}
-                    className={`w-full rounded-xl border px-3 py-1.5 text-xs ${
-                      isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'
-                    }`}
-                  />
-                </div>
+              <div>
+                <label className="block font-bold mb-1">Damaged Quantity *</label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={damageQty}
+                  onChange={(e) => setDamageQty(Number(e.target.value))}
+                  className={`w-full rounded-xl border p-2.5 font-mono ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">
-                  Damage Cause / Reason Note
-                </label>
+                <label className="block font-bold mb-1">Reason for Damage</label>
                 <textarea
                   rows={2}
                   required
                   value={damageReason}
                   onChange={(e) => setDamageReason(e.target.value)}
-                  placeholder="e.g. Broken casing during shipment, water leakage in storage..."
-                  className={`w-full rounded-xl border px-3 py-1.5 text-xs ${
-                    isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1">Inspector / Officer Name</label>
+                <input
+                  type="text"
+                  required
+                  value={damageInspector}
+                  onChange={(e) => setDamageInspector(e.target.value)}
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                   }`}
                 />
               </div>
@@ -1141,17 +1530,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsDamageModalOpen(false)}
-                  className={`rounded-xl px-4 py-1.5 text-xs font-medium border cursor-pointer ${
-                    isDarkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
-                  }`}
+                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="rounded-xl bg-rose-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-rose-500 shadow-md cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-500 shadow-md cursor-pointer"
                 >
-                  Tag Damaged Stock
+                  Save Damaged Stock Tag
                 </button>
               </div>
             </form>
@@ -1159,23 +1546,131 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         </div>
       )}
 
-      {/* Barcode Scanner Modal for Pullout */}
-      <BarcodeScannerModal
-        isOpen={isBarcodeScannerOpen}
-        onClose={() => setIsBarcodeScannerOpen(false)}
-        products={products}
-        onScanResult={(code) => {
-          const matched = products.find(
-            (p) =>
-              p.barcode.toLowerCase() === code.toLowerCase() ||
-              p.sku.toLowerCase() === code.toLowerCase()
-          );
-          if (matched) {
-            handleAddProductToPullout(matched);
-          }
-          setIsBarcodeScannerOpen(false);
-        }}
-      />
+      {/* ============================================================ */}
+      {/* MODAL 3: Assign Fixed Asset Modal */}
+      {/* ============================================================ */}
+      {isAssignModalOpen && selectedAssetForAssign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
+          <div className={`w-full max-w-lg rounded-3xl border shadow-2xl overflow-hidden p-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+          }`}>
+            <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="text-base font-serif font-bold flex items-center gap-2">
+                <Wrench className="h-5 w-5 text-indigo-500" />
+                <span>Assign Fixed Asset: {selectedAssetForAssign.name}</span>
+              </h3>
+              <button onClick={() => setIsAssignModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitAssignAsset} className="space-y-4 mt-4 text-xs">
+              <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
+                Tag: <strong>{selectedAssetForAssign.tagNumber}</strong> | Category: {selectedAssetForAssign.category}
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1">Assign Target Category *</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssignTargetType('LOCATION')}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      assignTargetType === 'LOCATION'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : isDarkMode
+                        ? 'bg-slate-900 border-slate-800 text-slate-300'
+                        : 'bg-slate-50 border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <MapPin className="h-4 w-4" />
+                    <span>POP / Network Site</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAssignTargetType('CUSTOMER')}
+                    className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      assignTargetType === 'CUSTOMER'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : isDarkMode
+                        ? 'bg-slate-900 border-slate-800 text-slate-300'
+                        : 'bg-slate-50 border-slate-300 text-slate-700'
+                    }`}
+                  >
+                    <UserCheck className="h-4 w-4" />
+                    <span>Customer Home / Site</span>
+                  </button>
+                </div>
+              </div>
+
+              {assignTargetType === 'LOCATION' ? (
+                <div>
+                  <label className="block font-bold mb-1">Select POP / Network Location *</label>
+                  <select
+                    value={assignLocationId}
+                    onChange={(e) => setAssignLocationId(e.target.value)}
+                    className={`w-full rounded-xl border p-2.5 ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                    }`}
+                  >
+                    {locations.map((loc) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name} ({loc.type.replace(/_/g, ' ')}) - {loc.address}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block font-bold mb-1">Select Customer *</label>
+                  <select
+                    value={assignCustomerId}
+                    onChange={(e) => setAssignCustomerId(e.target.value)}
+                    className={`w-full rounded-xl border p-2.5 ${
+                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                    }`}
+                  >
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.customerName} ({c.customerId}) - {c.address}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block font-bold mb-1">Installation / Assignment Remarks</label>
+                <textarea
+                  rows={2}
+                  value={assignNotes}
+                  onChange={(e) => setAssignNotes(e.target.value)}
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setIsAssignModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 shadow-md cursor-pointer"
+                >
+                  Confirm Asset Assignment
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

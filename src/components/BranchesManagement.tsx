@@ -26,6 +26,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
   const [location, setLocation] = useState('');
   const [phone, setPhone] = useState('');
   const [isHeadquarters, setIsHeadquarters] = useState(false);
+  const [allowProcurement, setAllowProcurement] = useState(true);
 
   const filtered = branches.filter(
     (b) =>
@@ -41,6 +42,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setLocation('');
     setPhone('');
     setIsHeadquarters(false);
+    setAllowProcurement(true);
     setIsModalOpen(true);
   };
 
@@ -51,6 +53,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setLocation(b.location);
     setPhone(b.phone);
     setIsHeadquarters(b.isHeadquarters);
+    setAllowProcurement(b.allowProcurement !== false);
     setIsModalOpen(true);
   };
 
@@ -74,6 +77,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           location,
           phone: phone || '+977-1-4200000',
           isHeadquarters,
+          allowProcurement,
         });
       }
     } else {
@@ -85,6 +89,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           phone: phone || '+977-1-4200000',
           isHeadquarters,
           active: true,
+          allowProcurement,
         });
       }
     }
@@ -94,6 +99,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setLocation('');
     setPhone('');
     setIsHeadquarters(false);
+    setAllowProcurement(true);
     setEditingBranch(null);
     setIsModalOpen(false);
   };
@@ -194,6 +200,17 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                 <Phone className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
                 <span>{b.phone}</span>
               </div>
+              <div className="pt-1 flex items-center gap-1.5">
+                {b.allowProcurement !== false ? (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                    🛒 Procurement Enabled
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                    🚫 Procurement Disabled
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px]">
@@ -266,17 +283,32 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                 />
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  type="checkbox"
-                  id="hq-check"
-                  checked={isHeadquarters}
-                  onChange={(e) => setIsHeadquarters(e.target.checked)}
-                  className="h-4 w-4 rounded text-indigo-600 cursor-pointer"
-                />
-                <label htmlFor="hq-check" className="font-semibold cursor-pointer">
-                  Mark as Headquarters (HQ)
-                </label>
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="hq-check"
+                    checked={isHeadquarters}
+                    onChange={(e) => setIsHeadquarters(e.target.checked)}
+                    className="h-4 w-4 rounded text-indigo-600 cursor-pointer"
+                  />
+                  <label htmlFor="hq-check" className="font-semibold cursor-pointer">
+                    Mark as Central Warehouse / Headquarters (HQ)
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="procurement-check"
+                    checked={allowProcurement}
+                    onChange={(e) => setAllowProcurement(e.target.checked)}
+                    className="h-4 w-4 rounded text-indigo-600 cursor-pointer"
+                  />
+                  <label htmlFor="procurement-check" className="font-semibold cursor-pointer">
+                    Enable Procurement & Purchasing Permission
+                  </label>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">

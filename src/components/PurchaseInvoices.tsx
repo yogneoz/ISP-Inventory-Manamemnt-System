@@ -274,6 +274,12 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       return;
     }
 
+    const targetBranch = branches.find((b) => b.id === branchId);
+    if (targetBranch && targetBranch.allowProcurement === false) {
+      alert(`Procurement & Purchasing permission is disabled for branch "${targetBranch.name}". Please enable it in Branch Directory.`);
+      return;
+    }
+
     const todayAD = new Date().toISOString().split('T')[0];
     const invBs = convertADToBS(todayAD);
     const vendorBillBs = convertADToBS(vendorBillDateAD);

@@ -28,6 +28,7 @@ export interface Branch {
   phone: string;
   isHeadquarters: boolean;
   active: boolean;
+  allowProcurement?: boolean;
 }
 
 export interface Product {
@@ -95,12 +96,21 @@ export interface Asset {
   depreciationRatePercent: number;
   accumulatedDepreciation: number;
   netBookValue: number;
-  status: 'ACTIVE' | 'MAINTENANCE' | 'DISPOSED';
+  status: 'ACTIVE' | 'MAINTENANCE' | 'DISPOSED' | 'IN_USE' | 'ASSIGNED_TO_CUSTOMER' | 'ASSIGNED_TO_LOCATION';
   disposalDateAD?: string;
   supplierName?: string;
   invoiceNo?: string;
   purchaseInvoiceId?: string;
   productId?: string;
+  // Fixed Asset Assignment fields
+  assignedType?: 'CUSTOMER' | 'LOCATION';
+  assignedCustomerId?: string;
+  assignedCustomerName?: string;
+  assignedLocationId?: string;
+  assignedLocationName?: string;
+  assignmentDateAD?: string;
+  assignmentDateBS?: string;
+  assignmentNotes?: string;
 }
 
 export interface POLineItem {
@@ -260,6 +270,11 @@ export interface StockOperation {
   fiscalYear: string;
   status?: 'DISPATCHED' | 'RECEIVED' | 'LOGGED';
   items?: PulloutItem[];
+  // Customer Product Sale fields
+  customerId?: string;
+  customerName?: string;
+  paymentMethod?: string;
+  sellingUnitPrice?: number;
 }
 
 export interface FiscalYear {
@@ -310,6 +325,35 @@ export interface FinancialSummary {
   totalDamageLossValue: number;
   totalVatInputTax: number;
   currentFiscalYear: string;
+}
+
+export interface LocationRecord {
+  id: string;
+  name: string;
+  type: 'POP_SERVER_ROOM' | 'FIBER_NETWORK_NODE' | 'CUSTOMER_SITE' | 'WAREHOUSE' | 'BRANCH_OFFICE' | string;
+  branchId: string;
+  address: string;
+  coordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+  contactPerson?: string;
+  contactPhone?: string;
+  notes?: string;
+  activeAssetsCount?: number;
+}
+
+export interface CustomerRecord {
+  id: string;
+  customerId: string;
+  customerName: string;
+  username: string;
+  contactNumber: string;
+  branchId: string;
+  address: string;
+  email?: string;
+  status: 'ACTIVE' | 'INACTIVE';
+  assignedDevicesCount?: number;
 }
 
 export interface SystemState {

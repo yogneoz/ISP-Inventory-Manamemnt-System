@@ -185,10 +185,11 @@ export const api = {
     });
   },
 
-  async updateAssetStatus(id: string, status: Asset['status']): Promise<Asset> {
+  async updateAssetStatus(id: string, updates: Asset['status'] | Partial<Asset>): Promise<Asset> {
+    const body = typeof updates === 'string' ? { status: updates } : updates;
     return fetchJson(`/api/assets/${id}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(body),
     });
   },
 
