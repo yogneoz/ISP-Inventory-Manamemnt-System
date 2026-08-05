@@ -8,8 +8,10 @@ import {
   Shipment,
   TransactionLog,
   FinancialSummary,
+  User,
 } from '../types';
 import { formatDualDate } from '../utils/nepaliCalendar';
+import { isOperationAllowed } from '../utils/permissions';
 import {
   TrendingUp,
   AlertTriangle,
@@ -34,9 +36,11 @@ import {
   Network,
   ArrowRight,
   SlidersHorizontal,
+  Lock,
 } from 'lucide-react';
 
 interface DashboardProps {
+  currentUser?: User | null;
   products: Product[];
   stock: InventoryStock[];
   branches: Branch[];
@@ -105,6 +109,7 @@ export function getSpecialCategory(prod: Product): SpecialCategoryKey | null {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
+  currentUser,
   products,
   stock,
   branches,
@@ -506,37 +511,49 @@ export const Dashboard: React.FC<DashboardProps> = ({
               <span>View Reorder Stocks</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setIsAdjustModalOpen(true)}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
-                isDarkMode
-                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40 hover:bg-emerald-900'
-                  : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
-              }`}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Quick Add / Remove Stock</span>
-            </button>
+            {(() => {
+              const isSuperOrInventoryManager =
+                currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+              if (!isSuperOrInventoryManager) return null;
 
-            <button
-              type="button"
-              onClick={() => {
-                if (onGroupLowStockPO) {
-                  onGroupLowStockPO();
-                } else {
-                  onNavigateTab('create-po');
-                }
-              }}
-              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
-                isDarkMode
-                  ? 'bg-indigo-600 text-white border-indigo-500 hover:bg-indigo-500 shadow-md shadow-indigo-950/50'
-                  : 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200'
-              }`}
-            >
-              <ShoppingCart className="h-3.5 w-3.5" />
-              <span>Group Products & Create Single PO</span>
-            </button>
+              return (
+                <>
+                  <button
+                    type="button"
+                    title="Quick Stock Entry or Removal"
+                    onClick={() => setIsAdjustModalOpen(true)}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
+                      isDarkMode
+                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40 hover:bg-emerald-900'
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                    }`}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Quick Add / Remove Stock</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    title="Group low stock products and generate PO"
+                    onClick={() => {
+                      if (onGroupLowStockPO) {
+                        onGroupLowStockPO();
+                      } else {
+                        onNavigateTab('create-po');
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold border transition-colors cursor-pointer ${
+                      isDarkMode
+                        ? 'bg-indigo-600 text-white border-indigo-500 hover:bg-indigo-500 shadow-md shadow-indigo-950/50'
+                        : 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-200'
+                    }`}
+                  >
+                    <ShoppingCart className="h-3.5 w-3.5" />
+                    <span>Group Products & Create Single PO</span>
+                  </button>
+                </>
+              );
+            })()}
           </div>
         </div>
 

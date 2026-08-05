@@ -43,7 +43,9 @@ import {
   ExternalLink,
   ShieldAlert,
   ArrowUpRight,
+  Lock,
 } from 'lucide-react';
+import { isOperationAllowed } from '../utils/permissions';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface StockOperationsProps {
@@ -501,89 +503,179 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       <div className={`flex items-center gap-1 border-b pb-1 overflow-x-auto ${
         isDarkMode ? 'border-slate-800' : 'border-slate-200'
       }`}>
-        <button
-          onClick={() => setActiveTab('PULLOUT_BINS')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === 'PULLOUT_BINS'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : isDarkMode
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Truck className="h-4 w-4" />
-          <span>1. Warehouse Pullout ({pulloutOperations.length})</span>
-        </button>
+        {(() => {
+          const canPullout = isOperationAllowed('branch-pullout-dispatch', currentUser?.role);
+          return (
+            <button
+              disabled={!canPullout}
+              title={!canPullout ? 'Pullout dispatch is disabled for your role permissions' : 'Warehouse pullout dispatch'}
+              onClick={() => {
+                if (!canPullout) {
+                  alert('Pullout dispatch operation is disabled for your role permissions.');
+                  return;
+                }
+                setActiveTab('PULLOUT_BINS');
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+                !canPullout
+                  ? 'opacity-40 cursor-not-allowed text-slate-400'
+                  : activeTab === 'PULLOUT_BINS'
+                  ? 'bg-indigo-600 text-white shadow-sm cursor-pointer'
+                  : isDarkMode
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+              }`}
+            >
+              {!canPullout ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Truck className="h-4 w-4" />}
+              <span>1. Warehouse Pullout ({pulloutOperations.length})</span>
+            </button>
+          );
+        })()}
 
-        <button
-          onClick={() => setActiveTab('DAMAGE_TRACKING')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === 'DAMAGE_TRACKING'
-              ? 'bg-rose-600 text-white shadow-sm'
-              : isDarkMode
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <AlertTriangle className="h-4 w-4" />
-          <span>2. Damaged Stock ({damageOperations.length})</span>
-        </button>
+        {(() => {
+          const canDamage = isOperationAllowed('branch-damage-mark', currentUser?.role);
+          return (
+            <button
+              disabled={!canDamage}
+              title={!canDamage ? 'Damaged stock registration is disabled for your role permissions' : 'Damaged stock log'}
+              onClick={() => {
+                if (!canDamage) {
+                  alert('Damaged stock registration operation is disabled for your role permissions.');
+                  return;
+                }
+                setActiveTab('DAMAGE_TRACKING');
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+                !canDamage
+                  ? 'opacity-40 cursor-not-allowed text-slate-400'
+                  : activeTab === 'DAMAGE_TRACKING'
+                  ? 'bg-rose-600 text-white shadow-sm cursor-pointer'
+                  : isDarkMode
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+              }`}
+            >
+              {!canDamage ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <AlertTriangle className="h-4 w-4" />}
+              <span>2. Damaged Stock ({damageOperations.length})</span>
+            </button>
+          );
+        })()}
 
-        <button
-          onClick={() => setActiveTab('RECEIVE_TRANSFER')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === 'RECEIVE_TRANSFER'
-              ? 'bg-amber-600 text-white shadow-sm'
-              : isDarkMode
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Inbox className="h-4 w-4" />
-          <span>3. Receive Transfer ({shipments.length})</span>
-        </button>
+        {(() => {
+          const canReceive = isOperationAllowed('branch-transfer-receive', currentUser?.role);
+          return (
+            <button
+              disabled={!canReceive}
+              title={!canReceive ? 'Transfer receiving is disabled for your role permissions' : 'Receive incoming transfer shipments'}
+              onClick={() => {
+                if (!canReceive) {
+                  alert('Transfer receiving operation is disabled for your role permissions.');
+                  return;
+                }
+                setActiveTab('RECEIVE_TRANSFER');
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+                !canReceive
+                  ? 'opacity-40 cursor-not-allowed text-slate-400'
+                  : activeTab === 'RECEIVE_TRANSFER'
+                  ? 'bg-amber-600 text-white shadow-sm cursor-pointer'
+                  : isDarkMode
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+              }`}
+            >
+              {!canReceive ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Inbox className="h-4 w-4" />}
+              <span>3. Receive Transfer ({shipments.length})</span>
+            </button>
+          );
+        })()}
 
-        <button
-          onClick={() => setActiveTab('CREATE_TRANSFER')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === 'CREATE_TRANSFER'
-              ? 'bg-sky-600 text-white shadow-sm'
-              : isDarkMode
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Send className="h-4 w-4" />
-          <span>4. Create Transfer</span>
-        </button>
+        {(() => {
+          const canCreateXfer = isOperationAllowed('branch-transfer-create', currentUser?.role);
+          return (
+            <button
+              disabled={!canCreateXfer}
+              title={!canCreateXfer ? 'Inter-branch transfer creation is disabled for your role permissions' : 'Create inter-branch stock transfer'}
+              onClick={() => {
+                if (!canCreateXfer) {
+                  alert('Stock transfer creation operation is disabled for your role permissions.');
+                  return;
+                }
+                setActiveTab('CREATE_TRANSFER');
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+                !canCreateXfer
+                  ? 'opacity-40 cursor-not-allowed text-slate-400'
+                  : activeTab === 'CREATE_TRANSFER'
+                  ? 'bg-sky-600 text-white shadow-sm cursor-pointer'
+                  : isDarkMode
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+              }`}
+            >
+              {!canCreateXfer ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Send className="h-4 w-4" />}
+              <span>4. Create Transfer</span>
+            </button>
+          );
+        })()}
 
-        <button
-          onClick={() => setActiveTab('ASSIGN_ASSET')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === 'ASSIGN_ASSET'
-              ? 'bg-emerald-600 text-white shadow-sm'
-              : isDarkMode
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <Wrench className="h-4 w-4" />
-          <span>5. Assign Fixed Asset ({availableStockAssets.length} Avail)</span>
-        </button>
+        {(() => {
+          const canAssignAsset = isOperationAllowed('branch-asset-assign', currentUser?.role);
+          return (
+            <button
+              disabled={!canAssignAsset}
+              title={!canAssignAsset ? 'Fixed asset commissioning is disabled for your role permissions' : 'Assign fixed asset to location/customer'}
+              onClick={() => {
+                if (!canAssignAsset) {
+                  alert('Fixed asset assignment operation is disabled for your role permissions.');
+                  return;
+                }
+                setActiveTab('ASSIGN_ASSET');
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+                !canAssignAsset
+                  ? 'opacity-40 cursor-not-allowed text-slate-400'
+                  : activeTab === 'ASSIGN_ASSET'
+                  ? 'bg-emerald-600 text-white shadow-sm cursor-pointer'
+                  : isDarkMode
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+              }`}
+            >
+              {!canAssignAsset ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <Wrench className="h-4 w-4" />}
+              <span>5. Assign Fixed Asset ({availableStockAssets.length} Avail)</span>
+            </button>
+          );
+        })()}
 
-        <button
-          onClick={() => setActiveTab('PRODUCT_SALE')}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
-            activeTab === 'PRODUCT_SALE'
-              ? 'bg-purple-600 text-white shadow-sm'
-              : isDarkMode
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-        >
-          <PackageMinus className="h-4 w-4" />
-          <span>6. Product Sale ({saleOperations.length})</span>
-        </button>
+        {(() => {
+          const canSale = isOperationAllowed('stock-out', currentUser?.role);
+          return (
+            <button
+              disabled={!canSale}
+              title={!canSale ? 'Product sales operation is disabled for your role permissions' : 'Direct retail product item sale'}
+              onClick={() => {
+                if (!canSale) {
+                  alert('Product sale operation is disabled for your role permissions.');
+                  return;
+                }
+                setActiveTab('PRODUCT_SALE');
+              }}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+                !canSale
+                  ? 'opacity-40 cursor-not-allowed text-slate-400'
+                  : activeTab === 'PRODUCT_SALE'
+                  ? 'bg-purple-600 text-white shadow-sm cursor-pointer'
+                  : isDarkMode
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+              }`}
+            >
+              {!canSale ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <PackageMinus className="h-4 w-4" />}
+              <span>6. Product Sale ({saleOperations.length})</span>
+            </button>
+          );
+        })()}
 
         <button
           onClick={() => setActiveTab('LOGS')}

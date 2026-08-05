@@ -1,4 +1,9 @@
-export type UserRole = 'SUPER_ADMIN' | 'BRANCH_MANAGER' | 'INVENTORY_CLERK' | 'ACCOUNTANT';
+export type UserRole =
+  | 'SUPER_ADMIN'
+  | 'INVENTORY_MANAGER'
+  | 'BRANCH_MANAGER'
+  | 'FRONT_DESK'
+  | 'ACCOUNTANT';
 
 export interface User {
   id: string;
@@ -180,9 +185,11 @@ export interface CustomerDeviceRecord {
   deviceSerial: string;
   ponSerial: string;
   macAddress?: string;
-  status: 'ACTIVE' | 'SUSPENDED' | 'DISCONNECTED' | 'IN_STOCK' | 'RETURNED';
+  status: 'ACTIVE' | 'RENTAL' | 'SUSPENDED' | 'DISCONNECTED' | 'IN_STOCK' | 'REFUND' | 'RETURNED';
   issuedDateAD: string;
   issuedDateBS: string;
+  warrantyMonths?: number;
+  warrantyEndDateAD?: string;
   purchaseBillRef?: string;
   notes?: string;
 }

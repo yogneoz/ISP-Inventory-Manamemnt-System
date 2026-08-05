@@ -13,9 +13,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onLoginSuccess }) => {
 
   const demoAccounts = [
     { name: 'Nabin Shrestha', role: 'Super Admin', email: 'superadmin@izone.net.np', pass: 'superadmin@123', branch: 'All Branches' },
-    { name: 'Subash Dhimal', role: 'Stock Controller', email: 'subash.dhimal@izone.net.np', pass: 'subash@123', branch: 'All Branches' },
+    { name: 'Subash Dhimal', role: 'Inventory Manager', email: 'subash.dhimal@izone.net.np', pass: 'subash@123', branch: 'All Branches' },
     { name: 'Sandesh Rai', role: 'Branch Manager', email: 'sandesh.rai@izone.net.np', pass: 'Sandesh@123', branch: 'Chulachuli' },
-    { name: 'Bidhya Khatiwada', role: 'Front Desk / Inventory', email: 'bidhya.khatiwad@izone.net.np', pass: 'Bidhya@123', branch: 'Chulachuli' },
+    { name: 'Bidhya Khatiwada', role: 'Front Desk', email: 'bidhya.khatiwad@izone.net.np', pass: 'Bidhya@123', branch: 'Chulachuli' },
     { name: 'Sanjiwani Chaudhary', role: 'Accountant', email: 'sanjiwani.chaudhary@izone.net.np', pass: 'Sanjiwani@123', branch: 'All Branches' },
   ];
 

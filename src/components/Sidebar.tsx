@@ -87,6 +87,7 @@ export type NavTab =
   | 'vat-register'
   | 'depreciation-register'
   | 'audit'
+  | 'warranty-products'
   | 'export-reports';
 
 interface SidebarProps {
@@ -131,8 +132,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSwitchUser,
 }) => {
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
-  const isClerk = currentUser?.role === 'INVENTORY_CLERK';
+  const isFrontDesk = currentUser?.role === 'FRONT_DESK';
   const isAccountant = currentUser?.role === 'ACCOUNTANT';
+  const isRestrictedRole = isFrontDesk;
   const isBranchUser = Boolean(currentUser?.branchId && currentUser.branchId !== 'ALL' && !isSuperAdmin);
 
   // Build filtered navigation groups based on role permissions
@@ -185,7 +187,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // 3. Procurement Group
   const procurementChildren: NavChildDef[] = [
-    ...(!isClerk
+    ...(!isFrontDesk
       ? [
           {
             id: 'create-po' as NavTab,
@@ -256,8 +258,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     { id: 'pullout' as NavTab, label: 'Dispatch Stock Pullout to HQ', icon: ArrowUpRight },
     { id: 'damage' as NavTab, label: 'Label Damaged Stock', icon: HeartOff },
-    ...(!isClerk && !isAccountant ? [{ id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench }] : []),
+    ...(!isRestrictedRole && !isAccountant ? [{ id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench }] : []),
     { id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus },
+    { id: 'warranty-products' as NavTab, label: 'View Warranty Products', icon: ShieldCheck },
   ];
   groups.push({
     id: 'stockops',
@@ -268,7 +271,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   });
 
   // 6. Fixed Assets Group
-  if (!isClerk) {
+  if (!isRestrictedRole) {
     groups.push({
       id: 'fixed-assets-group',
       title: 'Fixed Assets & Tax',
@@ -288,8 +291,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package },
     { id: 'category-management' as NavTab, label: 'Category Management', icon: Grid },
     { id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler },
-    ...(!isClerk ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }] : []),
-    ...(!isClerk ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users }] : []),
+    ...(!isRestrictedRole ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }] : []),
+    ...(!isRestrictedRole ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users }] : []),
     { id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud },
     { id: 'export-stock' as NavTab, label: 'Export Stock Data', icon: DownloadCloud },
   ];

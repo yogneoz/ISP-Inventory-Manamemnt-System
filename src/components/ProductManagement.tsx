@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { InventoryStock, Product } from '../types';
+import { InventoryStock, Product, User } from '../types';
+import { isOperationAllowed } from '../utils/permissions';
 import {
   Package,
   Plus,
@@ -16,6 +17,7 @@ import {
   CheckCircle2,
   Printer,
   TrendingDown,
+  Lock,
 } from 'lucide-react';
 
 const CODE39_MAP: Record<string, string> = {
@@ -79,6 +81,7 @@ export const Code39BarcodeSVG: React.FC<{
 };
 
 interface ProductManagementProps {
+  currentUser?: User | null;
   products: Product[];
   stock?: InventoryStock[];
   selectedBranchId?: string;
@@ -91,6 +94,7 @@ interface ProductManagementProps {
 }
 
 export const ProductManagement: React.FC<ProductManagementProps> = ({
+  currentUser,
   products,
   stock = [],
   selectedBranchId = 'ALL',
@@ -290,13 +294,20 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={openCreateModal}
-          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add New Product SKU</span>
-        </button>
+        {(() => {
+          const canEditProd = isOperationAllowed('prod-edit', currentUser?.role);
+          if (!canEditProd) return null;
+          return (
+            <button
+              title="Create new product SKU"
+              onClick={openCreateModal}
+              className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer shadow-md transition-all"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Add New Product SKU</span>
+            </button>
+          );
+        })()}
       </div>
 
       {/* Filter and Search controls */}

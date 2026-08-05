@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CustomerDeviceRecord, Branch, Product } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
+import { getWarrantyInfo } from '../utils/warranty';
 import {
   Users,
   Search,
@@ -20,6 +21,10 @@ import {
   Tag,
   Clock,
   Tv,
+  ShieldCheck,
+  ShieldAlert,
+  RefreshCw,
+  SlidersHorizontal,
 } from 'lucide-react';
 
 interface CustomersManagementProps {
@@ -133,11 +138,11 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-serif font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <Wifi className="h-5 w-5 text-blue-600" />
+          <h2 className="text-xl font-serif font-bold text-slate-900 tracking-tight flex items-center gap-2 break-words leading-tight">
+            <Wifi className="h-5 w-5 text-blue-600 shrink-0" />
             <span>Customer Hardware Directory & Serial Number Lookup</span>
           </h2>
-          <p className="text-slate-500 text-xs mt-0.5">
+          <p className="text-slate-500 text-xs mt-1 break-words leading-normal max-w-3xl">
             Lookup router, ONU, or set-top box devices by Device Serial, PON Serial, MAC address, or Customer name.
           </p>
         </div>
@@ -149,7 +154,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
             setPonSerial(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
             setIsModalOpen(true);
           }}
-          className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-all"
+          className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-all shrink-0"
         >
           <Plus className="h-4 w-4" />
           <span>Assign Customer Device</span>
@@ -220,52 +225,54 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
               <tr>
-                <th className="p-3.5">Customer & Account</th>
-                <th className="p-3.5">Branch & Address</th>
-                <th className="p-3.5">Hardware Item</th>
-                <th className="p-3.5">Device Serial #</th>
-                <th className="p-3.5">PON Serial #</th>
-                <th className="p-3.5">Issued Date</th>
-                <th className="p-3.5 text-center">Status</th>
-                <th className="p-3.5 text-center">Action</th>
+                <th className="p-3.5 break-words">Customer & Account</th>
+                <th className="p-3.5 break-words">Branch & Address</th>
+                <th className="p-3.5 break-words">Hardware Item</th>
+                <th className="p-3.5 break-words">Device Serial #</th>
+                <th className="p-3.5 break-words">PON Serial #</th>
+                <th className="p-3.5 break-words">Issued Date</th>
+                <th className="p-3.5 text-center break-words">Warranty Status</th>
+                <th className="p-3.5 text-center break-words">Device Status & Stock Sync</th>
+                <th className="p-3.5 text-center break-words">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {filteredRecords.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-slate-500 text-xs">
+                  <td colSpan={9} className="p-8 text-center text-slate-500 text-xs break-words">
                     No matching customer devices found. Use the search bar above to query Device Serial or PON Serial numbers.
                   </td>
                 </tr>
               ) : (
                 filteredRecords.map((rec) => {
                   const branch = branches.find((b) => b.id === rec.branchId);
+                  const wInfo = getWarrantyInfo(rec.issuedDateAD, rec.warrantyMonths || 12);
                   return (
                     <tr key={rec.id} className="hover:bg-blue-50/40 transition-colors">
                       <td className="p-3.5">
-                        <div className="font-bold text-slate-900 text-sm">{rec.customerName}</div>
-                        <div className="text-[11px] font-mono text-slate-500 flex items-center gap-2 mt-0.5">
+                        <div className="font-bold text-slate-900 text-sm break-words leading-snug">{rec.customerName}</div>
+                        <div className="text-[11px] font-mono text-slate-500 flex items-center gap-2 mt-0.5 break-words">
                           <span className="text-blue-700 font-semibold">{rec.customerCode}</span>
                           <span className="flex items-center gap-1 text-slate-600">
-                            <Phone className="h-3 w-3" /> {rec.contactPhone}
+                            <Phone className="h-3 w-3 shrink-0" /> {rec.contactPhone}
                           </span>
                         </div>
                       </td>
 
                       <td className="p-3.5">
-                        <div className="font-bold text-slate-800 text-xs">{branch?.name || rec.branchId}</div>
-                        <div className="text-slate-500 text-[11px] flex items-center gap-1 mt-0.5">
-                          <MapPin className="h-3 w-3 text-slate-400" />
+                        <div className="font-bold text-slate-800 text-xs break-words">{branch?.name || rec.branchId}</div>
+                        <div className="text-slate-500 text-[11px] flex items-center gap-1 mt-0.5 break-words">
+                          <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
                           <span>{rec.installationAddress}</span>
                         </div>
                       </td>
 
                       <td className="p-3.5">
-                        <span className="font-bold text-slate-900 bg-slate-100 border border-slate-200 px-2 py-1 rounded-lg text-xs">
+                        <span className="font-bold text-slate-900 bg-slate-100 border border-slate-200 px-2 py-1 rounded-lg text-xs inline-block break-words">
                           {rec.productName}
                         </span>
                         {rec.purchaseBillRef && (
-                          <div className="text-[10px] text-slate-500 font-mono mt-1">
+                          <div className="text-[10px] text-slate-500 font-mono mt-1 break-words">
                             Bill Ref: <strong className="text-slate-700">{rec.purchaseBillRef}</strong>
                           </div>
                         )}
@@ -274,15 +281,15 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       {/* Device Serial Number */}
                       <td className="p-3.5">
                         <div className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1 w-fit">
-                          <Barcode className="h-3.5 w-3.5 text-blue-600" />
-                          <span className="font-mono font-extrabold text-blue-900 text-xs select-all">
+                          <Barcode className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                          <span className="font-mono font-extrabold text-blue-900 text-xs select-all break-all">
                             {rec.deviceSerial}
                           </span>
                           <button
                             type="button"
                             onClick={() => handleCopy(rec.deviceSerial)}
                             title="Copy Device Serial"
-                            className="p-0.5 text-blue-500 hover:text-blue-700 cursor-pointer ml-1"
+                            className="p-0.5 text-blue-500 hover:text-blue-700 cursor-pointer ml-1 shrink-0"
                           >
                             {copiedText === rec.deviceSerial ? (
                               <Check className="h-3 w-3 text-emerald-600" />
@@ -292,7 +299,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                           </button>
                         </div>
                         {rec.macAddress && (
-                          <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                          <div className="text-[10px] text-slate-400 font-mono mt-0.5 break-all">
                             MAC: {rec.macAddress}
                           </div>
                         )}
@@ -301,15 +308,15 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       {/* PON Serial Number */}
                       <td className="p-3.5">
                         <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 rounded-lg px-2.5 py-1 w-fit">
-                          <Wifi className="h-3.5 w-3.5 text-indigo-600" />
-                          <span className="font-mono font-extrabold text-indigo-900 text-xs select-all">
+                          <Wifi className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
+                          <span className="font-mono font-extrabold text-indigo-900 text-xs select-all break-all">
                             {rec.ponSerial}
                           </span>
                           <button
                             type="button"
                             onClick={() => handleCopy(rec.ponSerial)}
                             title="Copy PON Serial"
-                            className="p-0.5 text-indigo-500 hover:text-indigo-700 cursor-pointer ml-1"
+                            className="p-0.5 text-indigo-500 hover:text-indigo-700 cursor-pointer ml-1 shrink-0"
                           >
                             {copiedText === rec.ponSerial ? (
                               <Check className="h-3 w-3 text-emerald-600" />
@@ -320,30 +327,60 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                         </div>
                       </td>
 
-                      <td className="p-3.5 font-mono text-[11px] text-slate-500">
+                      <td className="p-3.5 font-mono text-[11px] text-slate-500 break-words">
                         {formatDualDate(rec.issuedDateAD, dateMode)}
                       </td>
 
+                      {/* Warranty Status Column */}
                       <td className="p-3.5 text-center">
-                        <select
-                          value={rec.status}
-                          onChange={(e) => onUpdateStatus(rec.id, e.target.value as any)}
-                          className={`rounded px-2.5 py-1 text-[10px] font-bold uppercase cursor-pointer border ${
-                            rec.status === 'ACTIVE'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : rec.status === 'SUSPENDED'
-                              ? 'bg-amber-50 text-amber-700 border-amber-200'
-                              : rec.status === 'IN_STOCK'
-                              ? 'bg-blue-50 text-blue-700 border-blue-200'
-                              : 'bg-rose-50 text-rose-700 border-rose-200'
-                          }`}
-                        >
-                          <option value="ACTIVE">ACTIVE</option>
-                          <option value="SUSPENDED">SUSPENDED</option>
-                          <option value="DISCONNECTED">DISCONNECTED</option>
-                          <option value="IN_STOCK">IN_STOCK</option>
-                          <option value="RETURNED">RETURNED</option>
-                        </select>
+                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border whitespace-normal break-words max-w-[130px] text-center justify-center ${
+                          wInfo.status === 'VALID'
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                            : wInfo.status === 'EXPIRING_SOON'
+                            ? 'bg-amber-50 text-amber-800 border-amber-300'
+                            : 'bg-rose-50 text-rose-700 border-rose-300'
+                        }`}>
+                          {wInfo.status === 'VALID' && <ShieldCheck className="h-3 w-3 text-emerald-600 shrink-0" />}
+                          {wInfo.status === 'EXPIRING_SOON' && <Clock className="h-3 w-3 text-amber-600 shrink-0" />}
+                          {wInfo.status === 'EXPIRED' && <ShieldAlert className="h-3 w-3 text-rose-600 shrink-0" />}
+                          <span>{wInfo.label}</span>
+                        </div>
+                      </td>
+
+                      {/* Device Status & Action Button to Set Status */}
+                      <td className="p-3.5 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <select
+                            value={rec.status}
+                            onChange={(e) => {
+                              const newSt = e.target.value as any;
+                              onUpdateStatus(rec.id, newSt);
+                              if (newSt === 'IN_STOCK' || newSt === 'RETURNED' || newSt === 'REFUND') {
+                                alert(`Status updated to ${newSt}! +1 unit synchronized back to branch inventory stock.`);
+                              }
+                            }}
+                            className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold uppercase cursor-pointer border shadow-2xs transition-all ${
+                              rec.status === 'ACTIVE'
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200'
+                                : rec.status === 'RENTAL'
+                                ? 'bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200'
+                                : rec.status === 'SUSPENDED'
+                                ? 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200'
+                                : rec.status === 'IN_STOCK'
+                                ? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+                                : rec.status === 'REFUND'
+                                ? 'bg-purple-100 text-purple-800 border-purple-300 hover:bg-purple-200'
+                                : 'bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200'
+                            }`}
+                          >
+                            <option value="ACTIVE">🟢 ACTIVE (Deployed)</option>
+                            <option value="RENTAL">🔵 RENTAL (ISP Rental)</option>
+                            <option value="SUSPENDED">🟡 SUSPENDED (Paused)</option>
+                            <option value="DISCONNECTED">🔴 DISCONNECTED</option>
+                            <option value="IN_STOCK">📦 IN_STOCK (Restock)</option>
+                            <option value="REFUND">💸 REFUND / RETURN</option>
+                          </select>
+                        </div>
                       </td>
 
                       <td className="p-3.5 text-center">

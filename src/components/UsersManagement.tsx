@@ -27,7 +27,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<User['role']>('INVENTORY_CLERK');
+  const [role, setRole] = useState<User['role']>('FRONT_DESK');
   const [branchId, setBranchId] = useState(branches[0]?.id || 'br-hq');
 
   const filtered = users.filter(
@@ -42,7 +42,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     setName('');
     setEmail('');
     setPassword('');
-    setRole('INVENTORY_CLERK');
+    setRole('FRONT_DESK');
     setBranchId(branches[0]?.id || 'br-hq');
     setIsModalOpen(true);
   };
@@ -102,10 +102,12 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     switch (r) {
       case 'SUPER_ADMIN':
         return 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border-purple-300 dark:border-purple-800';
+      case 'INVENTORY_MANAGER':
+        return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800';
       case 'BRANCH_MANAGER':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300 dark:border-blue-800';
-      case 'INVENTORY_CLERK':
-        return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800';
+      case 'FRONT_DESK':
+        return 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300 border-teal-300 dark:border-teal-800';
       case 'ACCOUNTANT':
         return 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300 dark:border-amber-800';
       default:
@@ -282,10 +284,11 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     onChange={(e) => setRole(e.target.value as any)}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2"
                   >
-                    <option value="INVENTORY_CLERK">Inventory Clerk</option>
-                    <option value="BRANCH_MANAGER">Branch Manager</option>
-                    <option value="ACCOUNTANT">Accountant</option>
                     <option value="SUPER_ADMIN">Super Admin</option>
+                    <option value="INVENTORY_MANAGER">Inventory Manager</option>
+                    <option value="BRANCH_MANAGER">Branch Manager</option>
+                    <option value="FRONT_DESK">Front Desk</option>
+                    <option value="ACCOUNTANT">Accountant</option>
                   </select>
                 </div>
 

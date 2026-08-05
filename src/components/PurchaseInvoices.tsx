@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { PurchaseInvoice, PurchaseInvoiceItem, PurchaseOrder, Product, Branch, InventoryStock, DeviceSerialPair } from '../types';
+import { PurchaseInvoice, PurchaseInvoiceItem, PurchaseOrder, Product, Branch, InventoryStock, DeviceSerialPair, User } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
 import { exportToCSV } from '../utils/exportUtils';
+import { isOperationAllowed } from '../utils/permissions';
 import { ProductSearchBar } from './ProductSearchBar';
 import {
   Receipt,
@@ -26,9 +27,11 @@ import {
   Link,
   CheckSquare,
   AlertTriangle,
+  Lock,
 } from 'lucide-react';
 
 interface PurchaseInvoicesProps {
+  currentUser?: User | null;
   invoices: PurchaseInvoice[];
   products: Product[];
   branches: Branch[];
@@ -63,6 +66,7 @@ interface InvoiceFormLine {
 }
 
 export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
+  currentUser,
   invoices,
   products,
   branches,
@@ -384,16 +388,43 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             <span className="hidden sm:inline">Export CSV</span>
           </button>
 
-          <button
-            onClick={() => {
-              setLines([]);
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 transition-all cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            <span>New Purchase Bill</span>
-          </button>
+          {(() => {
+            const curBranch = branches.find((b) => b.id === branchId);
+            const canCreateInvoice = isOperationAllowed('inv-create', currentUser?.role, curBranch?.allowProcurement);
+
+            return (
+              <button
+                disabled={!canCreateInvoice}
+                title={
+                  !canCreateInvoice
+                    ? curBranch?.allowProcurement === false
+                      ? 'Procurement is disabled for this branch in Branch Directory'
+                      : 'Purchase bill entry is disabled for your role permissions'
+                    : 'Create new Purchase Bill'
+                }
+                onClick={() => {
+                  if (!canCreateInvoice) {
+                    alert(
+                      curBranch?.allowProcurement === false
+                        ? `Procurement & Purchasing is disabled for branch "${curBranch?.name || branchId}". Please enable it in Branch Directory.`
+                        : 'Purchase Bill entry is disabled for your role permissions.'
+                    );
+                    return;
+                  }
+                  setLines([]);
+                  setIsModalOpen(true);
+                }}
+                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white shadow-md transition-all ${
+                  !canCreateInvoice
+                    ? 'bg-slate-400 dark:bg-slate-700 cursor-not-allowed opacity-60 shadow-none'
+                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20 cursor-pointer'
+                }`}
+              >
+                {!canCreateInvoice ? <Lock className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                <span>New Purchase Bill</span>
+              </button>
+            );
+          })()}
         </div>
       </div>
 

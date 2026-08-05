@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Product, Branch, InventoryStock, User } from '../types';
 import { NavTab } from './Sidebar';
+import { isOperationAllowed } from '../utils/permissions';
 import {
   AlertTriangle,
   Building2,
@@ -16,7 +17,8 @@ import {
   Sliders,
   SlidersHorizontal,
   Info,
-  Check
+  Check,
+  Lock,
 } from 'lucide-react';
 
 interface ReorderStockTrackingProps {
@@ -201,29 +203,42 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {onBulkUpdateStockReorderLevels && (
-            <button
-              onClick={() => setShowBulkModal(true)}
-              className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold border transition-all cursor-pointer ${
-                isDarkMode
-                  ? 'bg-slate-900 text-indigo-400 border-slate-800 hover:bg-slate-800'
-                  : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-              }`}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              <span>Bulk Sync Thresholds</span>
-            </button>
-          )}
+          {onBulkUpdateStockReorderLevels && (() => {
+            const canEdit = isOperationAllowed('prod-edit', currentUser?.role);
+            if (!canEdit) return null;
+            return (
+              <button
+                type="button"
+                title="Bulk sync thresholds across branches"
+                onClick={() => setShowBulkModal(true)}
+                className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold border transition-all cursor-pointer ${
+                  isDarkMode
+                    ? 'bg-slate-900 text-indigo-400 border-slate-800 hover:bg-slate-800'
+                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                }`}
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                <span>Bulk Sync Thresholds</span>
+              </button>
+            );
+          })()}
 
-          {onGroupLowStockPO && (
-            <button
-              onClick={onGroupLowStockPO}
-              className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md shadow-indigo-200 dark:shadow-none transition-all cursor-pointer"
-            >
-              <ShoppingCart className="h-4 w-4" />
-              <span>Group Low-Stock Items & Create PO</span>
-            </button>
-          )}
+          {onGroupLowStockPO && (() => {
+            const curBranchObj = branches.find((b) => b.id === selectedBranchId);
+            const canCreatePo = isOperationAllowed('po-create', currentUser?.role, curBranchObj?.allowProcurement);
+            if (!canCreatePo) return null;
+            return (
+              <button
+                type="button"
+                title="Group low stock products and generate PO"
+                onClick={onGroupLowStockPO}
+                className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-200 dark:shadow-none cursor-pointer transition-all"
+              >
+                <ShoppingCart className="h-4 w-4" />
+                <span>Group Low-Stock Items & Create PO</span>
+              </button>
+            );
+          })()}
         </div>
       </div>
 

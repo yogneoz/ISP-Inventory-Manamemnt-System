@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { PurchaseOrder, Product, Branch, POLineItem, InventoryStock, Supplier } from '../types';
+import { PurchaseOrder, Product, Branch, POLineItem, InventoryStock, Supplier, User } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
+import { isOperationAllowed } from '../utils/permissions';
 import { ProductSearchBar } from './ProductSearchBar';
 import {
   ShoppingCart,
@@ -22,9 +23,11 @@ import {
   CheckSquare,
   RotateCcw,
   ChevronDown,
+  Lock,
 } from 'lucide-react';
 
 interface PurchaseOrdersProps {
+  currentUser?: User | null;
   purchaseOrders: PurchaseOrder[];
   products: Product[];
   branches: Branch[];
@@ -54,6 +57,7 @@ export interface OrderFormLine {
 }
 
 export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
+  currentUser,
   purchaseOrders,
   products,
   branches,
@@ -334,13 +338,23 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             />
           </div>
 
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-indigo-600/20 transition-all cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            <span>New Purchase Order</span>
-          </button>
+          {(() => {
+            const curBranch = branches.find((b) => b.id === branchId);
+            const canCreatePo = isOperationAllowed('po-create', currentUser?.role, curBranch?.allowProcurement);
+            if (!canCreatePo) return null;
+
+            return (
+              <button
+                type="button"
+                title="Issue new Purchase Order"
+                onClick={() => setIsModalOpen(true)}
+                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/20 cursor-pointer transition-all"
+              >
+                <Plus className="h-4 w-4" />
+                <span>New Purchase Order</span>
+              </button>
+            );
+          })()}
         </div>
       </div>
 

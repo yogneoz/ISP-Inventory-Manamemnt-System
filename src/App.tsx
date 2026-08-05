@@ -43,6 +43,7 @@ import { VatRegister } from './components/VatRegister';
 import { DepreciationRegister } from './components/DepreciationRegister';
 import { StockValuation } from './components/StockValuation';
 import { StockMovementLedger } from './components/StockMovementLedger';
+import { WarrantyProducts } from './components/WarrantyProducts';
 import { CategoryManagement } from './components/CategoryManagement';
 import { UomManagement } from './components/UomManagement';
 import { ImportStock } from './components/ImportStock';
@@ -71,6 +72,16 @@ export default function App() {
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
+  const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
+
+  // Synchronize permissions live across components
+  useEffect(() => {
+    const handlePermissionsUpdated = () => {
+      setPermissionsVersion((v) => v + 1);
+    };
+    window.addEventListener('izone_permissions_updated', handlePermissionsUpdated);
+    return () => window.removeEventListener('izone_permissions_updated', handlePermissionsUpdated);
+  }, []);
 
   // Global search keyboard shortcut (Ctrl+K or Cmd+K)
   useEffect(() => {
@@ -562,6 +573,7 @@ export default function App() {
             <>
               {activeTab === 'dashboard' && (
                 <Dashboard
+                  currentUser={currentUser}
                   products={products}
                   stock={stock}
                   branches={branches}
@@ -1011,6 +1023,17 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'warranty-products' && (
+                <WarrantyProducts
+                  customerDevices={customerDevices}
+                  assets={assets}
+                  branches={branches}
+                  products={products}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                />
+              )}
+
               {activeTab === 'branches' && (
                 <BranchesManagement
                   branches={branches}
@@ -1071,7 +1094,7 @@ export default function App() {
               )}
 
               {activeTab === 'permissions' && (
-                <PermissionManagement />
+                <PermissionManagement isDarkMode={isDarkMode} />
               )}
 
               {activeTab === 'financial-statements' && (

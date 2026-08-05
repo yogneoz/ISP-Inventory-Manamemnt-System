@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Product, Branch, InventoryStock, User } from '../types';
+import { isOperationAllowed } from '../utils/permissions';
 import {
   Layers,
   Building2,
@@ -169,13 +170,20 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
             )}
           </button>
 
-          <button
-            onClick={() => setIsTransferModalOpen(true)}
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
-          >
-            <ArrowLeftRight className="h-4 w-4" />
-            <span>Dispatch Stock Transfer</span>
-          </button>
+          {(() => {
+            const canTransfer = isOperationAllowed('branch-transfer-create', currentUser?.role);
+            if (!canTransfer) return null;
+            return (
+              <button
+                type="button"
+                onClick={() => setIsTransferModalOpen(true)}
+                className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
+              >
+                <ArrowLeftRight className="h-4 w-4" />
+                <span>Dispatch Stock Transfer</span>
+              </button>
+            );
+          })()}
         </div>
       </div>
 
