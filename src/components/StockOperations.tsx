@@ -106,7 +106,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   };
 
   const [activeTab, setActiveTab] = useState<
-    'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'PRODUCT_SALE' | 'LOGS'
+    'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'LOGS'
   >(getInitialTab());
 
   // Filter state
@@ -169,6 +169,16 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [saleDiscount, setSaleDiscount] = useState<number>(0);
   const [salePaymentMethod, setSalePaymentMethod] = useState<string>('Cash / Direct Payment');
   const [saleNotes, setSaleNotes] = useState<string>('Direct retail product item sale to customer');
+
+  // 6. Consumable Issue Form State (Splitters, Sleeves, Couplers field usage)
+  const [consumableBranchId, setConsumableBranchId] = useState<string>(userBranchId);
+  const [consumableProductId, setConsumableProductId] = useState<string>(
+    products.find((p) => p.productGroup === 'Consumable Item')?.id || products[0]?.id || ''
+  );
+  const [consumableQty, setConsumableQty] = useState<number>(5);
+  const [consumableTechnician, setConsumableTechnician] = useState<string>('Field Splicing Technician');
+  const [consumableWorkOrder, setConsumableWorkOrder] = useState<string>('WO-2081-SPLIT-01');
+  const [consumableReason, setConsumableReason] = useState<string>('Field fiber splicing & customer drop installation material usage');
 
   // Filtered products for pullout search
   const matchingProducts = products.filter((p) => {
@@ -400,6 +410,46 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     }
   };
 
+  // 6. Submit Consumable Issue to Technician / Work Order Field Usage
+  const handleSubmitConsumableIssue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const prod = products.find((p) => p.id === consumableProductId);
+    const branchObj = branches.find((b) => b.id === consumableBranchId);
+
+    if (!prod) {
+      alert('Please select a valid consumable product.');
+      return;
+    }
+
+    const qtyToIssue = Math.abs(Number(consumableQty));
+    if (qtyToIssue <= 0) {
+      alert('Please enter a valid quantity to issue.');
+      return;
+    }
+
+    const totalVal = qtyToIssue * prod.costPrice;
+
+    await onCreateOperation({
+      type: 'CONSUMABLE_ISSUE',
+      branchId: consumableBranchId,
+      branchName: branchObj?.name,
+      productId: prod.id,
+      productName: prod.name,
+      quantityChanged: -qtyToIssue,
+      costPerUnit: prod.costPrice,
+      totalValue: totalVal,
+      technicianName: consumableTechnician,
+      workOrderRef: consumableWorkOrder,
+      reason: `Consumable Field Issue: WO ${consumableWorkOrder} (${consumableTechnician}) - ${consumableReason}`,
+      inspectorName: currentUser?.name || 'Store Supervisor',
+      status: 'LOGGED',
+    });
+
+    alert(`Successfully issued ${qtyToIssue} ${prod.unit} of ${prod.name} to Technician ${consumableTechnician} for Work Order ${consumableWorkOrder}!`);
+    setConsumableQty(5);
+    setConsumableReason('Field fiber splicing & customer drop installation material usage');
+  };
+
   // 5. Submit Product Sale to Customer
   const handleSubmitProductSale = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -443,12 +493,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
     if (activeTab === 'PULLOUT_BINS') return op.type === 'PULLOUT';
     if (activeTab === 'DAMAGE_TRACKING') return op.type === 'DAMAGE';
+    if (activeTab === 'CONSUMABLE_ISSUE') return op.type === 'CONSUMABLE_ISSUE';
     if (activeTab === 'PRODUCT_SALE') return op.type === 'STOCK_OUT';
     return true;
   });
 
   const pulloutOperations = operations.filter((op) => op.type === 'PULLOUT');
   const damageOperations = operations.filter((op) => op.type === 'DAMAGE');
+  const consumableOperations = operations.filter((op) => op.type === 'CONSUMABLE_ISSUE');
   const saleOperations = operations.filter((op) => op.type === 'STOCK_OUT');
 
   // Available vs Assigned Fixed Assets
@@ -649,6 +701,25 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         })()}
 
         {(() => {
+          return (
+            <button
+              title="Issue Consumables (Splitters, Protection Sleeves, Couplers, Fast Connectors) to Field Technicians"
+              onClick={() => setActiveTab('CONSUMABLE_ISSUE')}
+              className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+                activeTab === 'CONSUMABLE_ISSUE'
+                  ? 'bg-amber-600 text-white shadow-sm cursor-pointer'
+                  : isDarkMode
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+              }`}
+            >
+              <Wrench className="h-4 w-4 text-amber-300" />
+              <span>6. Issue Consumables ({consumableOperations.length})</span>
+            </button>
+          );
+        })()}
+
+        {(() => {
           const canSale = isOperationAllowed('stock-out', currentUser?.role);
           return (
             <button
@@ -672,7 +743,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               }`}
             >
               {!canSale ? <Lock className="h-3.5 w-3.5 text-slate-400" /> : <PackageMinus className="h-4 w-4" />}
-              <span>6. Product Sale ({saleOperations.length})</span>
+              <span>7. Product Sale ({saleOperations.length})</span>
             </button>
           );
         })()}
@@ -1153,7 +1224,134 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 6: PRODUCT SALE TO CUSTOMER */}
+      {/* TAB 6: CONSUMABLE ISSUE TO TECHNICIAN / FIELD USAGE */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'CONSUMABLE_ISSUE' && (
+        <div className={`p-6 rounded-2xl border max-w-2xl mx-auto shadow-sm ${
+          isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+        }`}>
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
+            <h3 className="text-base font-serif font-bold flex items-center gap-2">
+              <Wrench className="h-5 w-5 text-amber-500" />
+              <span>Issue Consumable Items (Splitter, Sleeve, Coupler, Fast Connector)</span>
+            </h3>
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
+              Quantity-Only Store Usage
+            </span>
+          </div>
+
+          <form onSubmit={handleSubmitConsumableIssue} className="space-y-4 text-xs">
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-[11px] leading-relaxed">
+              <strong>Consumables Operational Rule:</strong> Field materials (Splitters, Protection Sleeves, Couplers, Fast Connectors, Patch Cords, Drop Clamps) do NOT carry individual serial numbers or depreciation schedules. Issuing deducts store stock directly and logs the assigned field technician and work order ticket.
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block font-bold mb-1">Source Store Branch *</label>
+                <select
+                  value={consumableBranchId}
+                  onChange={(e) => setConsumableBranchId(e.target.value)}
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                >
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1">Select Consumable Material *</label>
+                <select
+                  value={consumableProductId}
+                  onChange={(e) => setConsumableProductId(e.target.value)}
+                  className={`w-full rounded-xl border p-2.5 font-medium ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                >
+                  {products.map((p) => {
+                    const groupLabel = p.productGroup || 'Product Item';
+                    return (
+                      <option key={p.id} value={p.id}>
+                        [{groupLabel}] {p.sku} - {p.name} ({p.unit})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block font-bold mb-1">Quantity to Issue *</label>
+                <input
+                  type="number"
+                  min={1}
+                  required
+                  value={consumableQty}
+                  onChange={(e) => setConsumableQty(Number(e.target.value))}
+                  className={`w-full rounded-xl border p-2.5 font-mono ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1">Field Technician Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={consumableTechnician}
+                  onChange={(e) => setConsumableTechnician(e.target.value)}
+                  placeholder="e.g. Ram Bahadur (Splicing Tech)"
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold mb-1">Work Order / Ticket Ref *</label>
+                <input
+                  type="text"
+                  required
+                  value={consumableWorkOrder}
+                  onChange={(e) => setConsumableWorkOrder(e.target.value)}
+                  placeholder="e.g. WO-2081-SPLIT-04"
+                  className={`w-full rounded-xl border p-2.5 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold mb-1">Field Usage Description / Notes</label>
+              <textarea
+                rows={2}
+                value={consumableReason}
+                onChange={(e) => setConsumableReason(e.target.value)}
+                placeholder="Reason or site location for material issue..."
+                className={`w-full rounded-xl border p-2.5 ${
+                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
+                }`}
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl font-bold text-xs text-white bg-amber-600 hover:bg-amber-500 shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Wrench className="h-4 w-4" />
+              <span>Record Consumable Issue & Deduct Stock</span>
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 7: PRODUCT SALE TO CUSTOMER */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'PRODUCT_SALE' && (
         <div className={`p-6 rounded-2xl border max-w-2xl mx-auto shadow-sm ${

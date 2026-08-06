@@ -206,8 +206,9 @@ export const ExportStock: React.FC<ExportStockProps> = ({
           }`}
         >
           <option value="ALL">All Groups</option>
-          <option value="Product Item">Product Item</option>
-          <option value="Fixed Asset">Fixed Asset</option>
+          <option value="Product Item">Product Item (Equipment/Resale)</option>
+          <option value="Consumable Item">Consumable Item (Splitters/Sleeves/Couplers)</option>
+          <option value="Fixed Asset">Fixed Asset (Capital Assets)</option>
         </select>
 
         <select

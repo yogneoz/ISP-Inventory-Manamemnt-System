@@ -15,6 +15,7 @@ import {
   TransactionLog,
   FinancialSummary,
   CustomerDeviceRecord,
+  ApprovalRequest,
 } from './types';
 import { api } from './services/api';
 import { Header } from './components/Header';
@@ -42,6 +43,7 @@ import { FinancialStatements } from './components/FinancialStatements';
 import { VatRegister } from './components/VatRegister';
 import { DepreciationRegister } from './components/DepreciationRegister';
 import { StockValuation } from './components/StockValuation';
+import { ApprovalWorkflowCenter } from './components/ApprovalWorkflowCenter';
 import { StockMovementLedger } from './components/StockMovementLedger';
 import { WarrantyProducts } from './components/WarrantyProducts';
 import { CategoryManagement } from './components/CategoryManagement';
@@ -118,6 +120,7 @@ export default function App() {
   const [stock, setStock] = useState<InventoryStock[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [customerDevices, setCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
+  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
   const [shipments, setShipments] = useState<Shipment[]>([]);
@@ -154,6 +157,7 @@ export default function App() {
         finSum,
         supList,
         usrList,
+        aprList,
       ] = await Promise.all([
         api.getBranches(),
         api.getProducts(),
@@ -170,6 +174,7 @@ export default function App() {
         api.getFinancialSummary(selectedBranchId),
         api.getSuppliers(),
         api.getUsers(),
+        api.getApprovalRequests(selectedBranchId),
       ]);
 
       setBranches(brList);
@@ -187,11 +192,28 @@ export default function App() {
       setFinancialSummary(finSum);
       setSuppliers(supList);
       setUsers(usrList);
+      setApprovalRequests(aprList);
     } catch (err) {
       console.error('Error fetching data from backend:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCreateApprovalRequest = async (
+    requestData: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>
+  ) => {
+    await api.createApprovalRequest(requestData);
+    await refreshAllData();
+  };
+
+  const handleProcessApprovalRequest = async (
+    id: string,
+    status: 'APPROVED' | 'REJECTED',
+    rejectionReason?: string
+  ) => {
+    await api.processApprovalRequest(id, status, currentUser, rejectionReason);
+    await refreshAllData();
   };
 
   // Fetch data on initial mount and whenever selectedBranchId changes
@@ -550,6 +572,7 @@ export default function App() {
             lowStockCount={lowStockCount}
             pendingPoCount={pendingPoCount}
             inTransitShipmentCount={inTransitShipmentCount}
+            pendingApprovalCount={approvalRequests.filter((r) => r.status === 'PENDING').length}
             isDarkMode={isDarkMode}
             onCloseMobile={() => setIsSidebarOpen(false)}
             onSwitchUser={handleLogin}
@@ -584,6 +607,8 @@ export default function App() {
                   financialSummary={financialSummary}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
+                  approvalRequests={approvalRequests}
+                  onProcessApproval={handleProcessApprovalRequest}
                   onNavigateTab={setActiveTab}
                   onSelectBranch={handleSelectBranch}
                   onOpenAiModal={() => setIsAiModalOpen(true)}
@@ -593,8 +618,20 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'approvals' && (
+                <ApprovalWorkflowCenter
+                  approvalRequests={approvalRequests}
+                  branches={branches}
+                  currentUser={currentUser}
+                  dateMode={dateMode}
+                  isDarkMode={isDarkMode}
+                  onProcessApproval={handleProcessApprovalRequest}
+                />
+              )}
+
               {activeTab === 'all-stock' && (
                 <ProductManagement
+                  currentUser={currentUser}
                   products={products}
                   stock={stock}
                   selectedBranchId={selectedBranchId}
@@ -609,6 +646,7 @@ export default function App() {
 
               {activeTab === 'product-master' && (
                 <ProductManagement
+                  currentUser={currentUser}
                   products={products}
                   stock={stock}
                   selectedBranchId={selectedBranchId}
@@ -623,6 +661,7 @@ export default function App() {
 
               {activeTab === 'category-management' && (
                 <CategoryManagement
+                  currentUser={currentUser}
                   products={products}
                   isDarkMode={isDarkMode}
                 />
@@ -630,12 +669,14 @@ export default function App() {
 
               {activeTab === 'uom-management' && (
                 <UomManagement
+                  currentUser={currentUser}
                   isDarkMode={isDarkMode}
                 />
               )}
 
               {activeTab === 'import-stock' && (
                 <ImportStock
+                  currentUser={currentUser}
                   branches={branches}
                   products={products}
                   onCreateProduct={handleCreateProduct}
@@ -646,6 +687,7 @@ export default function App() {
 
               {activeTab === 'export-stock' && (
                 <ExportStock
+                  currentUser={currentUser}
                   products={products}
                   branches={branches}
                   stock={stock}
@@ -723,6 +765,7 @@ export default function App() {
 
               {activeTab === 'fixed-assets' && (
                 <FixedAssetRegister
+                  currentUser={currentUser}
                   assets={assets}
                   branches={branches}
                   selectedBranchId={selectedBranchId}
@@ -735,6 +778,7 @@ export default function App() {
 
               {activeTab === 'customers' && (
                 <CustomersManagement
+                  currentUser={currentUser}
                   customerDevices={customerDevices}
                   branches={branches}
                   products={products}
@@ -748,6 +792,7 @@ export default function App() {
                     await api.updateCustomerDeviceStatus(id, status);
                     await refreshAllData();
                   }}
+                  onRequestApproval={handleCreateApprovalRequest}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1036,6 +1081,7 @@ export default function App() {
 
               {activeTab === 'branches' && (
                 <BranchesManagement
+                  currentUser={currentUser}
                   branches={branches}
                   onCreateBranch={async (b) => {
                     await api.createBranch(b);
@@ -1055,6 +1101,7 @@ export default function App() {
 
               {activeTab === 'suppliers' && (
                 <SuppliersManagement
+                  currentUser={currentUser}
                   suppliers={suppliers}
                   onCreateSupplier={async (s) => {
                     await api.createSupplier(s);
@@ -1094,7 +1141,7 @@ export default function App() {
               )}
 
               {activeTab === 'permissions' && (
-                <PermissionManagement isDarkMode={isDarkMode} />
+                <PermissionManagement currentUser={currentUser} isDarkMode={isDarkMode} />
               )}
 
               {activeTab === 'financial-statements' && (

@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
-import { Category, Product } from '../types';
+import { Category, Product, User } from '../types';
 import { Grid, Plus, Edit2, Trash2, Tag, Search, X, Layers, CheckCircle2 } from 'lucide-react';
+import { isOperationAllowed } from '../utils/permissions';
 
 interface CategoryManagementProps {
   products: Product[];
+  currentUser?: User | null;
   isDarkMode?: boolean;
 }
 
 export const CategoryManagement: React.FC<CategoryManagementProps> = ({
   products,
+  currentUser,
   isDarkMode = false,
 }) => {
+  const canEdit = isOperationAllowed('prod-edit', currentUser?.role);
   // Pre-seed default categories if not yet modified
   const initialCategories: Category[] = [
     { id: 'cat-1', code: 'CAT-FIB', name: 'Fiber Accessories & Cables', description: 'Fiber drop wire, patch cords, splice trays, and adapters' },
@@ -102,13 +106,15 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={openCreateModal}
-          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add Category</span>
-        </button>
+        {canEdit && (
+          <button
+            onClick={openCreateModal}
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add Category</span>
+          </button>
+        )}
       </div>
 
       {/* Summary Cards */}
@@ -204,22 +210,26 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
                         </span>
                       </td>
                       <td className="px-2.5 py-1.5 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            onClick={() => openEditModal(c)}
-                            title="Edit Category"
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(c.id)}
-                            title="Delete Category"
-                            className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
+                        {canEdit ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => openEditModal(c)}
+                              title="Edit Category"
+                              className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                            >
+                              <Edit2 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(c.id)}
+                              title="Delete Category"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 italic">Read Only</span>
+                        )}
                       </td>
                     </tr>
                   );

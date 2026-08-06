@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Branch } from '../types';
+import { Branch, User } from '../types';
 import { Building2, Plus, Search, CheckCircle2, Phone, MapPin, Star, Edit, Trash2 } from 'lucide-react';
+import { isOperationAllowed } from '../utils/permissions';
 
 interface BranchesManagementProps {
   branches: Branch[];
+  currentUser?: User | null;
   onCreateBranch?: (branch: Omit<Branch, 'id'>) => Promise<void>;
   onUpdateBranch?: (id: string, branch: Partial<Branch>) => Promise<void>;
   onDeleteBranch?: (id: string) => Promise<void>;
@@ -12,11 +14,13 @@ interface BranchesManagementProps {
 
 export const BranchesManagement: React.FC<BranchesManagementProps> = ({
   branches,
+  currentUser,
   onCreateBranch,
   onUpdateBranch,
   onDeleteBranch,
   isDarkMode = false,
 }) => {
+  const canManageBranches = isOperationAllowed('admin-branches', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
@@ -120,13 +124,15 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
             Add, update, or remove operational branches across Nepal with regional codes and location mapping.
           </p>
         </div>
-        <button
-          onClick={handleOpenAddModal}
-          className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add New Branch</span>
-        </button>
+        {canManageBranches && (
+          <button
+            onClick={handleOpenAddModal}
+            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add New Branch</span>
+          </button>
+        )}
       </div>
 
       {/* Search Bar */}
@@ -172,22 +178,26 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                     <Star className="h-3 w-3 fill-amber-500 text-amber-500" /> HQ
                   </span>
                 )}
-                <button
-                  type="button"
-                  onClick={() => handleOpenEditModal(b)}
-                  title="Edit Branch"
-                  className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer"
-                >
-                  <Edit className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(b)}
-                  title="Delete Branch"
-                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                {canManageBranches && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal(b)}
+                      title="Edit Branch"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer"
+                    >
+                      <Edit className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(b)}
+                      title="Delete Branch"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 

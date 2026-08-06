@@ -42,7 +42,7 @@ export interface Product {
   barcode: string;
   name: string;
   category: string;
-  productGroup?: 'Product Item' | 'Fixed Asset';
+  productGroup?: 'Product Item' | 'Fixed Asset' | 'Consumable Item';
   unit: 'Pcs' | 'Box' | 'Kg' | 'Set' | 'Mtr' | 'Roll' | 'Pair' | string;
   costPrice: number;
   sellingPrice: number;
@@ -260,7 +260,9 @@ export interface PulloutItem {
 export interface StockOperation {
   id: string;
   referenceNumber: string;
-  type: 'PULLOUT' | 'DAMAGE' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT';
+  type: 'PULLOUT' | 'DAMAGE' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'CONSUMABLE_ISSUE';
+  technicianName?: string;
+  workOrderRef?: string;
   branchId: string;
   branchName?: string;
   destinationWarehouseId?: string;
@@ -368,3 +370,34 @@ export interface SystemState {
   selectedBranchId: string; // 'ALL' or branch.id
   dateDisplayMode: 'BS' | 'AD';
 }
+
+export interface ApprovalRequest {
+  id: string;
+  requestNumber: string; // e.g. APR-2083-101
+  type: 'CUSTOMER_DEVICE_STATUS' | 'STOCK_ADJUSTMENT' | 'PURCHASE_OVERRIDE' | string;
+  targetId: string; // e.g. CustomerDeviceRecord.id
+  customerName: string;
+  customerCode?: string;
+  deviceSerial: string;
+  ponSerial?: string;
+  productName: string;
+  currentStatus: CustomerDeviceRecord['status'];
+  requestedStatus: CustomerDeviceRecord['status'];
+  requestedByRole: UserRole;
+  requestedByEmail: string;
+  requestedByName: string;
+  branchId: string;
+  branchName?: string;
+  reason: string;
+  restockQtyOnApproval?: boolean;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  requestedAtAD: string;
+  requestedAtBS: string;
+  processedByEmail?: string;
+  processedByName?: string;
+  processedByRole?: UserRole;
+  processedAtAD?: string;
+  processedAtBS?: string;
+  rejectionReason?: string;
+}
+

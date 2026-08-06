@@ -9,7 +9,9 @@ import {
   TransactionLog,
   FinancialSummary,
   User,
+  ApprovalRequest,
 } from '../types';
+import { ApprovalWorkflowCenter } from './ApprovalWorkflowCenter';
 import { formatDualDate } from '../utils/nepaliCalendar';
 import { isOperationAllowed } from '../utils/permissions';
 import {
@@ -37,6 +39,7 @@ import {
   ArrowRight,
   SlidersHorizontal,
   Lock,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface DashboardProps {
@@ -51,6 +54,12 @@ interface DashboardProps {
   financialSummary: FinancialSummary;
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
+  approvalRequests?: ApprovalRequest[];
+  onProcessApproval?: (
+    id: string,
+    status: 'APPROVED' | 'REJECTED',
+    rejectionReason?: string
+  ) => Promise<void>;
   onNavigateTab: (tab: any) => void;
   onSelectBranch?: (branchId: string) => void;
   onOpenAiModal: () => void;
@@ -120,6 +129,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   financialSummary,
   selectedBranchId,
   dateMode,
+  approvalRequests = [],
+  onProcessApproval,
   onNavigateTab,
   onSelectBranch,
   onOpenAiModal,
@@ -1123,90 +1134,156 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </div>
 
       {/* 3. CLICKABLE BRANCHWISE STOCK SUMMARY CARDS */}
-      <div className={`rounded-2xl border shadow-xs p-4 sm:p-5 ${cardBg}`}>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3.5">
-          <div>
-            <h3 className={`font-bold text-sm flex items-center gap-2 ${cardTitleText}`}>
-              <Layers className="h-4 w-4 text-indigo-600" />
-              <span>Branch Stock Summary Cards</span>
-              <span className="text-[11px] font-normal text-slate-500">
-                ({branches.length} Branches Active)
-              </span>
-            </h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Click any branch card below to instantly jump to Branch Stock Matrix & Location Tracking filtered by that branch.
-            </p>
-          </div>
-          <button
-            onClick={() => onNavigateTab('branch-stock')}
-            className="text-xs font-bold text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 cursor-pointer self-start sm:self-auto"
-          >
-            <span>Full Matrix View</span>
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
+      {(() => {
+        const isGlobalUser =
+          !currentUser?.branchId ||
+          currentUser.branchId === 'ALL' ||
+          currentUser.role === 'SUPER_ADMIN' ||
+          currentUser.role === 'INVENTORY_MANAGER' ||
+          currentUser.role === 'ACCOUNTANT';
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
-          {branches.map((b) => {
-            const branchStock = stock.filter((s) => s.branchId === b.id);
-            const totalBranchQty = branchStock.reduce((s, item) => s + item.quantityOnHand, 0);
-            const totalBranchVal = branchStock.reduce((sum, item) => {
-              const p = products.find((pr) => pr.id === item.productId);
-              return sum + (p ? p.costPrice * item.quantityOnHand : 0);
-            }, 0);
+        const visibleBranches = isGlobalUser
+          ? branches
+          : branches.filter((b) => b.id === currentUser.branchId);
 
-            const isSelected = selectedBranchId === b.id;
+        const branchesToDisplay = visibleBranches.length > 0 ? visibleBranches : branches;
 
-            return (
-              <div
-                key={b.id}
-                onClick={() => {
-                  if (onSelectBranch) onSelectBranch(b.id);
-                  onNavigateTab('branch-stock');
-                }}
-                className={`group p-3 rounded-xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${
-                  isSelected
-                    ? isDarkMode
-                      ? 'border-indigo-500 bg-indigo-950/50 shadow-md ring-1 ring-indigo-500/50'
-                      : 'border-indigo-500 bg-indigo-50/90 shadow-md ring-1 ring-indigo-500/50'
-                    : isDarkMode
-                    ? 'border-slate-800 bg-slate-900/40 hover:bg-slate-800/80 hover:border-indigo-500/50 hover:shadow-md'
-                    : 'border-slate-200 bg-slate-50/70 hover:bg-white hover:border-indigo-300 hover:shadow-md'
-                }`}
-                title={`Click to view ${b.name} inventory matrix`}
-              >
-                <div>
-                  <div className="flex items-center justify-between text-xs font-bold mb-1">
-                    <span className={`truncate pr-1 ${cardTitleText} group-hover:text-indigo-600 transition-colors`}>
-                      {b.name}
-                    </span>
-                    <span
-                      className={`text-[9px] px-1.5 py-0.2 rounded border font-mono font-bold shrink-0 ${
-                        isDarkMode
-                          ? 'text-indigo-300 bg-indigo-950/80 border-indigo-500/30'
-                          : 'text-indigo-700 bg-indigo-100/80 border-indigo-200'
-                      }`}
-                    >
-                      {b.code}
-                    </span>
-                  </div>
-                  <div className={`text-xs font-serif font-extrabold mt-1 ${cardTitleText}`}>
-                    {formatNPR(totalBranchVal)}
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-medium mt-0.5">
-                    {totalBranchQty} Items in Stock
-                  </div>
-                </div>
-
-                <div className="mt-2.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[10px] text-indigo-600 font-bold group-hover:translate-x-0.5 transition-transform">
-                  <span>View Matrix</span>
-                  <ArrowRight className="h-3 w-3" />
-                </div>
+        return (
+          <div className={`rounded-2xl border shadow-xs p-4 sm:p-5 ${cardBg}`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3.5">
+              <div>
+                <h3 className={`font-bold text-sm flex items-center gap-2 ${cardTitleText}`}>
+                  <Layers className="h-4 w-4 text-indigo-600" />
+                  <span>Branch Stock Summary Cards</span>
+                  <span
+                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${
+                      !isGlobalUser
+                        ? isDarkMode
+                          ? 'bg-amber-950/60 text-amber-400 border-amber-800/60'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                        : isDarkMode
+                        ? 'bg-indigo-950/60 text-indigo-300 border-indigo-800/60'
+                        : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                    }`}
+                  >
+                    {!isGlobalUser
+                      ? `Assigned: ${branchesToDisplay[0]?.name || currentUser?.branchId}`
+                      : `${branchesToDisplay.length} Branches Active`}
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {!isGlobalUser
+                    ? `Displaying stock summary for your assigned branch according to permission management.`
+                    : `Click any branch card below to instantly jump to Branch Stock Matrix & Location Tracking filtered by that branch.`}
+                </p>
               </div>
-            );
-          })}
-        </div>
-      </div>
+              <button
+                onClick={() => onNavigateTab('branch-stock')}
+                className="text-xs font-bold text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 cursor-pointer self-start sm:self-auto"
+              >
+                <span>Full Matrix View</span>
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+              {branchesToDisplay.map((b) => {
+                const branchStock = stock.filter((s) => s.branchId === b.id);
+                const totalBranchQty = branchStock.reduce((s, item) => s + item.quantityOnHand, 0);
+                const totalBranchVal = branchStock.reduce((sum, item) => {
+                  const p = products.find((pr) => pr.id === item.productId);
+                  return sum + (p ? p.costPrice * item.quantityOnHand : 0);
+                }, 0);
+
+                const isSelected = selectedBranchId === b.id;
+
+                return (
+                  <div
+                    key={b.id}
+                    onClick={() => {
+                      if (onSelectBranch) onSelectBranch(b.id);
+                      onNavigateTab('branch-stock');
+                    }}
+                    className={`group p-3 rounded-xl border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${
+                      isSelected
+                        ? isDarkMode
+                          ? 'border-indigo-500 bg-indigo-950/50 shadow-md ring-1 ring-indigo-500/50'
+                          : 'border-indigo-500 bg-indigo-50/90 shadow-md ring-1 ring-indigo-500/50'
+                        : isDarkMode
+                        ? 'border-slate-800 bg-slate-900/40 hover:bg-slate-800/80 hover:border-indigo-500/50 hover:shadow-md'
+                        : 'border-slate-200 bg-slate-50/70 hover:bg-white hover:border-indigo-300 hover:shadow-md'
+                    }`}
+                    title={`Click to view ${b.name} inventory matrix`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between text-xs font-bold mb-1">
+                        <span className={`truncate pr-1 ${cardTitleText} group-hover:text-indigo-600 transition-colors`}>
+                          {b.name}
+                        </span>
+                        <span
+                          className={`text-[9px] px-1.5 py-0.2 rounded border font-mono font-bold shrink-0 ${
+                            isDarkMode
+                              ? 'text-indigo-300 bg-indigo-950/80 border-indigo-500/30'
+                              : 'text-indigo-700 bg-indigo-100/80 border-indigo-200'
+                          }`}
+                        >
+                          {b.code}
+                        </span>
+                      </div>
+                      <div className={`text-xs font-serif font-extrabold mt-1 ${cardTitleText}`}>
+                        {formatNPR(totalBranchVal)}
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-medium mt-0.5">
+                        {totalBranchQty} Items in Stock
+                      </div>
+                    </div>
+
+                    <div className="mt-2.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-800/60 flex items-center justify-between text-[10px] text-indigo-600 font-bold group-hover:translate-x-0.5 transition-transform">
+                      <span>View Matrix</span>
+                      <ArrowRight className="h-3 w-3" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 3.5. WORKFLOW APPROVAL & AUTHORIZATION CARD */}
+      {(() => {
+        const pendingReqs = approvalRequests.filter((r) => r.status === 'PENDING');
+        return (
+          <div className={`rounded-2xl border shadow-xs p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 ${cardBg}`}>
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-amber-500/10 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400">
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-extrabold text-base">Workflow Approval & Authorization Center</h3>
+                  {pendingReqs.length > 0 && (
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500 text-white animate-pulse">
+                      {pendingReqs.length} Pending
+                    </span>
+                  )}
+                </div>
+                <p className={`text-xs mt-0.5 ${cardSubText}`}>
+                  Formal authorization workflow for Customer Device status changes (Suspended, Disconnected, Refund & Restock).
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => onNavigateTab('approvals')}
+              className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer transition-all shrink-0"
+            >
+              <span>Manage Approvals</span>
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        );
+      })()}
 
       {/* 4. REALTIME STOCK AUDIT STREAM */}
       <div className={`rounded-2xl border shadow-xs p-5 ${cardBg}`}>

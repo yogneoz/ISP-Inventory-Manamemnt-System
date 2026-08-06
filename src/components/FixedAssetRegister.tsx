@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Asset, Branch } from '../types';
+import { Asset, Branch, User } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
 import { exportToCSV } from '../utils/exportUtils';
+import { isOperationAllowed } from '../utils/permissions';
 import {
   Landmark,
   Plus,
@@ -24,6 +25,7 @@ interface FixedAssetRegisterProps {
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
+  currentUser?: User | null;
   onCreateAsset: (
     asset: Omit<Asset, 'id' | 'netBookValue' | 'accumulatedDepreciation'>
   ) => Promise<void>;
@@ -36,9 +38,11 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   selectedBranchId,
   dateMode,
   autoOpenModal = false,
+  currentUser,
   onCreateAsset,
   onUpdateAssetStatus,
 }) => {
+  const canManageAssets = isOperationAllowed('assets-manage', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
   const [selectedAssetDetail, setSelectedAssetDetail] = useState<Asset | null>(null);
@@ -135,17 +139,19 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
             <span className="hidden sm:inline">Export CSV</span>
           </button>
 
-          <button
-            onClick={() => {
-              setTagNumber(`AST-${Math.floor(1000 + Math.random() * 9000)}`);
-              setName('');
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 transition-all cursor-pointer"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Register Fixed Asset</span>
-          </button>
+          {canManageAssets && (
+            <button
+              onClick={() => {
+                setTagNumber(`AST-${Math.floor(1000 + Math.random() * 9000)}`);
+                setName('');
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-md shadow-blue-600/20 transition-all cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Register Fixed Asset</span>
+            </button>
+          )}
         </div>
       </div>
 

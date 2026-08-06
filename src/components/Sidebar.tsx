@@ -52,6 +52,7 @@ import { User } from '../types';
 
 export type NavTab =
   | 'dashboard'
+  | 'approvals'
   | 'all-stock'
   | 'branch-stock'
   | 'reorder-stock'
@@ -97,6 +98,7 @@ interface SidebarProps {
   lowStockCount: number;
   pendingPoCount: number;
   inTransitShipmentCount: number;
+  pendingApprovalCount?: number;
   isDarkMode?: boolean;
   onCloseMobile?: () => void;
   onSwitchUser?: (email: string, pass: string) => void;
@@ -127,6 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   lowStockCount,
   pendingPoCount,
   inTransitShipmentCount,
+  pendingApprovalCount,
   isDarkMode = false,
   onCloseMobile,
   onSwitchUser,
@@ -143,6 +146,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // 1. Overview & Analytics Group
   const dashboardChildren = [
     { id: 'dashboard' as NavTab, label: 'Executive Dashboard', icon: LayoutDashboard },
+    {
+      id: 'approvals' as NavTab,
+      label: 'Workflow Approval Center',
+      icon: ShieldCheck,
+      badge: pendingApprovalCount,
+      badgeColor: 'bg-amber-500 text-white',
+    },
     { id: 'stock-valuation' as NavTab, label: 'Stock Valuation & Insights', icon: DollarSign },
     { id: 'customers' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
   ];

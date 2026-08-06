@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserRole } from '../types';
+import { UserRole, User } from '../types';
 import { getPermissionsMatrix, savePermissionsMatrix, DEFAULT_PERMISSIONS_MATRIX } from '../utils/permissions';
 import {
   ShieldCheck,
@@ -303,10 +303,11 @@ const ROLES: { key: UserRole; title: string; badgeColor: string }[] = [
 ];
 
 interface PermissionManagementProps {
+  currentUser?: User | null;
   isDarkMode?: boolean;
 }
 
-export const PermissionManagement: React.FC<PermissionManagementProps> = ({ isDarkMode }) => {
+export const PermissionManagement: React.FC<PermissionManagementProps> = ({ currentUser, isDarkMode }) => {
   const [groups, setGroups] = useState<PermissionGroup[]>(() => {
     const savedMatrix = getPermissionsMatrix();
     return DEFAULT_GROUPS.map((group) => ({

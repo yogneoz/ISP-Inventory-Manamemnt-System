@@ -18,6 +18,7 @@ import {
   Printer,
   TrendingDown,
   Lock,
+  Wrench,
 } from 'lucide-react';
 
 const CODE39_MAP: Record<string, string> = {
@@ -116,13 +117,47 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [printingProduct, setPrintingProduct] = useState<Product | null>(null);
   const [labelCopies, setLabelCopies] = useState<number>(1);
   const [showPriceOnLabel, setShowPriceOnLabel] = useState<boolean>(true);
+  const [showConsumablesBanner, setShowConsumablesBanner] = useState<boolean>(true);
+
+  const seedPresetConsumables = async () => {
+    const presets = [
+      { sku: 'SPL-1X8-01', name: 'PLC Fiber Optic Splitter 1x8 SC/APC', category: 'Splitter', unit: 'Pcs', costPrice: 450, sellingPrice: 600 },
+      { sku: 'SPL-1X16-01', name: 'PLC Fiber Optic Splitter 1x16 SC/APC', category: 'Splitter', unit: 'Pcs', costPrice: 850, sellingPrice: 1100 },
+      { sku: 'SLV-60MM-100', name: 'Fiber Fusion Protection Sleeve 60mm (Pack of 100)', category: 'Sleeves', unit: 'Box', costPrice: 250, sellingPrice: 350 },
+      { sku: 'CPL-SCAPC-01', name: 'Fiber Optic Coupler SC/APC Simplex Adapter', category: 'Coupler', unit: 'Pcs', costPrice: 35, sellingPrice: 50 },
+      { sku: 'FCN-SCUPC-01', name: 'Fast Connector SC/UPC Fiber Optical', category: 'Fast Connector', unit: 'Pcs', costPrice: 45, sellingPrice: 65 },
+      { sku: 'PTC-3M-01', name: 'Fiber Patch Cord SC/APC-SC/APC 3M Simplex', category: 'Patch Cord', unit: 'Pcs', costPrice: 180, sellingPrice: 250 },
+      { sku: 'DWC-ANC-01', name: 'Drop Wire Anchor Clamp Plastic/Metal', category: 'Drop Cable', unit: 'Pcs', costPrice: 25, sellingPrice: 40 },
+    ];
+
+    for (const item of presets) {
+      if (!products.some((p) => p.sku === item.sku || p.name.toLowerCase() === item.name.toLowerCase())) {
+        await onCreateProduct({
+          sku: item.sku,
+          barcode: `890${Math.floor(100000000 + Math.random() * 900000000)}`,
+          name: item.name,
+          category: item.category,
+          productGroup: 'Consumable Item',
+          unit: item.unit,
+          costPrice: item.costPrice,
+          sellingPrice: item.sellingPrice,
+          taxRate: 13,
+          minReorderLevel: 20,
+          requiresSerialTracking: false,
+          trackingType: 'QUANTITY_ONLY',
+          description: `[Consumable Item] High-turnover telecom field material for splicing & installation`,
+        });
+      }
+    }
+    setFilterProductGroup('Consumable Item');
+  };
 
   // Form state
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState('');
   const [name, setName] = useState('');
   const [category, setCategory] = useState('Electronics');
-  const [productGroup, setProductGroup] = useState<'Product Item' | 'Fixed Asset'>('Product Item');
+  const [productGroup, setProductGroup] = useState<'Product Item' | 'Fixed Asset' | 'Consumable Item'>('Product Item');
   const [unit, setUnit] = useState<Product['unit']>('Pcs');
   const [costPrice, setCostPrice] = useState<number>(0);
   const [sellingPrice, setSellingPrice] = useState<number>(0);
@@ -310,6 +345,75 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
         })()}
       </div>
 
+      {/* Consumable Products vs Fixed Assets Guidance & Advisory Banner */}
+      {showConsumablesBanner && (
+        <div className={`p-3.5 rounded-2xl border transition-all ${
+          isDarkMode ? 'bg-amber-950/20 border-amber-800/40 text-amber-200' : 'bg-amber-50/90 border-amber-200 text-amber-900'
+        }`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex gap-2.5">
+              <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0">
+                <Wrench className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300">
+                    Consumables Management Guide (Splitters, Protection Sleeves, Couplers, Fast Connectors)
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-100">
+                    Operational Standard
+                  </span>
+                </div>
+                <p className="text-xs mt-1 leading-relaxed opacity-90">
+                  <strong>Are Splitters, Protection Sleeves, Couplers Fixed Assets? NO.</strong> Small field materials are high-turnover <strong>Consumable Items</strong>. Treating a 10-rupee sleeve or 200-rupee coupler as a Fixed Asset creates unnecessary asset registers and depreciation overhead.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2.5 text-[11px]">
+                  <div className={`p-2 rounded-lg border ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-amber-200/80'}`}>
+                    <span className="font-bold text-amber-600 dark:text-amber-400">🛠️ Consumable Item</span>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Splitters, Sleeves, Couplers, Patch Cords, Fast Connectors. Tracked by <strong>Quantity Only</strong>, issued to field technicians/jobs as direct operational expense.</p>
+                  </div>
+                  <div className={`p-2 rounded-lg border ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-amber-200/80'}`}>
+                    <span className="font-bold text-sky-600 dark:text-sky-400">📦 Product Item</span>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">ONUs, Dual-Band Routers, CPEs, Equipment for resale or customer installation. Tracked by <strong>Serial/MAC/PON</strong>.</p>
+                  </div>
+                  <div className={`p-2 rounded-lg border ${isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-white/80 border-amber-200/80'}`}>
+                    <span className="font-bold text-purple-600 dark:text-purple-400">🏢 Fixed Asset</span>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">OLT Mainframes, Splicer Machines, Servers, Generators, Vehicles. Capitalized, tagged (`AST-XXX`), and depreciated over useful life.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={seedPresetConsumables}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-xs transition-all cursor-pointer flex items-center gap-1"
+                title="Auto-create standard telecom consumable SKUs (1x8 Splitter, 1x16 Splitter, 60mm Sleeves, SC/APC Couplers, Patch Cords)"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>Seed Telecom Consumables</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterProductGroup('Consumable Item')}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 cursor-pointer transition-all"
+              >
+                Filter Consumables
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowConsumablesBanner(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+                title="Dismiss guide"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Filter and Search controls */}
       <div className={`flex-none flex flex-col md:flex-row items-center justify-between gap-2 p-2 rounded-xl border shadow-2xs ${
         isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
@@ -362,8 +466,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             }`}
           >
             <option value="ALL">All Groups</option>
-            <option value="Product Item">Product Item</option>
-            <option value="Fixed Asset">Fixed Asset</option>
+            <option value="Product Item">Product Item (Equipment/Resale)</option>
+            <option value="Consumable Item">Consumable Item (Splitters/Sleeves/Couplers)</option>
+            <option value="Fixed Asset">Fixed Asset (Capital Assets)</option>
           </select>
 
           <span className={`text-[11px] font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Category:</span>
@@ -445,9 +550,11 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                           grp === 'Fixed Asset'
                             ? 'bg-purple-50 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800'
+                            : grp === 'Consumable Item'
+                            ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
                             : 'bg-sky-50 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800'
                         }`}>
-                          {grp}
+                          {grp === 'Consumable Item' ? '🛠️ Consumable' : grp === 'Fixed Asset' ? '🏢 Fixed Asset' : '📦 Product Item'}
                         </span>
                       </td>
                       <td className="px-2.5 py-1.5">
@@ -761,18 +868,22 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                   <select
                     value={productGroup}
                     onChange={(e) => {
-                      const val = e.target.value as 'Product Item' | 'Fixed Asset';
+                      const val = e.target.value as 'Product Item' | 'Fixed Asset' | 'Consumable Item';
                       setProductGroup(val);
                       if (val === 'Fixed Asset') {
                         setMinReorderLevel(0);
+                      } else if (val === 'Consumable Item') {
+                        setMinReorderLevel(20);
+                        setRequiresSerialTracking(false);
                       }
                     }}
                     className={`w-full rounded-lg border px-2.5 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
                       isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
                     }`}
                   >
-                    <option value="Product Item">Product Item</option>
-                    <option value="Fixed Asset">Fixed Asset</option>
+                    <option value="Product Item">Product Item (Equipment/Resale)</option>
+                    <option value="Consumable Item">Consumable Item (Splitters, Sleeves, Couplers)</option>
+                    <option value="Fixed Asset">Fixed Asset (Capital Equipment)</option>
                   </select>
                 </div>
 

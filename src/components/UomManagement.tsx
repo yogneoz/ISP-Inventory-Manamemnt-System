@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { UnitOfMeasure } from '../types';
+import { UnitOfMeasure, User } from '../types';
 import { Ruler, Plus, Edit2, Trash2, Search, X, CheckCircle2, Layers } from 'lucide-react';
+import { isOperationAllowed } from '../utils/permissions';
 
 interface UomManagementProps {
+  currentUser?: User | null;
   isDarkMode?: boolean;
 }
 
-export const UomManagement: React.FC<UomManagementProps> = ({ isDarkMode = false }) => {
+export const UomManagement: React.FC<UomManagementProps> = ({ currentUser, isDarkMode = false }) => {
+  const canManageUom = isOperationAllowed('uom-manage', currentUser?.role);
   const initialUoms: UnitOfMeasure[] = [
     { id: 'uom-1', name: 'Pieces', symbol: 'Pcs', type: 'Count', isBaseUnit: true },
     { id: 'uom-2', name: 'Box / Carton', symbol: 'Box', type: 'Package', isBaseUnit: false },
@@ -98,13 +101,15 @@ export const UomManagement: React.FC<UomManagementProps> = ({ isDarkMode = false
           </p>
         </div>
 
-        <button
-          onClick={openCreateModal}
-          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add New UoM</span>
-        </button>
+        {canManageUom && (
+          <button
+            onClick={openCreateModal}
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md transition-all cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add New UoM</span>
+          </button>
+        )}
       </div>
 
       {/* Summary Cards */}
@@ -206,22 +211,26 @@ export const UomManagement: React.FC<UomManagementProps> = ({ isDarkMode = false
                       )}
                     </td>
                     <td className="px-2.5 py-1.5 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => openEditModal(u)}
-                          title="Edit UoM"
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
-                        >
-                          <Edit2 className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(u.id)}
-                          title="Delete UoM"
-                          className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
+                      {canManageUom ? (
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => openEditModal(u)}
+                            title="Edit UoM"
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(u.id)}
+                            title="Delete UoM"
+                            className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic">Read Only</span>
+                      )}
                     </td>
                   </tr>
                 ))

@@ -14,7 +14,7 @@ interface ParsedImportRow {
   sku: string;
   barcode: string;
   name: string;
-  productGroup: 'Product Item' | 'Fixed Asset';
+  productGroup: 'Product Item' | 'Fixed Asset' | 'Consumable Item';
   category: string;
   unit: string;
   costPrice: number;
@@ -41,10 +41,11 @@ export const ImportStock: React.FC<ImportStockProps> = ({
   const [importSuccessMessage, setImportSuccessMessage] = useState<string | null>(null);
 
   const sampleCsvData = `SKU,Barcode,ProductName,ProductGroup,Category,Unit,CostPrice,SellingPrice,TaxRate,MinReorder,TargetBranch,InitialQty
-IZ-109281,890102938101,Fiber Optic Patch Cord SC/UPC-LC/UPC 3M,Product Item,Fiber Accessories & Cables,Pcs,450,750,13,25,ALL,120
-IZ-109282,890102938102,Dual Band Wi-Fi 6 GPON ONT Fiber Router,Product Item,Routers & ONTs,Pcs,4200,6500,13,15,BR-KTM,40
-IZ-109283,890102938103,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed Assets,Set,145000,185000,13,0,BR-KTM,3
-IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Networking Cables,Roll,12500,16800,13,8,BR-PKR,15`;
+SPL-1X8-01,890102938101,PLC Fiber Optic Splitter 1x8 SC/APC,Consumable Item,Splitters,Pcs,450,650,13,20,ALL,100
+SLV-60MM-01,890102938102,Fiber Fusion Protection Sleeve 60mm (Box of 100),Consumable Item,Sleeves,Box,250,380,13,30,BR-KTM,50
+CPL-SCAPC-01,890102938103,Fiber Optic Coupler SC/APC Simplex Adapter,Consumable Item,Coupler,Pcs,35,50,13,50,ALL,200
+IZ-109282,890102938104,Dual Band Wi-Fi 6 GPON ONT Fiber Router,Product Item,Routers & ONTs,Pcs,4200,6500,13,15,BR-KTM,40
+IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed Assets,Set,145000,185000,13,0,BR-KTM,3`;
 
   const parseCsvContent = (content: string, filename?: string) => {
     if (filename) setSelectedFileName(filename);
@@ -67,13 +68,31 @@ IZ-109284,890102938104,Cat6 Outdoor UTP Ethernet Cable Roll 305M,Product Item,Ne
       const sku = cols[0] || `IZ-${Math.floor(100000 + Math.random() * 900000)}`;
       const barcode = cols[1] || `890${Math.floor(100000000 + Math.random() * 900000000)}`;
       const name = cols[2] || 'Imported Stock Item';
-      const rawGrp = cols[3] || 'Product Item';
-      const productGroup: 'Product Item' | 'Fixed Asset' =
-        rawGrp.toLowerCase().includes('asset') || rawGrp.toLowerCase().includes('fixed')
-          ? 'Fixed Asset'
-          : 'Product Item';
-
+      const rawGrp = (cols[3] || 'Product Item').toLowerCase();
       const category = cols[4] || 'General Inventory';
+      const catLower = category.toLowerCase();
+      const nameLower = name.toLowerCase();
+
+      let productGroup: 'Product Item' | 'Fixed Asset' | 'Consumable Item' = 'Product Item';
+      if (
+        rawGrp.includes('consumable') ||
+        rawGrp.includes('splitter') ||
+        rawGrp.includes('sleeve') ||
+        rawGrp.includes('coupler') ||
+        catLower.includes('splitter') ||
+        catLower.includes('sleeve') ||
+        catLower.includes('coupler') ||
+        catLower.includes('fast connector') ||
+        catLower.includes('patch cord') ||
+        nameLower.includes('splitter') ||
+        nameLower.includes('sleeve') ||
+        nameLower.includes('coupler') ||
+        nameLower.includes('fast connector')
+      ) {
+        productGroup = 'Consumable Item';
+      } else if (rawGrp.includes('asset') || rawGrp.includes('fixed')) {
+        productGroup = 'Fixed Asset';
+      }
       const unit = cols[5] || 'Pcs';
       const costPrice = parseFloat(cols[6]) || 0;
       const sellingPrice = parseFloat(cols[7]) || 0;

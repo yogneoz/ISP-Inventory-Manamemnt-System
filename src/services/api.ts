@@ -14,6 +14,7 @@ import {
   TransactionLog,
   FinancialSummary,
   CustomerDeviceRecord,
+  ApprovalRequest,
 } from '../types';
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -323,6 +324,29 @@ export const api = {
     return fetchJson(`/api/customer-devices/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
+    });
+  },
+
+  // Workflow Approval Requests
+  async getApprovalRequests(branchId?: string, status?: string): Promise<ApprovalRequest[]> {
+    const params = new URLSearchParams();
+    if (branchId && branchId !== 'ALL') params.append('branchId', branchId);
+    if (status && status !== 'ALL') params.append('status', status);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return fetchJson(`/api/approval-requests${queryString}`);
+  },
+
+  async createApprovalRequest(request: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>): Promise<ApprovalRequest> {
+    return fetchJson('/api/approval-requests', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  async processApprovalRequest(id: string, status: 'APPROVED' | 'REJECTED', approverUser?: User | null, rejectionReason?: string): Promise<{ request: ApprovalRequest; message: string }> {
+    return fetchJson(`/api/approval-requests/${id}/process`, {
+      method: 'POST',
+      body: JSON.stringify({ status, approverUser, rejectionReason }),
     });
   },
 

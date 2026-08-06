@@ -18,12 +18,26 @@ import {
   AuditLog,
   TransactionLog,
   CustomerDeviceRecord,
+  ApprovalRequest,
 } from './src/types';
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
+
+// Health & Control Plane Endpoints FIRST before any other routes or middleware
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.get('/__aistudio_internal_control_plane/dev/status', (req, res) => {
+  res.json({ status: 'ok', dev: true });
+});
+
+app.get('/__aistudio_internal_control_plane/*', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
 const PORT = 3000;
 
@@ -293,18 +307,20 @@ let branches: Branch[] = [
   },
 ];
 
-// Imported Items from Excel Data Sheet
+// Imported Items & Telecom Consumables
 const EXCEL_ITEMS = [
-  { code: 'ADP001', group: 'FIXED ASSET', type: 'Adaptor', name: '0 DB ADAPTAR-FA', uom: 'Pcs', qty: 1, val: 25 },
-  { code: 'DRP002', group: 'PRODUCT ITEM', type: 'Drop Cable', name: 'DROP CABLE 100 MTR', uom: 'Roll', qty: 1, val: 25 },
-  { code: 'FIB003', group: 'FIXED ASSET', type: 'Fiber', name: '4 CORE OPTICAL CABLE-FA', uom: 'Mtr', qty: 1, val: 25 },
-  { code: 'FIB004', group: 'FIXED ASSET', type: 'Fiber', name: '6 CORE OPTICAL FIBER-FA', uom: 'Mtr', qty: 1, val: 25 },
-  { code: 'CAR004', group: 'FIXED ASSET', type: 'Olt Card', name: 'OLT CARD-FA', uom: 'Pcs', qty: 1, val: 25 },
-  { code: 'ONU001', group: 'FIXED ASSET', type: 'Onu Router', name: 'ONU ROUTER 2.4G', uom: 'Pcs', qty: 1, val: 25 },
-  { code: 'ONU002', group: 'FIXED ASSET', type: 'Onu Router', name: 'ONU ROUTER 5G', uom: 'Pcs', qty: 1, val: 25 },
-
-
-
+  { code: 'SPL001', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x8 SC/APC', uom: 'Pcs', qty: 50, val: 450 },
+  { code: 'SPL002', group: 'CONSUMABLE ITEM', type: 'Splitter', name: 'PLC Fiber Optic Splitter 1x16 SC/APC', uom: 'Pcs', qty: 30, val: 850 },
+  { code: 'SLV001', group: 'CONSUMABLE ITEM', type: 'Sleeves', name: 'Fiber Fusion Protection Sleeve 60mm (Pack of 100)', uom: 'Box', qty: 100, val: 250 },
+  { code: 'CPL001', group: 'CONSUMABLE ITEM', type: 'Coupler', name: 'Fiber Optic Coupler SC/APC Simplex Adapter', uom: 'Pcs', qty: 200, val: 35 },
+  { code: 'FCN001', group: 'CONSUMABLE ITEM', type: 'Fast Connector', name: 'Fast Connector SC/UPC Fiber Optical', uom: 'Pcs', qty: 150, val: 45 },
+  { code: 'PTC001', group: 'CONSUMABLE ITEM', type: 'Patch Cord', name: 'Fiber Patch Cord SC/APC-SC/APC 3M Simplex', uom: 'Pcs', qty: 80, val: 180 },
+  { code: 'ADP001', group: 'CONSUMABLE ITEM', type: 'Adaptor', name: '0 DB ADAPTAR SC/APC', uom: 'Pcs', qty: 100, val: 25 },
+  { code: 'DRP002', group: 'CONSUMABLE ITEM', type: 'Drop Cable', name: 'DROP CABLE 100 MTR ROLL', uom: 'Roll', qty: 20, val: 2500 },
+  { code: 'FIB003', group: 'CONSUMABLE ITEM', type: 'Fiber', name: '4 CORE OPTICAL FIBER CABLE', uom: 'Mtr', qty: 500, val: 45 },
+  { code: 'CAR004', group: 'FIXED ASSET', type: 'Olt Card', name: 'OLT CARD GPON 16-PORT Chassis Module', uom: 'Pcs', qty: 2, val: 125000 },
+  { code: 'ONU001', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER DUAL BAND 2.4G/5G GPON', uom: 'Pcs', qty: 25, val: 3200 },
+  { code: 'ONU002', group: 'PRODUCT ITEM', type: 'Onu Router', name: 'ONU ROUTER SINGLE BAND 2.4G XPON', uom: 'Pcs', qty: 40, val: 1850 },
 ];
 
 const NON_SERIALIZED_CATEGORIES = [
@@ -316,13 +332,25 @@ const NON_SERIALIZED_CATEGORIES = [
 // Pre-seeded Products mapped from Excel Sheet
 let products: Product[] = EXCEL_ITEMS.map((item, idx) => {
   const isConsumableOrCable =
+    item.group === 'CONSUMABLE ITEM' ||
     NON_SERIALIZED_CATEGORIES.includes(item.type) ||
     ['Mtr', 'Roll', 'Box'].includes(item.uom) ||
     item.name.includes('CABLE') ||
     item.name.includes('WIRE') ||
-    item.name.includes('CONNECTOR');
+    item.name.includes('CONNECTOR') ||
+    item.name.includes('SPLITTER') ||
+    item.name.includes('SLEEVE') ||
+    item.name.includes('COUPLER') ||
+    item.name.includes('ADAPTAR');
 
-  const requiresSerialTracking = !isConsumableOrCable;
+  const requiresSerialTracking = !isConsumableOrCable && item.group !== 'CONSUMABLE ITEM';
+
+  let productGroup: 'Product Item' | 'Fixed Asset' | 'Consumable Item' = 'Product Item';
+  if (item.group === 'FIXED ASSET') {
+    productGroup = 'Fixed Asset';
+  } else if (isConsumableOrCable) {
+    productGroup = 'Consumable Item';
+  }
 
   return {
     id: `prod-${item.code.toLowerCase()}`,
@@ -330,16 +358,16 @@ let products: Product[] = EXCEL_ITEMS.map((item, idx) => {
     barcode: `890${String(100000000 + idx).slice(1)}`,
     name: item.name,
     category: item.type,
-    productGroup: item.group === 'FIXED ASSET' ? 'Fixed Asset' : 'Product Item',
+    productGroup,
     unit: item.uom,
     costPrice: item.val > 0 ? item.val : 1500,
     sellingPrice: item.val > 0 ? Math.round(item.val * 1.25) : 1875,
     taxRate: 13,
-    minReorderLevel: 5,
+    minReorderLevel: productGroup === 'Consumable Item' ? 20 : (productGroup === 'Fixed Asset' ? 0 : 5),
     requiresSerialTracking,
     trackingType: requiresSerialTracking ? 'SERIAL_MAC_PON' : 'QUANTITY_ONLY',
-    description: `[${item.group}] ${item.type} - ${item.name}`,
-    ...(item.group === 'FIXED ASSET'
+    description: `[${productGroup}] ${item.type} - ${item.name}`,
+    ...(productGroup === 'Fixed Asset'
       ? {
           depreciationMethod: 'STRAIGHT_LINE' as const,
           depreciationRate: 15,
@@ -354,8 +382,10 @@ let products: Product[] = EXCEL_ITEMS.map((item, idx) => {
 let inventoryStock: InventoryStock[] = [];
 products.forEach((p, index) => {
   branches.forEach((branch, bIdx) => {
-    // Keep 2-3 pieces of each product item per branch
-    const qty = 2 + ((index + bIdx) % 2);
+    // Consumable products (splitters, sleeves, couplers) have higher operational quantity per branch
+    const isConsumable = p.productGroup === 'Consumable Item';
+    const baseQty = isConsumable ? (branch.isHeadquarters ? 150 + ((index * 10) % 100) : 35 + ((index + bIdx) % 25)) : 2 + ((index + bIdx) % 2);
+    const qty = baseQty;
     const damagedQty = (index + bIdx) % 11 === 0 ? 1 : 0;
 
     // Set realistic per-branch minimum reorder level based on branch demand / HQ status
@@ -642,6 +672,90 @@ let customerDeviceRecords: CustomerDeviceRecord[] = [
     issuedDateBS: '2082-12-20 BS',
     purchaseBillRef: 'BILL-9021',
     notes: 'Billing temporarily on hold due to seasonal relocation.',
+  },
+];
+
+// Pre-seeded Approval Requests (Workflow Authorization Center)
+let approvalRequests: ApprovalRequest[] = [
+  {
+    id: 'apr-101',
+    requestNumber: 'APR-2083-001',
+    type: 'CUSTOMER_DEVICE_STATUS',
+    targetId: 'cust-103',
+    customerName: 'Bikash Pokharel',
+    customerCode: 'CUST-CHU-2041',
+    deviceSerial: 'SN-ONU24G-990182',
+    ponSerial: 'HWTC-8812B001',
+    productName: 'ONU ROUTER 2.4G',
+    currentStatus: 'SUSPENDED',
+    requestedStatus: 'REFUND',
+    requestedByRole: 'FRONT_DESK',
+    requestedByEmail: 'frontdesk.urlabari@subisu.com.np',
+    requestedByName: 'Sabin Shrestha (Frontdesk)',
+    branchId: 'CHU01',
+    branchName: 'Chulachuli Branch Office',
+    reason: 'Customer requested account termination & ONU deposit refund of NPR 3,500. Device inspected and working in good condition.',
+    restockQtyOnApproval: true,
+    status: 'PENDING',
+    requestedAtAD: '2026-08-05T14:20:00Z',
+    requestedAtBS: '2083-04-21 BS',
+  },
+  {
+    id: 'apr-102',
+    requestNumber: 'APR-2083-002',
+    type: 'CUSTOMER_DEVICE_STATUS',
+    targetId: 'cust-102',
+    customerName: 'Sujata Maharjan',
+    customerCode: 'CUST-ITH-4019',
+    deviceSerial: 'SN-ONU5G-774019',
+    ponSerial: 'ZTE-4481A290',
+    productName: 'ONU ROUTER 5G',
+    currentStatus: 'ACTIVE',
+    requestedStatus: 'SUSPENDED',
+    requestedByRole: 'BRANCH_MANAGER',
+    requestedByEmail: 'bm.itahari@subisu.com.np',
+    requestedByName: 'Ramesh Karki (Branch Manager)',
+    branchId: 'ITH01',
+    branchName: 'Itahari Branch Office',
+    reason: 'Non-payment of monthly ISP service bill for 2 consecutive months despite automated SMS notifications.',
+    restockQtyOnApproval: false,
+    status: 'APPROVED',
+    requestedAtAD: '2026-08-01T09:15:00Z',
+    requestedAtBS: '2083-04-17 BS',
+    processedByEmail: 'admin@system.com.np',
+    processedByName: 'Super Admin',
+    processedByRole: 'SUPER_ADMIN',
+    processedAtAD: '2026-08-01T10:00:00Z',
+    processedAtBS: '2083-04-17 BS',
+  },
+  {
+    id: 'apr-103',
+    requestNumber: 'APR-2083-003',
+    type: 'CUSTOMER_DEVICE_STATUS',
+    targetId: 'cust-101',
+    customerName: 'Aashish Subedi',
+    customerCode: 'CUST-URL-1092',
+    deviceSerial: 'SN-ONU24G-881923',
+    ponSerial: 'HWTC-90A812C4',
+    productName: 'ONU ROUTER 2.4G',
+    currentStatus: 'ACTIVE',
+    requestedStatus: 'DISCONNECTED',
+    requestedByRole: 'FRONT_DESK',
+    requestedByEmail: 'frontdesk.urlabari@subisu.com.np',
+    requestedByName: 'Sabin Shrestha (Frontdesk)',
+    branchId: 'URL01',
+    branchName: 'Urlabari Branch Office',
+    reason: 'Immediate disconnection request without returning physical ONU equipment.',
+    restockQtyOnApproval: false,
+    status: 'REJECTED',
+    requestedAtAD: '2026-07-28T11:30:00Z',
+    requestedAtBS: '2083-04-13 BS',
+    processedByEmail: 'inventory@system.com.np',
+    processedByName: 'Bikash Pokharel (Inventory Mgr)',
+    processedByRole: 'INVENTORY_MANAGER',
+    processedAtAD: '2026-07-28T12:00:00Z',
+    processedAtBS: '2083-04-13 BS',
+    rejectionReason: 'Rejected: Customer must return physical ONU equipment to the branch office before disconnection can be authorized.',
   },
 ];
 
@@ -1586,6 +1700,149 @@ app.patch('/api/customer-devices/:id/status', (req, res) => {
   res.json(record);
 });
 
+// Approval Requests & Workflow Authorization Routes
+app.get('/api/approval-requests', (req, res) => {
+  const { branchId, status } = req.query;
+  let list = approvalRequests;
+
+  if (branchId && branchId !== 'ALL') {
+    list = list.filter((r) => r.branchId === branchId);
+  }
+
+  if (status && typeof status === 'string' && status !== 'ALL') {
+    list = list.filter((r) => r.status === status);
+  }
+
+  res.json(list);
+});
+
+app.post('/api/approval-requests', (req, res) => {
+  const count = approvalRequests.length + 1;
+  const requestNumber = `APR-2083-${count.toString().padStart(3, '0')}`;
+  
+  const newRequest: ApprovalRequest = {
+    id: `apr-${Date.now()}`,
+    requestNumber,
+    ...req.body,
+    status: 'PENDING',
+    requestedAtAD: new Date().toISOString(),
+    requestedAtBS: '2083-04-22 BS',
+  };
+
+  approvalRequests.unshift(newRequest);
+
+  // Log in Audit Trail
+  auditTrail.unshift({
+    id: `audit-${Date.now()}`,
+    userEmail: newRequest.requestedByEmail || 'user@system.com.np',
+    userName: newRequest.requestedByName || 'Branch Staff',
+    action: `APPROVAL_REQUEST_SUBMITTED`,
+    module: 'OPERATIONS',
+    details: `Submitted approval request #${newRequest.requestNumber} for ${newRequest.customerName} (${newRequest.deviceSerial}) status change to ${newRequest.requestedStatus}`,
+    timestampAD: new Date().toISOString(),
+    timestampBS: '2083-04-22 BS',
+    branchId: newRequest.branchId,
+  });
+
+  res.status(201).json(newRequest);
+});
+
+app.post('/api/approval-requests/:id/process', (req, res) => {
+  const { id } = req.params;
+  const { status, approverUser, rejectionReason } = req.body; // status: 'APPROVED' | 'REJECTED'
+
+  const request = approvalRequests.find((r) => r.id === id);
+  if (!request) return res.status(404).json({ message: 'Approval request not found' });
+
+  request.status = status;
+  request.processedByEmail = approverUser?.email || 'admin@system.com.np';
+  request.processedByName = approverUser?.name || 'Super Admin';
+  request.processedByRole = approverUser?.role || 'SUPER_ADMIN';
+  request.processedAtAD = new Date().toISOString();
+  request.processedAtBS = '2083-04-22 BS';
+
+  if (status === 'REJECTED') {
+    request.rejectionReason = rejectionReason || 'Request rejected by administrator';
+
+    auditTrail.unshift({
+      id: `audit-${Date.now()}`,
+      userEmail: request.processedByEmail,
+      userName: request.processedByName,
+      action: `APPROVAL_REQUEST_REJECTED`,
+      module: 'OPERATIONS',
+      details: `Rejected approval request #${request.requestNumber} for ${request.customerName} (${request.deviceSerial}): ${request.rejectionReason}`,
+      timestampAD: new Date().toISOString(),
+      timestampBS: '2083-04-22 BS',
+      branchId: request.branchId,
+    });
+
+    return res.json({ request, message: 'Approval request rejected successfully' });
+  }
+
+  // IF APPROVED: execute the requested status change on customer device record
+  if (request.type === 'CUSTOMER_DEVICE_STATUS') {
+    const devRecord = customerDeviceRecords.find((c) => c.id === request.targetId || c.deviceSerial === request.deviceSerial);
+    if (devRecord) {
+      devRecord.status = request.requestedStatus;
+    }
+
+    // Restock Inventory if requested
+    if (request.restockQtyOnApproval) {
+      const prod = products.find((p) => p.name.toLowerCase() === request.productName.toLowerCase()) || products[0];
+      let stk = inventoryStock.find((s) => s.productId === prod.id && s.branchId === request.branchId);
+      
+      if (!stk) {
+        stk = {
+          id: `stk-${request.branchId.toLowerCase()}-${prod.id}`,
+          productId: prod.id,
+          branchId: request.branchId,
+          quantityOnHand: 0,
+          damagedQty: 0,
+          reservedQty: 0,
+          incomingQty: 0,
+          lastUpdated: new Date().toISOString(),
+        };
+        inventoryStock.push(stk);
+      }
+
+      const qtyBefore = stk.quantityOnHand;
+      stk.quantityOnHand += 1;
+      stk.lastUpdated = new Date().toISOString();
+
+      transactionLogs.unshift({
+        id: `txn-${Date.now()}`,
+        transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+        productId: prod.id,
+        productSku: prod.sku,
+        productName: prod.name,
+        branchId: request.branchId,
+        changeType: 'PULLOUT',
+        quantityBefore: qtyBefore,
+        quantityChanged: 1,
+        quantityAfter: stk.quantityOnHand,
+        unitCost: prod.costPrice,
+        referenceDocId: request.requestNumber,
+        timestampAD: new Date().toISOString(),
+        timestampBS: '2083-04-22 BS',
+      });
+    }
+
+    auditTrail.unshift({
+      id: `audit-${Date.now()}`,
+      userEmail: request.processedByEmail,
+      userName: request.processedByName,
+      action: `APPROVAL_REQUEST_APPROVED`,
+      module: 'OPERATIONS',
+      details: `Approved request #${request.requestNumber}. Updated ${request.customerName} (${request.deviceSerial}) status to ${request.requestedStatus}${request.restockQtyOnApproval ? ' (+1 unit restocked to branch inventory)' : ''}`,
+      timestampAD: new Date().toISOString(),
+      timestampBS: '2083-04-22 BS',
+      branchId: request.branchId,
+    });
+  }
+
+  res.json({ request, message: 'Approval request authorized and executed successfully' });
+});
+
 // Financial Reports Summary
 app.get('/api/reports/financial-summary', (req, res) => {
   const { branchId } = req.query;
@@ -1673,6 +1930,10 @@ app.post('/api/ai/analytics', async (req, res) => {
 
 // Vite Middleware Setup for Dev Mode vs Static Production Serving
 async function startServer() {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`IZone Inventory System server running on http://localhost:${PORT}`);
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -1686,10 +1947,6 @@ async function startServer() {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`IZone Inventory System server running on http://localhost:${PORT}`);
-  });
 }
 
 startServer();

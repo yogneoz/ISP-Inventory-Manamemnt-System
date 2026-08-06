@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Supplier } from '../types';
+import { Supplier, User } from '../types';
 import { Factory, Plus, Search, Mail, Phone, MapPin, CheckCircle2, Edit, Trash2 } from 'lucide-react';
+import { isOperationAllowed } from '../utils/permissions';
 
 interface SuppliersManagementProps {
   suppliers: Supplier[];
+  currentUser?: User | null;
   onCreateSupplier?: (supplier: Omit<Supplier, 'id' | 'rating'>) => Promise<void>;
   onUpdateSupplier?: (id: string, supplier: Partial<Supplier>) => Promise<void>;
   onDeleteSupplier?: (id: string) => Promise<void>;
@@ -12,11 +14,13 @@ interface SuppliersManagementProps {
 
 export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
   suppliers,
+  currentUser,
   onCreateSupplier,
   onUpdateSupplier,
   onDeleteSupplier,
   isDarkMode = false,
 }) => {
+  const canManageSuppliers = isOperationAllowed('suppliers-manage', currentUser?.role);
   const [search, setSearch] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
@@ -119,13 +123,15 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
             Add, edit, or remove hardware suppliers, PAN/VAT details, contact persons, and ratings.
           </p>
         </div>
-        <button
-          onClick={handleOpenAddModal}
-          className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add New Supplier</span>
-        </button>
+        {canManageSuppliers && (
+          <button
+            onClick={handleOpenAddModal}
+            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add New Supplier</span>
+          </button>
+        )}
       </div>
 
       {/* Search Bar */}
@@ -161,22 +167,26 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
                 <span className="text-xs font-bold text-amber-500 bg-amber-50 dark:bg-amber-950/80 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800 mr-1">
                   ⭐ {s.rating || 5.0}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => handleOpenEditModal(s)}
-                  title="Edit Supplier"
-                  className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer"
-                >
-                  <Edit className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(s)}
-                  title="Delete Supplier"
-                  className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                {canManageSuppliers && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal(s)}
+                      title="Edit Supplier"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 transition-colors cursor-pointer"
+                    >
+                      <Edit className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(s)}
+                      title="Delete Supplier"
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 transition-colors cursor-pointer"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 

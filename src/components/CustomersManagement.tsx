@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { CustomerDeviceRecord, Branch, Product } from '../types';
+import { CustomerDeviceRecord, Branch, Product, User, ApprovalRequest } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
 import { getWarrantyInfo } from '../utils/warranty';
+import { isOperationAllowed } from '../utils/permissions';
+import { api } from '../services/api';
 import {
   Users,
   Search,
@@ -25,6 +27,8 @@ import {
   ShieldAlert,
   RefreshCw,
   SlidersHorizontal,
+  Send,
+  Lock,
 } from 'lucide-react';
 
 interface CustomersManagementProps {
@@ -34,8 +38,10 @@ interface CustomersManagementProps {
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
+  currentUser?: User | null;
   onCreateCustomerDevice: (record: Omit<CustomerDeviceRecord, 'id'>) => Promise<void>;
   onUpdateStatus: (id: string, status: CustomerDeviceRecord['status']) => Promise<void>;
+  onRequestApproval?: (request: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>) => Promise<void>;
 }
 
 export const CustomersManagement: React.FC<CustomersManagementProps> = ({
@@ -45,14 +51,103 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   selectedBranchId,
   dateMode,
   autoOpenModal = false,
+  currentUser,
   onCreateCustomerDevice,
   onUpdateStatus,
+  onRequestApproval,
 }) => {
+  const canManageCustomers = isOperationAllowed('customers-manage', currentUser?.role);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const [viewingRecord, setViewingRecord] = useState<CustomerDeviceRecord | null>(null);
+
+  // Approval Request Modal State
+  const [approvalTarget, setApprovalTarget] = useState<{
+    record: CustomerDeviceRecord;
+    targetStatus: CustomerDeviceRecord['status'];
+  } | null>(null);
+  const [approvalReason, setApprovalReason] = useState('');
+  const [approvalRestock, setApprovalRestock] = useState(true);
+  const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const handleStatusChangeAttempt = async (
+    rec: CustomerDeviceRecord,
+    newSt: CustomerDeviceRecord['status']
+  ) => {
+    if (rec.status === newSt) return;
+
+    const requiresApproval = ['SUSPENDED', 'DISCONNECTED', 'REFUND', 'RETURNED', 'IN_STOCK'].includes(
+      newSt
+    );
+    const isBranchStaff =
+      currentUser?.role === 'BRANCH_MANAGER' || currentUser?.role === 'FRONT_DESK';
+
+    if (requiresApproval && isBranchStaff) {
+      setApprovalTarget({ record: rec, targetStatus: newSt });
+      setApprovalReason('');
+      setApprovalRestock(newSt === 'REFUND' || newSt === 'RETURNED' || newSt === 'IN_STOCK');
+    } else {
+      await onUpdateStatus(rec.id, newSt);
+      if (newSt === 'IN_STOCK' || newSt === 'RETURNED' || newSt === 'REFUND') {
+        setToastMessage(`Status updated to ${newSt}! +1 unit synchronized back to branch inventory stock.`);
+      } else {
+        setToastMessage(`Device status updated to ${newSt}.`);
+      }
+      setTimeout(() => setToastMessage(null), 4000);
+    }
+  };
+
+  const handleConfirmSubmitApproval = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!approvalTarget) return;
+    if (!approvalReason.trim()) {
+      alert('Please provide a justification / reason for this status change request.');
+      return;
+    }
+
+    setIsSubmittingApproval(true);
+    try {
+      const branchName =
+        branches.find((b) => b.id === approvalTarget.record.branchId)?.name || 'Branch Office';
+      const reqData = {
+        type: 'CUSTOMER_DEVICE_STATUS',
+        targetId: approvalTarget.record.id,
+        customerName: approvalTarget.record.customerName,
+        customerCode: approvalTarget.record.customerCode,
+        deviceSerial: approvalTarget.record.deviceSerial,
+        ponSerial: approvalTarget.record.ponSerial,
+        productName: approvalTarget.record.productName,
+        currentStatus: approvalTarget.record.status,
+        requestedStatus: approvalTarget.targetStatus,
+        requestedByRole: currentUser?.role || 'FRONT_DESK',
+        requestedByEmail: currentUser?.email || 'staff@subisu.com.np',
+        requestedByName: currentUser?.name || 'Branch Staff',
+        branchId: approvalTarget.record.branchId,
+        branchName,
+        reason: approvalReason.trim(),
+        restockQtyOnApproval: approvalRestock,
+      };
+
+      if (onRequestApproval) {
+        await onRequestApproval(reqData);
+      } else {
+        await api.createApprovalRequest(reqData);
+      }
+
+      setToastMessage(
+        `Approval request submitted successfully! Request pending Inventory Manager / Super Admin authorization.`
+      );
+      setApprovalTarget(null);
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err: any) {
+      alert(`Failed to submit approval request: ${err.message}`);
+    } finally {
+      setIsSubmittingApproval(false);
+    }
+  };
 
   // Modal Form State
   const [customerName, setCustomerName] = useState('');
@@ -147,18 +242,20 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setCustomerCode(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
-            setDeviceSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
-            setPonSerial(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
-            setIsModalOpen(true);
-          }}
-          className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-all shrink-0"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Assign Customer Device</span>
-        </button>
+        {canManageCustomers && (
+          <button
+            onClick={() => {
+              setCustomerCode(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
+              setDeviceSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
+              setPonSerial(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
+              setIsModalOpen(true);
+            }}
+            className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-all shrink-0"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Assign Customer Device</span>
+          </button>
+        )}
       </div>
 
       {/* Overview Stat Cards */}
@@ -354,10 +451,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                             value={rec.status}
                             onChange={(e) => {
                               const newSt = e.target.value as any;
-                              onUpdateStatus(rec.id, newSt);
-                              if (newSt === 'IN_STOCK' || newSt === 'RETURNED' || newSt === 'REFUND') {
-                                alert(`Status updated to ${newSt}! +1 unit synchronized back to branch inventory stock.`);
-                              }
+                              handleStatusChangeAttempt(rec, newSt);
                             }}
                             className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold uppercase cursor-pointer border shadow-2xs transition-all ${
                               rec.status === 'ACTIVE'
@@ -375,11 +469,17 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                           >
                             <option value="ACTIVE">🟢 ACTIVE (Deployed)</option>
                             <option value="RENTAL">🔵 RENTAL (ISP Rental)</option>
-                            <option value="SUSPENDED">🟡 SUSPENDED (Paused)</option>
-                            <option value="DISCONNECTED">🔴 DISCONNECTED</option>
-                            <option value="IN_STOCK">📦 IN_STOCK (Restock)</option>
-                            <option value="REFUND">💸 REFUND / RETURN</option>
+                            <option value="SUSPENDED">🟡 SUSPENDED (Approval Req.)</option>
+                            <option value="DISCONNECTED">🔴 DISCONNECTED (Approval Req.)</option>
+                            <option value="IN_STOCK">📦 IN_STOCK (Approval Req.)</option>
+                            <option value="REFUND">💸 REFUND & RESTOCK (Approval Req.)</option>
                           </select>
+                          {(currentUser?.role === 'BRANCH_MANAGER' || currentUser?.role === 'FRONT_DESK') && (
+                            <span className="text-[9px] text-slate-400 font-semibold flex items-center gap-0.5">
+                              <Lock className="h-2.5 w-2.5 text-amber-500" />
+                              <span>Approval required</span>
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -699,6 +799,135 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   className="rounded-xl bg-blue-600 hover:bg-blue-700 px-5 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/20 cursor-pointer"
                 >
                   Save Device Record
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="fixed bottom-5 right-5 z-50 max-w-md bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border border-slate-700 flex items-start gap-3 animate-slide-up">
+          <CheckCircle2 className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="flex-1 text-xs leading-relaxed font-medium">
+            {toastMessage}
+          </div>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="text-slate-400 hover:text-white cursor-pointer"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Trigger Approval Request Modal */}
+      {approvalTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-5 bg-gradient-to-r from-amber-500 to-amber-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-white/20 rounded-xl">
+                  <Lock className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base">Send Approval Request</h3>
+                  <p className="text-amber-100 text-xs">
+                    Workflow Authorization: Branch Staff ➔ Inventory Manager / Super Admin
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setApprovalTarget(null)}
+                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmSubmitApproval} className="p-6 space-y-4">
+              <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <strong>Role Restriction Notice:</strong> As a <strong>{currentUser?.role || 'Staff Member'}</strong>, changing status to <strong>{approvalTarget.targetStatus}</strong> requires formal approval. Upon authorization, the record will update automatically.
+                </div>
+              </div>
+
+              {/* Target Summary Card */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2 text-xs">
+                <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-100">
+                  <span>Customer: {approvalTarget.record.customerName}</span>
+                  <span className="font-mono text-[10px] bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded">
+                    {approvalTarget.record.customerCode}
+                  </span>
+                </div>
+                <div className="text-slate-500 flex items-center justify-between font-mono text-[11px]">
+                  <span>Device SN: {approvalTarget.record.deviceSerial}</span>
+                  <span>Model: {approvalTarget.record.productName}</span>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <span className="text-slate-500 font-semibold">Status Change:</span>
+                  <div className="flex items-center gap-2 font-bold text-[11px]">
+                    <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-700">
+                      {approvalTarget.record.status}
+                    </span>
+                    <span>➔</span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 uppercase">
+                      {approvalTarget.targetStatus}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Reason Input */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Reason / Justification for Request *
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={approvalReason}
+                  onChange={(e) => setApprovalReason(e.target.value)}
+                  placeholder="e.g. Customer returned ONU router in good condition. Requested deposit refund NPR 3,500..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              {/* Restock Toggle */}
+              {(approvalTarget.targetStatus === 'REFUND' || approvalTarget.targetStatus === 'RETURNED' || approvalTarget.targetStatus === 'IN_STOCK') && (
+                <div className="flex items-center gap-2.5 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900">
+                  <input
+                    type="checkbox"
+                    id="restockCheck"
+                    checked={approvalRestock}
+                    onChange={(e) => setApprovalRestock(e.target.checked)}
+                    className="h-4 w-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                  <label htmlFor="restockCheck" className="text-xs font-bold text-blue-900 dark:text-blue-200 cursor-pointer">
+                    Synchronize Inventory: Restock +1 unit back to branch stock upon approval
+                  </label>
+                </div>
+              )}
+
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setApprovalTarget(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingApproval}
+                  className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-600/20 cursor-pointer disabled:opacity-50"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  <span>{isSubmittingApproval ? 'Submitting...' : 'Send Approval Request'}</span>
                 </button>
               </div>
             </form>
