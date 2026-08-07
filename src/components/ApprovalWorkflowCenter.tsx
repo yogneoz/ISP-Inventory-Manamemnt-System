@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ApprovalRequest, Branch, User } from '../types';
 import { formatDualDate } from '../utils/nepaliCalendar';
+import { isOperationAllowed } from '../utils/permissions';
 import {
   ShieldCheck,
   CheckCircle2,
@@ -45,13 +46,17 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterBranchId, setFilterBranchId] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [approvingReq, setApprovingReq] = useState<ApprovalRequest | null>(null);
   const [rejectingReq, setRejectingReq] = useState<ApprovalRequest | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
   const [viewingReq, setViewingReq] = useState<ApprovalRequest | null>(null);
   const [isProcessingId, setIsProcessingId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const canApprove =
-    currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+    isOperationAllowed('workflow-approval', currentUser?.role) ||
+    currentUser?.role === 'SUPER_ADMIN' ||
+    currentUser?.role === 'INVENTORY_MANAGER';
 
   const pendingCount = approvalRequests.filter((r) => r.status === 'PENDING').length;
   const approvedCount = approvalRequests.filter((r) => r.status === 'APPROVED').length;
@@ -75,26 +80,27 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
     return matchesStatus && matchesBranch && matchesQ;
   });
 
-  const handleApprove = async (req: ApprovalRequest) => {
+  const handleApprove = (req: ApprovalRequest) => {
     if (!canApprove) {
-      alert('Only Inventory Managers or Super Admins can authorize workflow approval requests.');
+      setToastMessage('Only Inventory Managers or Super Admins can authorize workflow approval requests.');
+      setTimeout(() => setToastMessage(null), 4000);
       return;
     }
-    if (
-      !window.confirm(
-        `Confirm APPROVAL for Request #${req.requestNumber}?\n\nTarget: ${req.customerName} (${req.deviceSerial})\nRequested Status: ${req.requestedStatus}${
-          req.restockQtyOnApproval ? '\n+1 Unit will be restocked back to branch inventory stock.' : ''
-        }`
-      )
-    ) {
-      return;
-    }
+    setApprovingReq(req);
+  };
 
-    setIsProcessingId(req.id);
+  const handleConfirmApprove = async () => {
+    if (!approvingReq) return;
+
+    setIsProcessingId(approvingReq.id);
     try {
-      await onProcessApproval(req.id, 'APPROVED');
+      await onProcessApproval(approvingReq.id, 'APPROVED');
+      setToastMessage(`Approval Request #${approvingReq.requestNumber} for ${approvingReq.customerName} authorized & executed successfully!`);
+      setApprovingReq(null);
+      setTimeout(() => setToastMessage(null), 5000);
     } catch (err: any) {
-      alert(`Approval failed: ${err.message}`);
+      setToastMessage(`Approval failed: ${err.message}`);
+      setTimeout(() => setToastMessage(null), 5000);
     } finally {
       setIsProcessingId(null);
     }
@@ -104,17 +110,19 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
     e.preventDefault();
     if (!rejectingReq) return;
     if (!rejectionReasonInput.trim()) {
-      alert('Please state a reason for rejecting this request.');
       return;
     }
 
     setIsProcessingId(rejectingReq.id);
     try {
       await onProcessApproval(rejectingReq.id, 'REJECTED', rejectionReasonInput.trim());
+      setToastMessage(`Request #${rejectingReq.requestNumber} rejected.`);
       setRejectingReq(null);
       setRejectionReasonInput('');
+      setTimeout(() => setToastMessage(null), 5000);
     } catch (err: any) {
-      alert(`Rejection failed: ${err.message}`);
+      setToastMessage(`Rejection failed: ${err.message}`);
+      setTimeout(() => setToastMessage(null), 5000);
     } finally {
       setIsProcessingId(null);
     }
@@ -128,6 +136,22 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
 
   return (
     <div className={`rounded-2xl border shadow-xs p-5 space-y-5 ${cardBg}`}>
+      {/* Toast Banner */}
+      {toastMessage && (
+        <div className="p-3.5 rounded-xl bg-indigo-600 text-white font-bold text-xs flex items-center justify-between shadow-lg animate-fade-in">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4 shrink-0" />
+            <span>{toastMessage}</span>
+          </div>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="p-1 rounded-lg hover:bg-white/20 cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Header & Role Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-200/80 dark:border-slate-800">
         <div>
@@ -510,6 +534,94 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
         </table>
       </div>
 
+      {/* Modal for Approval Confirmation */}
+      {approvingReq && (
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-2.5 text-emerald-600 font-extrabold text-base pb-2 border-b border-slate-200 dark:border-slate-800">
+              <ShieldCheck className="h-6 w-6 text-emerald-600" />
+              <span>Authorize Approval for Request #{approvingReq.requestNumber}</span>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 space-y-2 text-xs">
+              <div className="flex justify-between font-bold text-slate-900 dark:text-slate-100">
+                <span>Customer: {approvingReq.customerName}</span>
+                <span className="font-mono text-[10px] text-emerald-700 dark:text-emerald-400">
+                  {approvingReq.customerCode}
+                </span>
+              </div>
+              <div className="flex justify-between font-mono text-[11px] text-slate-600 dark:text-slate-400">
+                <span>Serial #: {approvingReq.deviceSerial}</span>
+                <span>Model: {approvingReq.productName}</span>
+              </div>
+              <div className="pt-2 flex items-center justify-between border-t border-emerald-200/60 dark:border-emerald-800/40">
+                <span className="font-bold text-slate-700 dark:text-slate-300">Status Transition:</span>
+                <div className="flex items-center gap-1.5 font-bold text-xs">
+                  <span className="px-2 py-0.5 rounded bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                    {approvingReq.currentStatus}
+                  </span>
+                  <ArrowRight className="h-3.5 w-3.5 text-emerald-600" />
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white uppercase font-extrabold">
+                    {approvingReq.requestedStatus}
+                  </span>
+                </div>
+              </div>
+              {approvingReq.restockQtyOnApproval && (
+                <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300 font-bold text-[11px] flex items-center gap-1.5 mt-1">
+                  <RefreshCw className="h-3.5 w-3.5 shrink-0" />
+                  <span>+1 Unit will be automatically restocked to branch inventory stock.</span>
+                </div>
+              )}
+            </div>
+
+            <div className="text-xs space-y-1.5">
+              <span className="font-bold text-slate-700 dark:text-slate-300 block">
+                Submitted Reason / Justification:
+              </span>
+              <p className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 leading-relaxed italic text-[11px]">
+                "{approvingReq.reason}"
+              </p>
+            </div>
+
+            <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-[11px] text-amber-900 dark:text-amber-300 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <span>
+                Confirming authorization will instantly change the customer device status to <strong>{approvingReq.requestedStatus}</strong> and record an official audit log trace.
+              </span>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setApprovingReq(null)}
+                disabled={isProcessingId === approvingReq.id}
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmApprove}
+                disabled={isProcessingId === approvingReq.id}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-lg shadow-emerald-600/20 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isProcessingId === approvingReq.id ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Authorizing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="h-4 w-4" />
+                    <span>Confirm & Authorize Approval</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal for Rejection Reason */}
       {rejectingReq && (
         <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
@@ -633,7 +745,36 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
               )}
             </div>
 
-            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {viewingReq.status === 'PENDING' && canApprove && (
+                  <>
+                    <button
+                      onClick={() => {
+                        const target = viewingReq;
+                        setViewingReq(null);
+                        setApprovingReq(target);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      <span>Approve</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const target = viewingReq;
+                        setViewingReq(null);
+                        setRejectingReq(target);
+                        setRejectionReasonInput('');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      <span>Reject</span>
+                    </button>
+                  </>
+                )}
+              </div>
               <button
                 onClick={() => setViewingReq(null)}
                 className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer hover:bg-slate-800"
