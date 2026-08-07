@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { PurchaseOrder, PurchaseInvoice, Shipment, Branch, Supplier } from '../types';
+import { PurchaseOrder, PurchaseInvoice, Shipment, Branch, Supplier, User } from '../types';
 import { exportToCSV } from '../utils/exportUtils';
 import { formatDualDate } from '../utils/nepaliCalendar';
+import { getAllowedBranches, canUserSeeAllBranches, getAllowedBranchIds } from '../utils/permissions';
 import {
   Download,
   FileSpreadsheet,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 
 interface ExportReportsProps {
+  currentUser?: User | null;
   purchaseOrders: PurchaseOrder[];
   invoices: PurchaseInvoice[];
   shipments: Shipment[];
@@ -28,6 +30,7 @@ interface ExportReportsProps {
 }
 
 export const ExportReports: React.FC<ExportReportsProps> = ({
+  currentUser,
   purchaseOrders,
   invoices,
   shipments,
@@ -37,6 +40,10 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
   isDarkMode = false,
 }) => {
   const [activeReportTab, setActiveReportTab] = useState<'PO' | 'PI' | 'SHIPMENTS'>('PO');
+
+  const allowedBranches = getAllowedBranches(currentUser, branches);
+  const allowedBranchIds = getAllowedBranchIds(currentUser, branches);
+  const canSeeAll = canUserSeeAllBranches(currentUser);
 
   // Common Date Filters
   const [startDateAD, setStartDateAD] = useState<string>('');
@@ -98,7 +105,11 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
   const filteredPOs = purchaseOrders.filter((po) => {
     if (startDateAD && po.orderDateAD < startDateAD) return false;
     if (endDateAD && po.orderDateAD > endDateAD) return false;
-    if (selectedBranchId !== 'ALL' && po.branchId !== selectedBranchId) return false;
+    if (selectedBranchId !== 'ALL') {
+      if (po.branchId !== selectedBranchId) return false;
+    } else if (!canSeeAll) {
+      if (!allowedBranchIds.includes(po.branchId)) return false;
+    }
     if (selectedSupplierName !== 'ALL' && po.supplierName !== selectedSupplierName) return false;
     if (poStatusFilter !== 'ALL' && po.status !== poStatusFilter) return false;
 
@@ -144,7 +155,11 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
   const filteredPIs = invoices.filter((pi) => {
     if (startDateAD && pi.invoiceDateAD < startDateAD) return false;
     if (endDateAD && pi.invoiceDateAD > endDateAD) return false;
-    if (selectedBranchId !== 'ALL' && pi.branchId !== selectedBranchId) return false;
+    if (selectedBranchId !== 'ALL') {
+      if (pi.branchId !== selectedBranchId) return false;
+    } else if (!canSeeAll) {
+      if (!allowedBranchIds.includes(pi.branchId)) return false;
+    }
     if (selectedSupplierName !== 'ALL' && pi.supplierName !== selectedSupplierName) return false;
     if (piPaymentStatusFilter !== 'ALL' && pi.paymentStatus !== piPaymentStatusFilter) return false;
 
@@ -200,6 +215,10 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
       if (shipmentMode === 'CREATED' && !isSource) return false;
       if (shipmentMode === 'RECEIVED' && !isDest) return false;
       if (shipmentMode === 'ALL' && !isSource && !isDest) return false;
+    } else if (!canSeeAll) {
+      const isSourceAllowed = allowedBranchIds.includes(sh.sourceBranchId);
+      const isDestAllowed = allowedBranchIds.includes(sh.destinationBranchId);
+      if (!isSourceAllowed && !isDestAllowed) return false;
     } else {
       if (shipmentMode === 'CREATED' && !sh.sourceBranchId) return false;
     }
@@ -435,8 +454,12 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
                 isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'
               }`}
             >
-              <option value="ALL">All Branches</option>
-              {branches.map((b) => (
+              {canSeeAll ? (
+                <option value="ALL">All Branches</option>
+              ) : allowedBranches.length > 1 ? (
+                <option value="ALL">All Assigned Branches ({allowedBranches.length})</option>
+              ) : null}
+              {allowedBranches.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name} ({b.code})
                 </option>
@@ -568,10 +591,10 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
                         </td>
                         <td className="p-3.5 text-slate-500">{branchName}</td>
                         <td className="p-3.5 text-center font-mono">{po.items?.length || 0} items</td>
-                        <td className="p-3.5 text-right font-mono">रु {po.subtotalAmount.toLocaleString()}</td>
-                        <td className="p-3.5 text-right font-mono text-indigo-500">रु {po.taxAmount.toLocaleString()}</td>
+                        <td className="p-3.5 text-right font-mono">रु {po.subtotalAmount.toLocaleString('en-IN')}</td>
+                        <td className="p-3.5 text-right font-mono text-indigo-500">रु {po.taxAmount.toLocaleString('en-IN')}</td>
                         <td className={`p-3.5 text-right font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                          रु {po.totalAmount.toLocaleString()}
+                          रु {po.totalAmount.toLocaleString('en-IN')}
                         </td>
                         <td className="p-3.5 text-center">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
@@ -642,13 +665,13 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
                           {pi.supplierName}
                         </td>
                         <td className="p-3.5 text-slate-500">{branchName}</td>
-                        <td className="p-3.5 text-right font-mono">रु {pi.taxableAmount.toLocaleString()}</td>
-                        <td className="p-3.5 text-right font-mono text-indigo-500">रु {pi.vatAmount.toLocaleString()}</td>
+                        <td className="p-3.5 text-right font-mono">रु {pi.taxableAmount.toLocaleString('en-IN')}</td>
+                        <td className="p-3.5 text-right font-mono text-indigo-500">रु {pi.vatAmount.toLocaleString('en-IN')}</td>
                         <td className={`p-3.5 text-right font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                          रु {pi.grandTotal.toLocaleString()}
+                          रु {pi.grandTotal.toLocaleString('en-IN')}
                         </td>
                         <td className="p-3.5 text-right font-mono text-emerald-600 font-semibold">
-                          रु {pi.amountPaid.toLocaleString()}
+                          रु {pi.amountPaid.toLocaleString('en-IN')}
                         </td>
                         <td className="p-3.5 text-center">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${

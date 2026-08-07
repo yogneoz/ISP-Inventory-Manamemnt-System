@@ -170,7 +170,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-            {grandTotalDamagedUnits.toLocaleString()} Pcs
+            {grandTotalDamagedUnits.toLocaleString('en-IN')} Pcs
           </div>
           <div className="text-[11px] text-slate-400 mt-1 font-medium">
             Across {affectedSKUsCount} affected SKUs
@@ -187,7 +187,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
-            रु {grandTotalLossValuation.toLocaleString()}
+            रु {grandTotalLossValuation.toLocaleString('en-IN')}
           </div>
           <div className="text-[11px] text-slate-400 mt-1 font-medium">
             At unit cost basis
@@ -347,7 +347,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                     <td className={`p-3.5 text-right font-mono font-semibold ${
                       isDarkMode ? 'text-slate-400' : 'text-slate-600'
                     }`}>
-                      रु {prod.costPrice.toLocaleString()}
+                      रु {prod.costPrice.toLocaleString('en-IN')}
                     </td>
 
                     {/* Total Damaged Column */}
@@ -367,7 +367,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                         ? 'text-rose-600 dark:text-rose-400'
                         : 'text-slate-400'
                     }`}>
-                      रु {totalLossValuation.toLocaleString()}
+                      रु {totalLossValuation.toLocaleString('en-IN')}
                     </td>
 
                     {/* Branch Cells */}

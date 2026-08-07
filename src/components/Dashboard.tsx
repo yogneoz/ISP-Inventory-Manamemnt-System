@@ -13,7 +13,7 @@ import {
 } from '../types';
 import { ApprovalWorkflowCenter } from './ApprovalWorkflowCenter';
 import { formatDualDate } from '../utils/nepaliCalendar';
-import { isOperationAllowed } from '../utils/permissions';
+import { isOperationAllowed, getAllowedBranches, getAllowedBranchIds, canUserSeeAllBranches } from '../utils/permissions';
 import {
   TrendingUp,
   AlertTriangle,
@@ -193,15 +193,19 @@ export const Dashboard: React.FC<DashboardProps> = ({
     setIsAdjustModalOpen(false);
   };
 
+  const allowedBranches = getAllowedBranches(currentUser, branches);
+  const allowedBranchIds = getAllowedBranchIds(currentUser, branches);
+  const canSeeAll = canUserSeeAllBranches(currentUser);
+
   const activeBranches =
     selectedBranchId === 'ALL'
-      ? branches
-      : branches.filter((b) => b.id === selectedBranchId);
+      ? allowedBranches
+      : allowedBranches.filter((b) => b.id === selectedBranchId);
 
   // Filter stock by branch if selected
   const filteredStock =
     selectedBranchId === 'ALL'
-      ? stock
+      ? stock.filter((s) => canSeeAll || allowedBranchIds.includes(s.branchId))
       : stock.filter((s) => s.branchId === selectedBranchId);
 
   // Compute total inventory value
@@ -237,7 +241,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Pending POs filtered by branch context
   const filteredPOs =
     selectedBranchId === 'ALL'
-      ? purchaseOrders
+      ? purchaseOrders.filter((po) => canSeeAll || allowedBranchIds.includes(po.branchId))
       : purchaseOrders.filter((po) => po.branchId === selectedBranchId);
 
   const pendingPOs = filteredPOs.filter(
@@ -248,7 +252,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Active Shipments filtered by branch context
   const filteredShipments =
     selectedBranchId === 'ALL'
-      ? shipments
+      ? shipments.filter((sh) => canSeeAll || allowedBranchIds.includes(sh.destinationBranchId) || allowedBranchIds.includes(sh.sourceBranchId))
       : shipments.filter(
           (sh) =>
             sh.destinationBranchId === selectedBranchId ||
@@ -262,7 +266,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   // Total Fixed Assets Net Book Value filtered by branch context
   const filteredAssets =
     selectedBranchId === 'ALL'
-      ? assets
+      ? assets.filter((a) => canSeeAll || allowedBranchIds.includes(a.branchId))
       : assets.filter((a) => a.branchId === selectedBranchId);
 
   const totalAssetNBV = filteredAssets.reduce(
@@ -270,9 +274,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     0
   );
 
-  // Format currency NPR
+  // Format number
   const formatNPR = (val: number) =>
-    `रु ${val.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
+    val.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
   // Filter products for Special Hardware table (Router, Drop Cable, Tv Devices, Fiber)
   const specialProducts = products.filter((p) => {
@@ -666,11 +670,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         </td>
 
                         <td className="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400">
-                          रु {prod.costPrice.toLocaleString()}
+                          {prod.costPrice.toLocaleString('en-IN')}
                         </td>
 
                         <td className="p-3.5 text-right font-mono font-extrabold text-rose-600 text-sm">
-                          {totalAvailableStock.toLocaleString()} {prod.unit}
+                          {totalAvailableStock.toLocaleString('en-IN')} {prod.unit}
                         </td>
 
                         <td className="p-3.5 text-right font-mono text-slate-500">
@@ -1016,11 +1020,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         </td>
 
                         <td className="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400">
-                          रु {prod.costPrice.toLocaleString()}
+                          {prod.costPrice.toLocaleString('en-IN')}
                         </td>
 
                         <td className="p-3.5 text-right font-mono font-extrabold text-indigo-600 text-sm">
-                          {totalAvailableStock.toLocaleString()} {prod.unit}
+                          {totalAvailableStock.toLocaleString('en-IN')} {prod.unit}
                         </td>
 
                         <td className="p-3.5 text-right font-mono font-bold text-slate-800 dark:text-slate-200">

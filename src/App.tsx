@@ -1068,6 +1068,31 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'consumable-issue' && (
+                <StockOperations
+                  operations={stockOperations}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  initialType="CONSUMABLE_ISSUE"
+                  autoOpenModal={false}
+                  isDarkMode={isDarkMode}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
+                  onCreateOperation={handleCreateOperation}
+                  onReceiveOperation={handleReceiveOperation}
+                  onCreateShipment={async (sh) => {
+                    await api.createShipment(sh);
+                    refreshAllData();
+                  }}
+                  onReceiveShipment={handleReceiveShipment}
+                  onUpdateAssetStatus={handleUpdateAssetStatus}
+                />
+              )}
+
               {activeTab === 'warranty-products' && (
                 <WarrantyProducts
                   customerDevices={customerDevices}
@@ -1191,6 +1216,7 @@ export default function App() {
 
               {activeTab === 'export-reports' && (
                 <ExportReports
+                  currentUser={currentUser}
                   purchaseOrders={purchaseOrders}
                   invoices={purchaseInvoices}
                   shipments={shipments}

@@ -271,7 +271,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
-            {grandTotalDeficitUnits.toLocaleString()} Units
+            {grandTotalDeficitUnits.toLocaleString('en-IN')} Units
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
             Calculated against branch minimum levels
@@ -288,7 +288,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-            रु {grandTotalReorderCost.toLocaleString()}
+            रु {grandTotalReorderCost.toLocaleString('en-IN')}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
             Procurement cost to achieve min levels

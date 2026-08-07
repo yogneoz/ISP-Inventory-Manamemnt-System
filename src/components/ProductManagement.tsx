@@ -613,10 +613,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       </td>
                       <td className={`px-2.5 py-1.5 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>{p.unit}</td>
                       <td className={`px-2.5 py-1.5 text-right font-mono font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-                        रु {p.costPrice.toLocaleString()}
+                        रु {p.costPrice.toLocaleString('en-IN')}
                       </td>
                       <td className={`px-2.5 py-1.5 text-right font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                        रु {p.sellingPrice.toLocaleString()}
+                        रु {p.sellingPrice.toLocaleString('en-IN')}
                       </td>
                       <td className="px-2.5 py-1.5 text-center">
                         <span className="rounded bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
@@ -751,7 +751,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
                       {showPriceOnLabel && (
                         <div className="text-xs font-mono font-extrabold text-slate-900 mt-0.5">
-                          NPR {printingProduct.sellingPrice.toLocaleString()}
+                          NPR {printingProduct.sellingPrice.toLocaleString('en-IN')}
                         </div>
                       )}
                     </div>

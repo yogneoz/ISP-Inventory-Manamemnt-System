@@ -158,14 +158,14 @@ export const ExportStock: React.FC<ExportStockProps> = ({
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-xs'
         }`}>
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Total On-Hand Qty</span>
-          <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">{totalQtyOnHand.toLocaleString()}</div>
+          <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">{totalQtyOnHand.toLocaleString('en-IN')}</div>
         </div>
 
         <div className={`p-3.5 rounded-2xl border ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200 shadow-xs'
         }`}>
           <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Stock Cost Valuation</span>
-          <div className="text-xl font-bold font-mono text-sky-600 dark:text-sky-400">रु {totalCostValuation.toLocaleString()}</div>
+          <div className="text-xl font-bold font-mono text-sky-600 dark:text-sky-400">रु {totalCostValuation.toLocaleString('en-IN')}</div>
         </div>
 
         <div className={`p-3.5 rounded-2xl border ${
@@ -303,8 +303,8 @@ export const ExportStock: React.FC<ExportStockProps> = ({
                     <td className="p-3 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">
                       {qty} {p.unit}
                     </td>
-                    <td className="p-3 text-right font-mono text-slate-700 dark:text-slate-300">रु {p.costPrice.toLocaleString()}</td>
-                    <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-white">रु {(qty * p.costPrice).toLocaleString()}</td>
+                    <td className="p-3 text-right font-mono text-slate-700 dark:text-slate-300">रु {p.costPrice.toLocaleString('en-IN')}</td>
+                    <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-white">रु {(qty * p.costPrice).toLocaleString('en-IN')}</td>
                   </tr>
                 );
               })}

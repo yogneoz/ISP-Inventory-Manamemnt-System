@@ -1,4 +1,57 @@
-import { UserRole } from '../types';
+import { UserRole, User, Branch } from '../types';
+
+/**
+ * Super admin and Stock Manager (INVENTORY_MANAGER) can see ALL branches.
+ */
+export const canUserSeeAllBranches = (user: User | null | undefined): boolean => {
+  if (!user) return true;
+  const role = user.role;
+  return role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER';
+};
+
+/**
+ * Returns array of branch IDs that the user is allowed to access.
+ */
+export const getAllowedBranchIds = (user: User | null | undefined, branches: Branch[]): string[] => {
+  if (!user || canUserSeeAllBranches(user)) {
+    return branches.map((b) => b.id);
+  }
+
+  if (user.allowedBranchIds && user.allowedBranchIds.length > 0) {
+    return user.allowedBranchIds;
+  }
+
+  if (user.branchId && user.branchId !== 'ALL') {
+    return [user.branchId];
+  }
+
+  return branches.length > 0 ? [branches[0].id] : [];
+};
+
+/**
+ * Filters branches list to only those allowed for the user.
+ */
+export const getAllowedBranches = (user: User | null | undefined, branches: Branch[]): Branch[] => {
+  if (!user || canUserSeeAllBranches(user)) {
+    return branches;
+  }
+  const allowedIds = getAllowedBranchIds(user, branches);
+  return branches.filter((b) => allowedIds.includes(b.id));
+};
+
+/**
+ * Checks if a specific branch ID is allowed for the user.
+ */
+export const isBranchAllowedForUser = (
+  branchId: string,
+  user: User | null | undefined,
+  branches: Branch[]
+): boolean => {
+  if (!user || canUserSeeAllBranches(user)) return true;
+  if (branchId === 'ALL') return false;
+  const allowedIds = getAllowedBranchIds(user, branches);
+  return allowedIds.includes(branchId);
+};
 
 export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<UserRole, boolean>> = {
   // Procurement

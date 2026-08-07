@@ -79,6 +79,7 @@ export type NavTab =
   | 'damage'
   | 'stock-out'
   | 'assign-asset'
+  | 'consumable-issue'
   | 'branches'
   | 'suppliers'
   | 'users'
@@ -258,7 +259,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // 5. Branch Operations & Transfers Group
   const branchOpsChildren = [
-    { id: 'create-transfer' as NavTab, label: 'Create Inter-Branch Transfer', icon: Send },
+    { id: 'pullout' as NavTab, label: 'Dispatch Stock Pullout to HQ', icon: ArrowUpRight },
+    { id: 'damage' as NavTab, label: 'Label Damaged Stock', icon: HeartOff },
     {
       id: 'receive-shipment' as NavTab,
       label: 'Receive Branch Stock Transfer',
@@ -266,9 +268,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: inTransitShipmentCount,
       badgeColor: 'bg-amber-500 text-white',
     },
-    { id: 'pullout' as NavTab, label: 'Dispatch Stock Pullout to HQ', icon: ArrowUpRight },
-    { id: 'damage' as NavTab, label: 'Label Damaged Stock', icon: HeartOff },
+    { id: 'create-transfer' as NavTab, label: 'Create Inter-Branch Transfer', icon: Send },
     ...(!isRestrictedRole && !isAccountant ? [{ id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench }] : []),
+    { id: 'consumable-issue' as NavTab, label: 'Issue Consumables', icon: Wrench },
     { id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus },
     { id: 'warranty-products' as NavTab, label: 'View Warranty Products', icon: ShieldCheck },
   ];

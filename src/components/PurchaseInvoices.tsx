@@ -338,9 +338,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       { key: 'supplierName', label: 'Supplier / Vendor' },
       { key: 'invoiceDateAD', label: 'Invoice Date (AD)' },
       { key: 'invoiceDateBS', label: 'Invoice Date (BS)' },
-      { key: 'taxableAmount', label: 'Taxable Base (NPR)' },
-      { key: 'vatAmount', label: '13% VAT (NPR)' },
-      { key: 'grandTotal', label: 'Grand Total (NPR)' },
+      { key: 'taxableAmount', label: 'Taxable Base' },
+      { key: 'vatAmount', label: '13% VAT' },
+      { key: 'grandTotal', label: 'Grand Total' },
       { key: 'paymentStatus', label: 'Status' },
     ]);
   };
@@ -435,13 +435,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         }`}>
           <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Taxable Purchases</span>
           <div className={`text-lg font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            {totalTaxable.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
         <div className="rounded-2xl p-4 border border-blue-500/30 bg-blue-500/10 shadow-xs">
           <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">13% Input VAT</span>
           <div className="text-lg font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-1">
-            {totalVAT.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {totalVAT.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
         <div className={`rounded-2xl p-4 border shadow-xs ${
@@ -449,13 +449,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         }`}>
           <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Grand Total</span>
           <div className={`text-lg font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            {totalGrand.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {totalGrand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
         <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/10 shadow-xs">
           <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">Vendor Credit Payable</span>
           <div className="text-lg font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1">
-            {totalUnpaid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {totalUnpaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
       </div>
@@ -510,13 +510,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                         {formatDualDate(inv.invoiceDateAD, dateMode)}
                       </td>
                       <td className="p-3.5 text-right font-mono font-medium text-slate-700">
-                        {inv.taxableAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {inv.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-3.5 text-right font-mono font-bold text-blue-600">
-                        {inv.vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {inv.vatAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-3.5 text-right font-mono font-extrabold text-slate-900">
-                        {inv.grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {inv.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-3.5 text-center">
                         <span className="rounded-md px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
@@ -829,7 +829,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                               />
                             </td>
                             <td className="p-2.5 text-right font-mono font-extrabold text-slate-900">
-                              {line.netSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              {line.netSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
                             <td className="p-2.5 text-center">
                               <button
@@ -924,14 +924,14 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   <div className="flex justify-between text-slate-600">
                     <span>Gross Amount:</span>
                     <span className="font-mono font-bold">
-                      {grossSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {grossSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                   {totalDiscount > 0 && (
                     <div className="flex justify-between text-amber-600">
                       <span>Total Discounts:</span>
                       <span className="font-mono font-bold">
-                        - {totalDiscount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        - {totalDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </div>
                   )}
@@ -944,13 +944,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   <div className="flex justify-between text-blue-700 font-semibold border-t border-slate-200 pt-2">
                     <span>13% VAT Amount:</span>
                     <span className="font-mono font-bold">
-                      {billVatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {billVatAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                   <div className="flex justify-between text-base font-extrabold text-slate-900 pt-2 border-t border-slate-300">
                     <span>Grand Total (Credit Mode):</span>
                     <span className="font-mono text-blue-600">
-                      {grandTotalCalculated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {grandTotalCalculated.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
                   </div>
                 </div>
@@ -1029,8 +1029,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
                           <td className="p-3 font-bold text-slate-900">{item.productName}</td>
                           <td className="p-3 text-center font-mono font-bold">{item.quantity} {item.unit || 'Pcs'}</td>
-                          <td className="p-3 text-right font-mono">{item.unitPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                          <td className="p-3 text-right font-mono font-bold text-slate-900">{item.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="p-3 text-right font-mono">{item.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="p-3 text-right font-mono font-bold text-slate-900">{item.total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1047,15 +1047,15 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 <div className="w-64 space-y-1.5 text-xs font-mono text-right">
                   <div className="flex justify-between text-slate-600">
                     <span>Taxable Base:</span>
-                    <span>{viewingInvoice.taxableAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span>{viewingInvoice.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between text-blue-600 font-semibold">
                     <span>13% VAT:</span>
-                    <span>{viewingInvoice.vatAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span>{viewingInvoice.vatAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-2 border-t border-slate-200">
                     <span>Grand Total:</span>
-                    <span>{viewingInvoice.grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    <span>{viewingInvoice.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                   </div>
                 </div>
               </div>
@@ -1128,7 +1128,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-3">
                             <span>📅 {po.orderDateAD}</span>
                             <span>📦 {po.items.length} item line(s)</span>
-                            <span className="font-mono font-semibold text-slate-700">रु {po.totalAmount.toLocaleString()}</span>
+                            <span className="font-mono font-semibold text-slate-700">{po.totalAmount.toLocaleString('en-IN')}</span>
                           </div>
                         </div>
 
@@ -1230,7 +1230,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       <div>
                         <div className="font-bold text-slate-900">{poItem.productName}</div>
                         <div className="text-[11px] text-slate-500">
-                          Ordered Quantity: <strong className="text-slate-800">{poItem.quantity} {poItem.unit}</strong> @ Rs {poItem.unitPrice.toLocaleString()}
+                          Ordered Quantity: <strong className="text-slate-800">{poItem.quantity} {poItem.unit}</strong> @ {poItem.unitPrice.toLocaleString('en-IN')}
                         </div>
                       </div>
 

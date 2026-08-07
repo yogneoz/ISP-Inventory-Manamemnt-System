@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PurchaseOrder, Product, Branch, POLineItem, InventoryStock, Supplier, User } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
-import { isOperationAllowed } from '../utils/permissions';
+import { isOperationAllowed, getAllowedBranches } from '../utils/permissions';
 import { ProductSearchBar } from './ProductSearchBar';
 import {
   ShoppingCart,
@@ -379,23 +379,21 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
           </div>
         </div>
         <div className="rounded-2xl p-4 border border-indigo-500/30 bg-indigo-500/5 shadow-sm">
-          <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Pending Value (NPR)</span>
+          <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Pending Value</span>
           <div className="text-xl font-mono font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
-            रु{' '}
             {filteredPOs
               .filter((p) => p.status !== 'RECEIVED')
               .reduce((s, p) => s + p.totalAmount, 0)
-              .toLocaleString()}
+              .toLocaleString('en-IN')}
           </div>
         </div>
         <div className="rounded-2xl p-4 border border-emerald-500/30 bg-emerald-500/5 shadow-sm">
           <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Received Stock Value</span>
           <div className="text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
-            रु{' '}
             {filteredPOs
               .filter((p) => p.status === 'RECEIVED')
               .reduce((s, p) => s + p.totalAmount, 0)
-              .toLocaleString()}
+              .toLocaleString('en-IN')}
           </div>
         </div>
       </div>
@@ -420,7 +418,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <th className="p-3.5 sticky top-0 bg-inherit">Order Date</th>
                 <th className="p-3.5 sticky top-0 bg-inherit">Delivery Target</th>
                 <th className="p-3.5 sticky top-0 bg-inherit text-center">Line Items</th>
-                <th className="p-3.5 sticky top-0 bg-inherit text-right">Gross Total (NPR)</th>
+                <th className="p-3.5 sticky top-0 bg-inherit text-right">Gross Total</th>
                 <th className="p-3.5 sticky top-0 bg-inherit text-center">Status</th>
                 <th className="p-3.5 sticky top-0 bg-inherit text-center">Actions</th>
               </tr>
@@ -454,7 +452,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                         </span>
                       </td>
                       <td className="p-3.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                        रु {(po.totalAmount ?? 0).toLocaleString()}
+                        {(po.totalAmount ?? 0).toLocaleString('en-IN')}
                       </td>
                       <td className="p-3.5 text-center">
                         <span
@@ -601,7 +599,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     onChange={(e) => setBranchId(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
                   >
-                    {branches.map((b) => (
+                    {getAllowedBranches(currentUser, branches).map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.name} ({b.location})
                       </option>
@@ -694,8 +692,8 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                         <th className="p-3 w-10 text-center">#</th>
                         <th className="p-3">Product / Item Name & SKU</th>
                         <th className="p-3 w-28 text-center">Qty</th>
-                        <th className="p-3 w-36 text-right">Unit Rate (NPR)</th>
-                        <th className="p-3 w-36 text-right">Total (NPR)</th>
+                        <th className="p-3 w-36 text-right">Unit Rate</th>
+                        <th className="p-3 w-36 text-right">Total</th>
                         <th className="p-3 w-12 text-center">Action</th>
                       </tr>
                     </thead>
@@ -753,7 +751,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                                 />
                               </td>
                               <td className="p-3 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                                रु {lineTotal.toLocaleString()}
+                                {lineTotal.toLocaleString('en-IN')}
                               </td>
                               <td className="p-3 text-center">
                                 <button
@@ -793,12 +791,12 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <div className="rounded-xl bg-slate-50 dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
                     <span>Gross Subtotal:</span>
-                    <span className="font-mono font-bold">रु {grossSubtotal.toLocaleString()}</span>
+                    <span className="font-mono font-bold">{grossSubtotal.toLocaleString('en-IN')}</span>
                   </div>
 
                   {/* Bill Wise Discount Input */}
                   <div className="flex justify-between items-center text-amber-600 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/30 p-2 rounded-lg border border-amber-200/50 dark:border-amber-800/40">
-                    <span className="font-bold">Bill Wise Discount (NPR):</span>
+                    <span className="font-bold">Bill Wise Discount:</span>
                     <input
                       type="number"
                       min={0}
@@ -810,18 +808,18 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
                   <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
                     <span>Taxable Subtotal:</span>
-                    <span className="font-mono font-bold">रु {taxableAfterDiscount.toLocaleString()}</span>
+                    <span className="font-mono font-bold">{taxableAfterDiscount.toLocaleString('en-IN')}</span>
                   </div>
 
                   <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-400 font-semibold border-t border-slate-200 dark:border-slate-800 pt-2">
                     <span>13% Input VAT ({taxationType === 'TAXABLE_13' ? 'Applicable' : 'Exempt'}):</span>
-                    <span className="font-mono font-bold">रु {totalVAT.toLocaleString()}</span>
+                    <span className="font-mono font-bold">{totalVAT.toLocaleString('en-IN')}</span>
                   </div>
 
                   <div className="flex justify-between items-center text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-300 dark:border-slate-700">
                     <span>Grand Total Amount:</span>
                     <span className="font-mono text-indigo-600 dark:text-indigo-400">
-                      रु {grandTotal.toLocaleString()}
+                      {grandTotal.toLocaleString('en-IN')}
                     </span>
                   </div>
                 </div>
@@ -934,10 +932,10 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                         <td className="p-3 font-bold text-slate-800 dark:text-white">{item.productName}</td>
                         <td className="p-3 font-mono text-slate-500">{item.sku}</td>
                         <td className="p-3 text-center font-mono font-bold">{item.quantity} {item.unit || 'Pcs'}</td>
-                        <td className="p-3 text-right font-mono">रु {item.unitPrice.toLocaleString()}</td>
-                        <td className="p-3 text-right font-mono">रु {item.subtotal.toLocaleString()}</td>
-                        <td className="p-3 text-right font-mono text-indigo-600 dark:text-indigo-400">रु {item.taxAmount.toLocaleString()}</td>
-                        <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-white">रु {item.total.toLocaleString()}</td>
+                        <td className="p-3 text-right font-mono">{item.unitPrice.toLocaleString('en-IN')}</td>
+                        <td className="p-3 text-right font-mono">{item.subtotal.toLocaleString('en-IN')}</td>
+                        <td className="p-3 text-right font-mono text-indigo-600 dark:text-indigo-400">{item.taxAmount.toLocaleString('en-IN')}</td>
+                        <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-white">{item.total.toLocaleString('en-IN')}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -957,15 +955,15 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 <div className="w-64 space-y-1.5 text-xs font-mono">
                   <div className="flex justify-between text-slate-500">
                     <span>Subtotal:</span>
-                    <span>रु {(viewingPO.subtotalAmount ?? 0).toLocaleString()}</span>
+                    <span>{(viewingPO.subtotalAmount ?? 0).toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold">
                     <span>VAT 13%:</span>
-                    <span>रु {(viewingPO.taxAmount ?? 0).toLocaleString()}</span>
+                    <span>{(viewingPO.taxAmount ?? 0).toLocaleString('en-IN')}</span>
                   </div>
                   <div className="flex justify-between text-sm font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
                     <span>Grand Total:</span>
-                    <span>रु {(viewingPO.totalAmount ?? 0).toLocaleString()}</span>
+                    <span>{(viewingPO.totalAmount ?? 0).toLocaleString('en-IN')}</span>
                   </div>
                 </div>
               </div>

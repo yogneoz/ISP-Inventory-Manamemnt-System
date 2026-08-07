@@ -63,6 +63,7 @@ const users = [
     name: 'Nabin Shrestha',
     role: 'SUPER_ADMIN',
     branchId: 'WH001',
+    allowedBranchIds: ['WH001', 'CHU01', 'BR-KTM', 'BR-PKR', 'BR-BKT'],
   },
   {
     id: 'usr-2',
@@ -71,6 +72,7 @@ const users = [
     name: 'Subash Dhimal',
     role: 'INVENTORY_MANAGER',
     branchId: 'WH001',
+    allowedBranchIds: ['WH001', 'CHU01', 'BR-KTM', 'BR-PKR', 'BR-BKT'],
   },
   {
     id: 'usr-3',
@@ -79,6 +81,7 @@ const users = [
     name: 'Sandesh Rai',
     role: 'BRANCH_MANAGER',
     branchId: 'CHU01',
+    allowedBranchIds: ['CHU01', 'BR-KTM'],
   },
   {
     id: 'usr-4',
@@ -87,6 +90,7 @@ const users = [
     name: 'Bidhya Khatiwada',
     role: 'FRONT_DESK',
     branchId: 'CHU01',
+    allowedBranchIds: ['CHU01'],
   },
   {
     id: 'usr-5',
@@ -95,6 +99,7 @@ const users = [
     name: 'Sanjiwani Kumari Chaudhary',
     role: 'ACCOUNTANT',
     branchId: 'WH001',
+    allowedBranchIds: ['WH001'],
   },
 ];
 
@@ -1514,43 +1519,55 @@ app.post('/api/stock-operations', (req, res) => {
       }
     });
   } else if (req.body.productId) {
-    // Single item stock operation / damage log
+    // Single item stock operation / damage log / consumable issue
     let stk = inventoryStock.find(
       (s) => s.productId === req.body.productId && s.branchId === req.body.branchId
     );
-    if (stk) {
-      const qtyBefore = stk.quantityOnHand;
-      const qtyChanged = Number(req.body.quantityChanged) || 0;
-
-      if (opType === 'DAMAGE') {
-        // Tag local damage: convert usable stock into damaged stock
-        const damAmt = Math.abs(qtyChanged);
-        stk.quantityOnHand = Math.max(0, stk.quantityOnHand - damAmt);
-        stk.damagedQty = (stk.damagedQty || 0) + damAmt;
-      } else {
-        stk.quantityOnHand += qtyChanged;
-      }
-
-      stk.lastUpdated = new Date().toISOString();
-      const prod = products.find((p) => p.id === req.body.productId);
-
-      transactionLogs.unshift({
-        id: `txn-${Date.now()}`,
-        transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+    if (!stk) {
+      stk = {
+        id: `stk-${(req.body.branchId || 'BR-KTM').toLowerCase()}-${req.body.productId}`,
         productId: req.body.productId,
-        productSku: prod?.sku || '',
-        productName: req.body.productName || prod?.name || '',
-        branchId: req.body.branchId,
-        changeType: opType,
-        quantityBefore: qtyBefore,
-        quantityChanged: qtyChanged,
-        quantityAfter: stk.quantityOnHand,
-        unitCost: req.body.costPerUnit || prod?.costPrice || 0,
-        referenceDocId: newOp.referenceNumber,
-        timestampAD: new Date().toISOString(),
-        timestampBS: '2083-04-16 BS',
-      });
+        branchId: req.body.branchId || 'BR-KTM',
+        quantityOnHand: 0,
+        damagedQty: 0,
+        reservedQty: 0,
+        incomingQty: 0,
+        lastUpdated: new Date().toISOString(),
+      };
+      inventoryStock.push(stk);
     }
+
+    const qtyBefore = stk.quantityOnHand;
+    const qtyChanged = Number(req.body.quantityChanged) || 0;
+
+    if (opType === 'DAMAGE') {
+      // Tag local damage: convert usable stock into damaged stock
+      const damAmt = Math.abs(qtyChanged);
+      stk.quantityOnHand = Math.max(0, stk.quantityOnHand - damAmt);
+      stk.damagedQty = (stk.damagedQty || 0) + damAmt;
+    } else {
+      stk.quantityOnHand += qtyChanged;
+    }
+
+    stk.lastUpdated = new Date().toISOString();
+    const prod = products.find((p) => p.id === req.body.productId);
+
+    transactionLogs.unshift({
+      id: `txn-${Date.now()}`,
+      transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+      productId: req.body.productId,
+      productSku: prod?.sku || '',
+      productName: req.body.productName || prod?.name || '',
+      branchId: req.body.branchId,
+      changeType: opType,
+      quantityBefore: qtyBefore,
+      quantityChanged: qtyChanged,
+      quantityAfter: stk.quantityOnHand,
+      unitCost: req.body.costPerUnit || prod?.costPrice || 0,
+      referenceDocId: newOp.referenceNumber,
+      timestampAD: new Date().toISOString(),
+      timestampBS: '2083-04-16 BS',
+    });
   }
 
   stockOperations.unshift(newOp);

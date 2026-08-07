@@ -160,19 +160,19 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
         <div className="rounded-2xl bg-white p-4 border border-slate-200 shadow-xs">
           <div className="text-xs font-semibold text-slate-500">Gross Asset Cost</div>
           <div className="text-lg font-mono font-bold text-slate-900 mt-1">
-            {totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
         <div className="rounded-2xl bg-white p-4 border border-slate-200 shadow-xs">
           <div className="text-xs font-semibold text-slate-500">Accumulated Depreciation</div>
           <div className="text-lg font-mono font-bold text-rose-600 mt-1">
-            {totalAccumDep.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {totalAccumDep.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
         <div className="rounded-2xl bg-white p-4 border border-emerald-200 bg-emerald-50/30 shadow-xs">
           <div className="text-xs font-semibold text-emerald-800">Net Book Value (NBV)</div>
           <div className="text-lg font-mono font-extrabold text-emerald-700 mt-1">
-            {totalNBV.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {totalNBV.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
       </div>
@@ -236,13 +236,13 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                         {formatDualDate(asset.acquisitionDateAD, dateMode)}
                       </td>
                       <td className="p-3.5 text-right font-mono font-medium text-slate-800">
-                        {asset.acquisitionCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {asset.acquisitionCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-3.5 text-right text-slate-500 font-mono text-[11px]">
                         {asset.depreciationMethod === 'STRAIGHT_LINE' ? 'SL' : 'RB'} @ {asset.depreciationRatePercent}%
                       </td>
                       <td className="p-3.5 text-right font-mono font-bold text-emerald-700">
-                        {asset.netBookValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {asset.netBookValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
                         <select
@@ -348,15 +348,15 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
                 )}
                 <div className="flex justify-between text-slate-600">
                   <span>Gross Acquisition Cost:</span>
-                  <span className="font-mono font-bold">{selectedAssetDetail.acquisitionCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="font-mono font-bold">{selectedAssetDetail.acquisitionCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between text-rose-600">
                   <span>Accumulated Depreciation:</span>
-                  <span className="font-mono font-bold">{selectedAssetDetail.accumulatedDepreciation.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="font-mono font-bold">{selectedAssetDetail.accumulatedDepreciation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div className="flex justify-between text-emerald-700 font-bold border-t border-slate-200 pt-2">
                   <span>Current Net Book Value:</span>
-                  <span className="font-mono">{selectedAssetDetail.netBookValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <span className="font-mono">{selectedAssetDetail.netBookValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
 

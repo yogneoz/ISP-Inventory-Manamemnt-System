@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StockOperation,
   Product,
@@ -44,8 +44,9 @@ import {
   ShieldAlert,
   ArrowUpRight,
   Lock,
+  ClipboardList,
 } from 'lucide-react';
-import { isOperationAllowed } from '../utils/permissions';
+import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../utils/permissions';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
 
 interface StockOperationsProps {
@@ -96,18 +97,24 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     currentUser?.role === 'SUPER_ADMIN' || (currentUser?.role as string) === 'INVENTORY_CONTROLLER';
 
   // Map initial tab
-  const getInitialTab = (): 'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'PRODUCT_SALE' | 'LOGS' => {
+  const getInitialTab = (): 'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'LOGS' => {
+    if (initialType === 'CONSUMABLE_ISSUE') return 'CONSUMABLE_ISSUE';
     if (initialType === 'DAMAGE') return 'DAMAGE_TRACKING';
     if (initialType === 'RECEIVE_TRANSFER' || initialType === 'RECEIVE') return 'RECEIVE_TRANSFER';
     if (initialType === 'CREATE_TRANSFER' || initialType === 'TRANSFER') return 'CREATE_TRANSFER';
     if (initialType === 'ASSIGN_ASSET' || initialType === 'ASSIGN') return 'ASSIGN_ASSET';
     if (initialType === 'STOCK_OUT' || initialType === 'PRODUCT_SALE') return 'PRODUCT_SALE';
+    if (initialType === 'LOGS') return 'LOGS';
     return 'PULLOUT_BINS';
   };
 
   const [activeTab, setActiveTab] = useState<
     'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'LOGS'
   >(getInitialTab());
+
+  useEffect(() => {
+    setActiveTab(getInitialTab());
+  }, [initialType]);
 
   // Filter state
   const [branchFilter, setBranchFilter] = useState<string>(selectedBranchId);
@@ -123,10 +130,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // Selected asset for assignment modal
   const [selectedAssetForAssign, setSelectedAssetForAssign] = useState<Asset | null>(null);
 
+  // Allowed branches for current user
+  const allowedBranches = getAllowedBranches(currentUser, branches);
+  const allowedBranchIds = getAllowedBranchIds(currentUser, branches);
+  const canSeeAll = canUserSeeAllBranches(currentUser);
+
   // --- FORM STATES ---
 
   // 1. Pullout Bin Form State
-  const userBranchId = currentUser?.branchId || branches.find((b) => !b.isHeadquarters)?.id || branches[0]?.id || '';
+  const userBranchId = allowedBranches[0]?.id || branches[0]?.id || '';
   const [sourceBranchId, setSourceBranchId] = useState<string>(userBranchId);
   const [destWarehouseId, setDestWarehouseId] = useState<string>(
     branches.find((b) => b.isHeadquarters)?.id || 'BR-KTM'
@@ -137,8 +149,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [prodSearchInput, setProdSearchInput] = useState<string>('');
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
 
-  // 2. Damage Labeling Form State (RESTRICTED FOR BRANCH USERS)
-  const defaultDamageBranch = !isSuperOrInventory && currentUser?.branchId ? currentUser.branchId : (branches[0]?.id || '');
+  // 2. Damage Labeling Form State
+  const defaultDamageBranch = userBranchId;
   const [damageBranchId, setDamageBranchId] = useState<string>(defaultDamageBranch);
   const [damageProductId, setDamageProductId] = useState<string>(products[0]?.id || '');
   const [damageQty, setDamageQty] = useState<number>(1);
@@ -479,15 +491,26 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       status: 'LOGGED',
     });
 
-    alert(`Product Sale logged successfully! Total Bill Amount: रु ${totalSaleAmount.toLocaleString()}`);
+    alert(`Product Sale logged successfully! Total Bill Amount: रु ${totalSaleAmount.toLocaleString('en-IN')}`);
+  };
+
+  // Helper to check if an operation belongs to user's allowed branches
+  const isOpInAllowedBranch = (op: StockOperation) => {
+    if (canSeeAll) return true;
+    return (
+      (op.branchId && allowedBranchIds.includes(op.branchId)) ||
+      (op.destinationWarehouseId && allowedBranchIds.includes(op.destinationWarehouseId))
+    );
   };
 
   // Filters for Stock Operations Logs
   const filteredOperations = operations.filter((op) => {
+    if (!isOpInAllowedBranch(op)) return false;
+
     const matchesBranch =
-      branchFilter === 'ALL' ||
-      op.branchId === branchFilter ||
-      op.destinationWarehouseId === branchFilter;
+      branchFilter === 'ALL'
+        ? true
+        : op.branchId === branchFilter || op.destinationWarehouseId === branchFilter;
 
     if (!matchesBranch) return false;
 
@@ -498,10 +521,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     return true;
   });
 
-  const pulloutOperations = operations.filter((op) => op.type === 'PULLOUT');
-  const damageOperations = operations.filter((op) => op.type === 'DAMAGE');
-  const consumableOperations = operations.filter((op) => op.type === 'CONSUMABLE_ISSUE');
-  const saleOperations = operations.filter((op) => op.type === 'STOCK_OUT');
+  const pulloutOperations = operations.filter((op) => op.type === 'PULLOUT' && isOpInAllowedBranch(op));
+  const damageOperations = operations.filter((op) => op.type === 'DAMAGE' && isOpInAllowedBranch(op));
+  const consumableOperations = operations.filter((op) => op.type === 'CONSUMABLE_ISSUE' && isOpInAllowedBranch(op));
+  const saleOperations = operations.filter((op) => op.type === 'STOCK_OUT' && isOpInAllowedBranch(op));
 
   // Available vs Assigned Fixed Assets
   const availableStockAssets = assets.filter(
@@ -816,7 +839,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200 dark:border-slate-800">
                     <span className="text-slate-400 font-mono text-[11px]">{op.dateAD}</span>
                     <span className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
-                      रु {op.totalValue.toLocaleString()}
+                      रु {op.totalValue.toLocaleString('en-IN')}
                     </span>
                   </div>
                 </div>
@@ -879,7 +902,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200">{op.branchId}</td>
                       <td className="p-2.5 font-medium text-slate-900 dark:text-white">{op.productName}</td>
                       <td className="p-2.5 font-mono font-bold text-rose-600">{Math.abs(op.quantityChanged || 1)} Pcs</td>
-                      <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">रु {op.totalValue.toLocaleString()}</td>
+                      <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">रु {op.totalValue.toLocaleString('en-IN')}</td>
                       <td className="p-2.5 text-slate-500">{op.reason}</td>
                       <td className="p-2.5 font-medium text-slate-600 dark:text-slate-400">{op.inspectorName}</td>
                     </tr>
@@ -914,8 +937,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                   }`}
                 >
-                  <option value="ALL">All Branches</option>
-                  {branches.map((b) => (
+                  {canSeeAll ? (
+                    <option value="ALL">All Branches</option>
+                  ) : allowedBranches.length > 1 ? (
+                    <option value="ALL">All Assigned Branches ({allowedBranches.length})</option>
+                  ) : null}
+                  {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                   ))}
                 </select>
@@ -1008,7 +1035,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                   }`}
                 >
-                  {branches.map((b) => (
+                  {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                   ))}
                 </select>
@@ -1137,7 +1164,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         </span>
                         <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">{asset.name}</h4>
                         <p className="text-[10px] text-slate-400 mt-0.5">
-                          Cost: रु {asset.acquisitionCost.toLocaleString()} | Category: {asset.category}
+                          Cost: रु {asset.acquisitionCost.toLocaleString('en-IN')} | Category: {asset.category}
                         </p>
                       </div>
 
@@ -1245,6 +1272,39 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <strong>Consumables Operational Rule:</strong> Field materials (Splitters, Protection Sleeves, Couplers, Fast Connectors, Patch Cords, Drop Clamps) do NOT carry individual serial numbers or depreciation schedules. Issuing deducts store stock directly and logs the assigned field technician and work order ticket.
             </div>
 
+            {/* Current Available Stock Banner */}
+            {(() => {
+              const currentStockItem = stock.find(
+                (s) => s.productId === consumableProductId && s.branchId === consumableBranchId
+              );
+              const availQty = currentStockItem?.quantityOnHand || 0;
+              const selProd = products.find((p) => p.id === consumableProductId);
+
+              return (
+                <div
+                  className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
+                    availQty > 0
+                      ? isDarkMode
+                        ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
+                        : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : isDarkMode
+                      ? 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                      : 'bg-rose-50 border-rose-200 text-rose-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Package className="h-4 w-4" />
+                    <span>
+                      Current Store Stock ({branches.find((b) => b.id === consumableBranchId)?.name}):
+                    </span>
+                  </div>
+                  <div className="font-mono font-bold text-sm">
+                    {availQty} {selProd?.unit || 'Pcs'} Available
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block font-bold mb-1">Source Store Branch *</label>
@@ -1255,7 +1315,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                   }`}
                 >
-                  {branches.map((b) => (
+                  {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                   ))}
                 </select>
@@ -1347,6 +1407,53 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <span>Record Consumable Issue & Deduct Stock</span>
             </button>
           </form>
+
+          {/* Table of Issued Consumables */}
+          <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-800">
+            <h4 className="text-sm font-bold flex items-center gap-2 mb-3">
+              <ClipboardList className="h-4 w-4 text-amber-500" />
+              <span>Logged Consumable Field Issues ({consumableOperations.length})</span>
+            </h4>
+
+            {consumableOperations.length === 0 ? (
+              <p className="text-xs text-slate-400 italic py-3">No consumable field issues recorded yet.</p>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                <table className="w-full text-left text-xs">
+                  <thead className={`font-bold uppercase text-[10px] tracking-wider border-b ${
+                    isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+                  }`}>
+                    <tr>
+                      <th className="p-2.5">Date</th>
+                      <th className="p-2.5">Ref / WO</th>
+                      <th className="p-2.5">Branch</th>
+                      <th className="p-2.5">Consumable Material</th>
+                      <th className="p-2.5 text-center">Qty Issued</th>
+                      <th className="p-2.5">Technician</th>
+                      <th className="p-2.5 text-right">Value (NPR)</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                    {consumableOperations.map((op) => (
+                      <tr key={op.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                        <td className="p-2.5 font-mono text-slate-400 text-[11px]">{op.dateAD}</td>
+                        <td className="p-2.5 font-mono font-bold text-amber-600 dark:text-amber-400">{op.workOrderRef || op.referenceNumber}</td>
+                        <td className="p-2.5 font-medium">{op.branchName || op.branchId}</td>
+                        <td className="p-2.5 font-bold text-slate-900 dark:text-white">{op.productName}</td>
+                        <td className="p-2.5 text-center font-mono font-bold text-rose-600">
+                          {Math.abs(op.quantityChanged || 0)} Pcs
+                        </td>
+                        <td className="p-2.5 font-medium text-slate-700 dark:text-slate-300">{op.technicianName || 'N/A'}</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
+                          रु {op.totalValue?.toLocaleString('en-IN') || 0}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1390,7 +1497,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                   }`}
                 >
-                  {branches.map((b) => (
+                  {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                   ))}
                 </select>
@@ -1484,7 +1591,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <div>
                 <label className="block font-bold mb-1">Total Net Billing Amount</label>
                 <div className="p-2.5 rounded-xl border bg-indigo-50 dark:bg-indigo-950/60 border-indigo-200 dark:border-indigo-800 font-mono font-bold text-indigo-700 dark:text-indigo-300 text-sm">
-                  रु {((saleQty * salePrice) - saleDiscount).toLocaleString()}
+                  रु {((saleQty * salePrice) - saleDiscount).toLocaleString('en-IN')}
                 </div>
               </div>
             </div>
@@ -1546,7 +1653,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     <td className="p-2.5 font-bold">{op.type}</td>
                     <td className="p-2.5">{op.branchId}</td>
                     <td className="p-2.5">{op.productName || op.reason}</td>
-                    <td className="p-2.5 font-mono font-bold">रु {op.totalValue.toLocaleString()}</td>
+                    <td className="p-2.5 font-mono font-bold">रु {op.totalValue.toLocaleString('en-IN')}</td>
                     <td className="p-2.5">{op.inspectorName}</td>
                     <td className="p-2.5 font-mono text-slate-400">{op.dateAD}</td>
                   </tr>
@@ -1586,7 +1693,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                     }`}
                   >
-                    {branches.map((b) => (
+                    {allowedBranches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                     ))}
                   </select>
@@ -1746,14 +1853,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <div>
                 <label className="block font-bold mb-1">Target Branch *</label>
                 <select
-                  disabled={!isSuperOrInventory}
                   value={damageBranchId}
                   onChange={(e) => setDamageBranchId(e.target.value)}
                   className={`w-full rounded-xl border p-2.5 ${
                     isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  } ${!isSuperOrInventory ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  }`}
                 >
-                  {branches.map((b) => (
+                  {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                   ))}
                 </select>

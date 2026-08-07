@@ -11,6 +11,7 @@ export interface User {
   name: string;
   role: UserRole;
   branchId?: string;
+  allowedBranchIds?: string[];
   avatarUrl?: string;
 }
 
@@ -316,7 +317,7 @@ export interface TransactionLog {
   productSku: string;
   productName: string;
   branchId: string;
-  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'PULLOUT' | 'DAMAGE' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE';
+  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'PULLOUT' | 'DAMAGE' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'CONSUMABLE_ISSUE';
   quantityBefore: number;
   quantityChanged: number;
   quantityAfter: number;

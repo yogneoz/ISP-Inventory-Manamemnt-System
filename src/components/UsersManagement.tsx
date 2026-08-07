@@ -29,6 +29,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<User['role']>('FRONT_DESK');
   const [branchId, setBranchId] = useState(branches[0]?.id || 'br-hq');
+  const [allowedBranchIds, setAllowedBranchIds] = useState<string[]>([branches[0]?.id || 'br-hq']);
 
   const filtered = users.filter(
     (u) =>
@@ -43,7 +44,9 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     setEmail('');
     setPassword('');
     setRole('FRONT_DESK');
-    setBranchId(branches[0]?.id || 'br-hq');
+    const defaultB = branches[0]?.id || 'br-hq';
+    setBranchId(defaultB);
+    setAllowedBranchIds([defaultB]);
     setIsModalOpen(true);
   };
 
@@ -53,8 +56,23 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
     setEmail(u.email);
     setPassword('');
     setRole(u.role);
-    setBranchId(u.branchId || branches[0]?.id || 'br-hq');
+    const primaryB = u.branchId || branches[0]?.id || 'br-hq';
+    setBranchId(primaryB);
+    setAllowedBranchIds(
+      u.allowedBranchIds && u.allowedBranchIds.length > 0
+        ? u.allowedBranchIds
+        : [primaryB]
+    );
     setIsModalOpen(true);
+  };
+
+  const toggleBranchPermission = (bId: string) => {
+    if (allowedBranchIds.includes(bId)) {
+      if (allowedBranchIds.length === 1) return; // keep at least 1
+      setAllowedBranchIds(allowedBranchIds.filter((id) => id !== bId));
+    } else {
+      setAllowedBranchIds([...allowedBranchIds, bId]);
+    }
   };
 
   const handleDelete = async (u: User) => {
@@ -76,6 +94,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
           email,
           role,
           branchId,
+          allowedBranchIds,
           ...(password ? { password } : {}),
         });
       }
@@ -86,6 +105,7 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
           email,
           role,
           branchId,
+          allowedBranchIds,
           password: password || 'password@123',
         });
       }
@@ -205,12 +225,20 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500 flex items-center gap-1">
-                    <Building2 className="h-3.5 w-3.5" /> Branch:
+                <div className="flex items-start justify-between">
+                  <span className="text-slate-500 flex items-center gap-1 mt-0.5">
+                    <Building2 className="h-3.5 w-3.5" /> Branch Access:
                   </span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    {u.role === 'SUPER_ADMIN' ? 'All Branches (Global)' : userBranch?.name || 'Headquarters'}
+                  <span className="font-semibold text-slate-800 dark:text-slate-200 text-right">
+                    {u.role === 'SUPER_ADMIN' || u.role === 'INVENTORY_MANAGER' ? (
+                      <span className="text-purple-600 dark:text-purple-400 font-bold">All Branches (Global Access)</span>
+                    ) : u.allowedBranchIds && u.allowedBranchIds.length > 1 ? (
+                      <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+                        {u.allowedBranchIds.length} Branches Assigned ({u.allowedBranchIds.map((id) => branches.find((b) => b.id === id)?.name || id).join(', ')})
+                      </span>
+                    ) : (
+                      userBranch?.name || 'Headquarters'
+                    )}
                   </span>
                 </div>
               </div>
@@ -284,8 +312,8 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     onChange={(e) => setRole(e.target.value as any)}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2"
                   >
-                    <option value="SUPER_ADMIN">Super Admin</option>
-                    <option value="INVENTORY_MANAGER">Inventory Manager</option>
+                    <option value="SUPER_ADMIN">Super Admin (All Branches)</option>
+                    <option value="INVENTORY_MANAGER">Inventory Manager (All Branches)</option>
                     <option value="BRANCH_MANAGER">Branch Manager</option>
                     <option value="FRONT_DESK">Front Desk</option>
                     <option value="ACCOUNTANT">Accountant</option>
@@ -293,10 +321,16 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-semibold mb-1">Assigned Branch</label>
+                  <label className="block font-semibold mb-1">Primary Home Branch *</label>
                   <select
                     value={branchId}
-                    onChange={(e) => setBranchId(e.target.value)}
+                    onChange={(e) => {
+                      const newPrimary = e.target.value;
+                      setBranchId(newPrimary);
+                      if (!allowedBranchIds.includes(newPrimary)) {
+                        setAllowedBranchIds([...allowedBranchIds, newPrimary]);
+                      }
+                    }}
                     className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3 py-2"
                   >
                     {branches.map((b) => (
@@ -306,6 +340,57 @@ export const UsersManagement: React.FC<UsersManagementProps> = ({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Branch Access Permissions (Multi-Branch Selection) */}
+              <div className="pt-2">
+                <label className="block font-semibold mb-1.5 flex items-center justify-between">
+                  <span>Branch Data & Store Access Permissions</span>
+                  {role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' ? (
+                    <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-950 px-2 py-0.5 rounded">
+                      Unrestricted Global Access
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-slate-500 font-normal">
+                      Select 1 or more branches allowed for this user
+                    </span>
+                  )}
+                </label>
+
+                {role === 'SUPER_ADMIN' || role === 'INVENTORY_MANAGER' ? (
+                  <div className="p-3 rounded-lg border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/30 text-purple-900 dark:text-purple-300 text-[11px]">
+                    🔒 <strong>Super Admin & Stock Managers</strong> automatically have full operational and data visibility access across ALL branches in the company.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 max-h-36 overflow-y-auto">
+                    {branches.map((b) => {
+                      const isChecked = allowedBranchIds.includes(b.id);
+                      return (
+                        <label
+                          key={b.id}
+                          className="flex items-center justify-between p-1.5 rounded-lg hover:bg-slate-200/50 dark:hover:bg-slate-800 cursor-pointer select-none"
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleBranchPermission(b.id)}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                            />
+                            <span className="font-medium text-slate-800 dark:text-slate-200">
+                              {b.name} ({b.code})
+                            </span>
+                          </div>
+                          {b.id === branchId && (
+                            <span className="text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 px-1.5 py-0.5 rounded font-bold">
+                              Primary
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t border-slate-200 dark:border-slate-800">

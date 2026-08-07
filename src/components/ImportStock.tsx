@@ -389,8 +389,8 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
                         <div className="text-[10px] text-slate-500">{row.productGroup}</div>
                       </td>
                       <td className="p-2.5 text-right font-mono text-[11px]">
-                        <div>रु {row.costPrice.toLocaleString()}</div>
-                        <div className="text-slate-400 text-[10px]">रु {row.sellingPrice.toLocaleString()}</div>
+                        <div>रु {row.costPrice.toLocaleString('en-IN')}</div>
+                        <div className="text-slate-400 text-[10px]">रु {row.sellingPrice.toLocaleString('en-IN')}</div>
                       </td>
                       <td className="p-2.5 text-center font-mono font-bold text-emerald-600 dark:text-emerald-400">
                         {row.initialQty} {row.unit}

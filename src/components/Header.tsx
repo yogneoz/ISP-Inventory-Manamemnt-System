@@ -1,6 +1,7 @@
 import React from 'react';
 import { Branch, User } from '../types';
 import { convertADToBS } from '../utils/nepaliCalendar';
+import { canUserSeeAllBranches, getAllowedBranches } from '../utils/permissions';
 import {
   Building2,
   Calendar,
@@ -89,33 +90,50 @@ export const Header: React.FC<HeaderProps> = ({
           <label htmlFor="branch-select" className="sr-only">
             Select Branch
           </label>
-          {currentUser?.branchId && currentUser.branchId !== 'ALL' && currentUser.role !== 'SUPER_ADMIN' ? (
-            <div className="flex items-center gap-1 rounded-md border border-amber-300/40 bg-amber-950/60 px-2 py-1 font-bold text-[11px] text-amber-200">
-              <span>📍 {branches.find((b) => b.id === currentUser.branchId)?.name || 'Chulachuli Branch'}</span>
-              <span className="text-[9px] bg-amber-800/80 text-amber-100 px-1 py-0.2 rounded font-normal uppercase">Locked</span>
-            </div>
-          ) : (
-            <select
-              id="branch-select"
-              value={selectedBranchId}
-              onChange={(e) => onSelectBranch(e.target.value)}
-              className={`rounded-md px-2.5 py-1 font-medium text-[11px] focus:outline-none transition-all cursor-pointer ${
-                isDarkMode
-                  ? 'border border-slate-800 bg-[#0f1218] text-slate-300 focus:border-indigo-500'
-                  : 'border border-white/30 bg-white/10 text-white focus:bg-white/20 backdrop-blur-xs'
-              }`}
-            >
-              <option value="ALL" className="bg-slate-900 text-white">
-                🏢 All Branches (Consolidated)
-              </option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id} className="bg-slate-900 text-white">
-                  {b.isHeadquarters ? '⭐ ' : '📍 '}
-                  {b.name} ({b.code})
-                </option>
-              ))}
-            </select>
-          )}
+          {(() => {
+            const canSeeAll = canUserSeeAllBranches(currentUser);
+            const allowed = getAllowedBranches(currentUser, branches);
+
+            if (!canSeeAll && allowed.length === 1) {
+              return (
+                <div className="flex items-center gap-1 rounded-md border border-amber-300/40 bg-amber-950/60 px-2 py-1 font-bold text-[11px] text-amber-200">
+                  <span>📍 {allowed[0]?.name || 'Assigned Branch'}</span>
+                  <span className="text-[9px] bg-amber-800/80 text-amber-100 px-1 py-0.2 rounded font-normal uppercase">
+                    Assigned
+                  </span>
+                </div>
+              );
+            }
+
+            return (
+              <select
+                id="branch-select"
+                value={selectedBranchId}
+                onChange={(e) => onSelectBranch(e.target.value)}
+                className={`rounded-md px-2.5 py-1 font-medium text-[11px] focus:outline-none transition-all cursor-pointer ${
+                  isDarkMode
+                    ? 'border border-slate-800 bg-[#0f1218] text-slate-300 focus:border-indigo-500'
+                    : 'border border-white/30 bg-white/10 text-white focus:bg-white/20 backdrop-blur-xs'
+                }`}
+              >
+                {canSeeAll ? (
+                  <option value="ALL" className="bg-slate-900 text-white">
+                    🏢 All Branches (Consolidated)
+                  </option>
+                ) : (
+                  <option value="ALL" className="bg-slate-900 text-white">
+                    🏢 My Assigned Branches ({allowed.length})
+                  </option>
+                )}
+                {allowed.map((b) => (
+                  <option key={b.id} value={b.id} className="bg-slate-900 text-white">
+                    {b.isHeadquarters ? '⭐ ' : '📍 '}
+                    {b.name} ({b.code})
+                  </option>
+                ))}
+              </select>
+            );
+          })()}
         </div>
       </div>
 

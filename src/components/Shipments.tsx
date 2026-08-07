@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shipment, ShipmentItem, Product, Branch, InventoryStock, User } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
+import { getAllowedBranches } from '../utils/permissions';
 import { ProductSearchBar } from './ProductSearchBar';
 import {
   Truck,
@@ -440,7 +441,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                     onChange={(e) => setSourceBranchId(e.target.value)}
                     className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-900 dark:text-slate-100"
                   >
-                    {branches.map((b) => (
+                    {getAllowedBranches(currentUser, branches).map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.name}
                       </option>

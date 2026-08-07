@@ -132,9 +132,9 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         { key: 'PurchaseLotsCount', label: 'Purchase Lots' },
         { key: 'Method', label: 'Depreciation Method' },
         { key: 'RatePercent', label: 'Annual Rate' },
-        { key: 'GrossAcquisitionCost', label: 'Gross Cost (NPR)' },
-        { key: 'AccumulatedDepreciation', label: 'Accumulated Depreciation (NPR)' },
-        { key: 'NetBookValue', label: 'Net Book Value (NPR)' },
+        { key: 'GrossAcquisitionCost', label: 'Gross Cost' },
+        { key: 'AccumulatedDepreciation', label: 'Accumulated Depreciation' },
+        { key: 'NetBookValue', label: 'Net Book Value' },
       ]);
     } else {
       const data = sortedDatewiseAssets.map((a) => {
@@ -164,11 +164,11 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
         { key: 'TagNumber', label: 'Tag Number' },
         { key: 'AssetTitle', label: 'Asset Title' },
         { key: 'Category', label: 'Category' },
-        { key: 'AcquisitionCost', label: 'Purchase Cost (NPR)' },
+        { key: 'AcquisitionCost', label: 'Purchase Cost' },
         { key: 'Method', label: 'Method' },
         { key: 'RatePercent', label: 'Annual Rate' },
-        { key: 'AccumulatedDepreciation', label: 'Accumulated Depreciation (NPR)' },
-        { key: 'NetBookValue', label: 'Net Book Value (NPR)' },
+        { key: 'AccumulatedDepreciation', label: 'Accumulated Depreciation' },
+        { key: 'NetBookValue', label: 'Net Book Value' },
       ]);
     }
   };
@@ -275,7 +275,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
             <Landmark className="h-4 w-4 text-emerald-500" />
           </div>
           <p className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
-            NPR {totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
             Total capital expenditure across {filteredAssets.length} purchase lots
@@ -292,7 +292,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
             <TrendingDown className="h-4 w-4 text-rose-500" />
           </div>
           <p className="text-2xl font-bold font-mono text-rose-500">
-            NPR {totalAccumDep.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {totalAccumDep.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
             Cumulative depreciation write-offs to date
@@ -309,7 +309,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
             <Calculator className="h-4 w-4 text-indigo-500" />
           </div>
           <p className="text-2xl font-bold font-mono text-indigo-500">
-            NPR {totalNBV.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {totalNBV.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
             Carrying value on corporate balance sheet
@@ -438,13 +438,13 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 dark:text-white">
-                            NPR {grp.totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {grp.totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-rose-500 font-bold">
-                            NPR {grp.totalAccumDep.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {grp.totalAccumDep.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                            NPR {grp.totalNBV.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {grp.totalNBV.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
 
@@ -464,7 +464,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                                       <th className="px-3 py-2">Party Invoice Ref #</th>
                                       <th className="px-3 py-2">Supplier / Vendor</th>
                                       <th className="px-3 py-2">Tag Number</th>
-                                      <th className="px-3 py-2 text-right">Lot Cost (NPR)</th>
+                                      <th className="px-3 py-2 text-right">Lot Cost</th>
                                       <th className="px-3 py-2 text-right">Accum. Depreciation</th>
                                       <th className="px-3 py-2 text-right">Net Book Value</th>
                                     </tr>
@@ -485,13 +485,13 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                                           {lot.tagNumber}
                                         </td>
                                         <td className="px-3 py-2 text-right font-bold text-slate-900 dark:text-white">
-                                          NPR {(lot.acquisitionCost ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          {(lot.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
                                         <td className="px-3 py-2 text-right text-rose-500 font-semibold">
-                                          NPR {(lot.accumulatedDepreciation ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          {(lot.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
                                         <td className="px-3 py-2 text-right text-emerald-600 dark:text-emerald-400 font-extrabold">
-                                          NPR {(lot.netBookValue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                          {(lot.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </td>
                                       </tr>
                                     ))}
@@ -516,13 +516,13 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                     Total Fixed Asset Summary Schedule:
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-slate-900 dark:text-white">
-                    NPR {totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-rose-500">
-                    NPR {totalAccumDep.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totalAccumDep.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-indigo-600 dark:text-indigo-400">
-                    NPR {totalNBV.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totalNBV.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>
               </tfoot>
@@ -591,7 +591,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                       </td>
                       <td className="px-4 py-3 text-slate-500">{asset.category}</td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 dark:text-white">
-                        NPR {(asset.acquisitionCost ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {(asset.acquisitionCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
@@ -599,10 +599,10 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-rose-500 font-semibold">
-                        NPR {(asset.accumulatedDepreciation ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {(asset.accumulatedDepreciation ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-3 text-right font-mono font-extrabold text-emerald-600 dark:text-emerald-400">
-                        NPR {(asset.netBookValue ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {(asset.netBookValue ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
                   ))
@@ -618,14 +618,14 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                     Total Datewise Purchase Lots Schedule:
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-slate-900 dark:text-white">
-                    NPR {totalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td></td>
                   <td className="px-4 py-3 text-right font-mono text-rose-500">
-                    NPR {totalAccumDep.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totalAccumDep.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-indigo-600 dark:text-indigo-400">
-                    NPR {totalNBV.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totalNBV.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>
               </tfoot>
