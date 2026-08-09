@@ -267,6 +267,12 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
     description: 'User management, branch permissions control, system audit logs, and fiscal year settings',
     operations: [
       {
+        id: 'auth-switch-user',
+        operationName: 'Switch User Login / Session Profile',
+        description: 'Allow switching active user profile and operational identity without full re-authentication',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['auth-switch-user'],
+      },
+      {
         id: 'admin-users',
         operationName: 'User Management & Role Assignment',
         description: 'Create user accounts, set role permissions, and assign branch affiliations',

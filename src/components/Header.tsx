@@ -48,6 +48,7 @@ interface HeaderProps {
   shipments?: Shipment[];
   onSelectTab?: (tab: string) => void;
   onOpenNotification?: () => void;
+  onOpenProfileModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -79,6 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
   shipments = [],
   onSelectTab = (_tab: string) => {},
   onOpenNotification = () => {},
+  onOpenProfileModal = () => {},
 }) => {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
@@ -334,12 +336,35 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
+        {/* Profile Chip & Switcher Trigger */}
+        {currentUser && (
+          <button
+            onClick={onOpenProfileModal}
+            title="View Profile & Switch User Account"
+            className={`flex items-center gap-2 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer border ml-1 ${
+              isDarkMode
+                ? 'bg-slate-800/90 text-white border-slate-700 hover:bg-slate-700 hover:border-slate-600'
+                : 'bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-xs'
+            }`}
+          >
+            <div className="h-6 w-6 rounded-lg bg-indigo-500/90 flex items-center justify-center font-extrabold text-[10px] text-white shadow-xs border border-white/20 flex-shrink-0">
+              {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+            </div>
+            <div className="hidden lg:flex flex-col text-left">
+              <span className="text-[11px] font-bold leading-tight truncate max-w-[110px]">{currentUser.name}</span>
+              <span className="text-[9px] text-indigo-200/90 font-normal leading-none uppercase tracking-wider">
+                {currentUser.role.replace('_', ' ')}
+              </span>
+            </div>
+          </button>
+        )}
+
         {/* Logout */}
         {currentUser ? (
           <button
             onClick={onLogout}
             title="Logout"
-            className="p-1.5 text-white/80 hover:text-rose-300 hover:bg-rose-500/20 rounded-lg transition-colors cursor-pointer ml-1"
+            className="p-1.5 text-white/80 hover:text-rose-300 hover:bg-rose-500/20 rounded-lg transition-colors cursor-pointer ml-0.5"
           >
             <LogOut className="h-4 w-4" />
           </button>

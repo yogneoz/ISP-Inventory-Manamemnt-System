@@ -102,7 +102,6 @@ interface SidebarProps {
   pendingApprovalCount?: number;
   isDarkMode?: boolean;
   onCloseMobile?: () => void;
-  onSwitchUser?: (email: string, pass: string) => void;
 }
 
 interface NavChildDef {
@@ -133,7 +132,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   pendingApprovalCount,
   isDarkMode = false,
   onCloseMobile,
-  onSwitchUser,
 }) => {
   const isSuperAdmin = currentUser?.role === 'SUPER_ADMIN';
   const isFrontDesk = currentUser?.role === 'FRONT_DESK';
@@ -595,63 +593,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
           </div>
 
-          {/* Bottom User Login Info & Switcher Box */}
+          {/* Bottom Inventory Name & System Version */}
           <div
-            className={`p-2 m-2 rounded-xl border flex flex-col gap-1.5 ${
-              isDarkMode ? 'bg-slate-900/80 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+            className={`p-3 m-2 rounded-2xl border flex items-center gap-2.5 ${
+              isDarkMode
+                ? 'bg-slate-900/90 border-slate-800/80 text-slate-300'
+                : 'bg-slate-50 border-slate-200/80 text-slate-700'
             }`}
           >
-            {/* User Switcher with explicit Label */}
-            {onSwitchUser && (
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                  Switch User Login
-                </label>
-                <select
-                  title="Switch User Login"
-                  value={currentUser?.email || ''}
-                  onChange={(e) => {
-                    const passMap: Record<string, string> = {
-                      'superadmin@izone.net.np': 'superadmin@123',
-                      'subash.dhimal@izone.net.np': 'subash@123',
-                      'sandesh.rai@izone.net.np': 'Sandesh@123',
-                      'bidhya.khatiwad@izone.net.np': 'Bidhya@123',
-                      'sanjiwani.chaudhary@izone.net.np': 'Sanjiwani@123',
-                    };
-                    const selectedEmail = e.target.value;
-                    onSwitchUser(selectedEmail, passMap[selectedEmail] || 'superadmin@123');
-                  }}
-                  className={`w-full text-[11px] font-semibold rounded-lg px-2 py-1 border transition-colors cursor-pointer focus:outline-none ${
-                    isDarkMode
-                      ? 'bg-slate-950 border-slate-700 text-indigo-300 hover:bg-slate-900'
-                      : 'bg-white border-slate-300 text-slate-800 hover:bg-slate-100'
-                  }`}
-                >
-                  <option value="superadmin@izone.net.np">👤 Nabin S. (Super Admin)</option>
-                  <option value="subash.dhimal@izone.net.np">👤 Subash D. (Stock Controller)</option>
-                  <option value="sandesh.rai@izone.net.np">👤 Sandesh R. (Branch Mgr - Chulachuli)</option>
-                  <option value="bidhya.khatiwad@izone.net.np">👤 Bidhya K. (Front Desk)</option>
-                  <option value="sanjiwani.chaudhary@izone.net.np">👤 Sanjiwani C. (Accountant)</option>
-                </select>
+            <div className="flex-shrink-0 w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 via-indigo-700 to-blue-700 text-white font-serif font-black flex items-center justify-center text-xs shadow-xs border border-white/20">
+              iZ
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-1">
+                <p className="text-[11px] font-extrabold truncate text-slate-900 dark:text-slate-100 font-serif leading-tight">
+                  IZone Inventory
+                </p>
+                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  v2.5.0
+                </span>
               </div>
-            )}
-
-            {/* Current Active User Profile details */}
-            {currentUser && (
-              <div className="flex items-center gap-2 pt-1 border-t border-slate-200 dark:border-slate-800">
-                <div className="flex-shrink-0 w-7 h-7 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-[11px] shadow-xs">
-                  {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'U'}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-bold truncate text-slate-800 dark:text-slate-100 leading-tight">
-                    {currentUser.name}
-                  </p>
-                  <p className="text-[9px] font-medium text-indigo-600 dark:text-indigo-400 truncate leading-tight">
-                    {currentUser.role ? currentUser.role.replace(/_/g, ' ') : ''}
-                  </p>
-                </div>
-              </div>
-            )}
+              <p className="text-[9px] font-medium text-slate-500 dark:text-slate-400 truncate leading-tight mt-0.5">
+                Enterprise Multi-Branch Ed.
+              </p>
+            </div>
           </div>
         </div>
       )}

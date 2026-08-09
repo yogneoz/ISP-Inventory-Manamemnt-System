@@ -21,6 +21,7 @@ import { api } from './services/api';
 import { Header } from './components/Header';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { LoginModal } from './components/LoginModal';
+import { ProfileSwitchModal } from './components/ProfileSwitchModal';
 import { Dashboard } from './components/Dashboard';
 import { ProductManagement } from './components/ProductManagement';
 import { BranchStockTracking } from './components/BranchStockTracking';
@@ -74,6 +75,7 @@ export default function App() {
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState<boolean>(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState<boolean>(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
@@ -258,6 +260,18 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+  };
+
+  const handleSwitchProfile = async (targetUserId: string) => {
+    const res = await api.switchProfile(targetUserId);
+    setCurrentUser(res.user);
+    await refreshAllData();
+  };
+
+  const handleUpdateProfile = async (data: Partial<User> & { newPassword?: string }) => {
+    const updatedUser = await api.updateProfile(data);
+    setCurrentUser(updatedUser);
+    await refreshAllData();
   };
 
   // Product Actions
@@ -553,6 +567,7 @@ export default function App() {
         shipments={shipments}
         onSelectTab={setActiveTab}
         onOpenNotification={() => setIsNotificationOpen((prev) => !prev)}
+        onOpenProfileModal={() => setIsProfileModalOpen(true)}
       />
 
       {/* Main Workspace Layout */}
@@ -1302,6 +1317,19 @@ export default function App() {
           setActiveTab(tab);
           setIsNotificationOpen(false);
         }}
+      />
+
+      {/* User Profile Info & Profile Switching Modal */}
+      <ProfileSwitchModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentUser={currentUser}
+        users={users}
+        branches={branches}
+        onSwitchProfile={handleSwitchProfile}
+        onUpdateProfile={handleUpdateProfile}
+        onLogout={handleLogout}
+        isDarkMode={isDarkMode}
       />
     </div>
   );

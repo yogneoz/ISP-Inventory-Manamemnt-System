@@ -17,7 +17,10 @@ import {
   ApprovalRequest,
 } from '../types';
 
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/$/, '');
+
+async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
   const res = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
@@ -44,6 +47,20 @@ export const api = {
 
   async getCurrentUser(): Promise<User> {
     return fetchJson('/api/auth/me');
+  },
+
+  async switchProfile(targetUserId: string): Promise<{ user: User; token: string }> {
+    return fetchJson('/api/auth/switch-profile', {
+      method: 'POST',
+      body: JSON.stringify({ targetUserId }),
+    });
+  },
+
+  async updateProfile(data: Partial<User> & { newPassword?: string }): Promise<User> {
+    return fetchJson('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
   },
 
   // Branches

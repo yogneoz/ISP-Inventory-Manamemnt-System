@@ -442,6 +442,53 @@ let assetRegister: Asset[] = EXCEL_ITEMS
     };
   });
 
+// Standard Transaction ID Generator
+// Pattern: {BRANCH_CODE}-{OP_TYPE}-{YYYYMMDD}-{0001}
+// Daily counter resets automatically at 12:00 AM (midnight) per branch & operation type
+const transactionSequenceMap: Record<string, { lastDateStr: string; count: number }> = {};
+
+function generateStandardTransactionId(branchIdOrCode: string, opType: string, customDate?: Date): string {
+  const br = branches.find((b) => b.id === branchIdOrCode || b.code === branchIdOrCode);
+  const branchCode = br?.code || branchIdOrCode || 'WH001';
+
+  const opPrefixMap: Record<string, string> = {
+    'PO': 'PO',
+    'PURCHASE_ORDER': 'PO',
+    'PURCHASE_INVOICE': 'PI',
+    'INV': 'PI',
+    'PI': 'PI',
+    'TRF': 'TRF',
+    'TRANSFER': 'TRF',
+    'SHIPMENT': 'TRF',
+    'SALE': 'SALE',
+    'STOCK_OUT': 'SALE',
+    'CON': 'CON',
+    'CONSUMABLE_ISSUE': 'CON',
+    'DMG': 'DMG',
+    'DAMAGE': 'DMG',
+    'PLT': 'PLT',
+    'PULLOUT': 'PLT',
+  };
+  const opCode = opPrefixMap[opType.toUpperCase()] || opType.toUpperCase().slice(0, 4);
+
+  const d = customDate || new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const dateStr = `${year}${month}${day}`;
+
+  const seqKey = `${branchCode}:${opCode}:${dateStr}`;
+
+  if (!transactionSequenceMap[seqKey] || transactionSequenceMap[seqKey].lastDateStr !== dateStr) {
+    transactionSequenceMap[seqKey] = { lastDateStr: dateStr, count: 1 };
+  } else {
+    transactionSequenceMap[seqKey].count += 1;
+  }
+
+  const counterStr = String(transactionSequenceMap[seqKey].count).padStart(4, '0');
+  return `${branchCode}-${opCode}-${dateStr}-${counterStr}`;
+}
+
 // Pre-seeded Purchase Orders referencing actual products
 let purchaseOrders: PurchaseOrder[] = [
   {
@@ -791,6 +838,58 @@ app.get('/api/auth/me', (req, res) => {
   res.json(userWithoutPass);
 });
 
+// Profile Switching Endpoint
+app.post('/api/auth/switch-profile', (req, res) => {
+  if (activeUser && activeUser.role !== 'SUPER_ADMIN' && activeUser.role !== 'INVENTORY_MANAGER') {
+    return res.status(403).json({
+      message: 'Access Denied: Switch User Login is restricted to Super Admin and Inventory Manager roles.',
+    });
+  }
+
+  const { targetUserId } = req.body;
+  const user = users.find((u) => u.id === targetUserId || u.email === targetUserId);
+  if (!user) {
+    return res.status(404).json({ message: 'Target user profile not found.' });
+  }
+
+  const previousUser = activeUser;
+  activeUser = user;
+
+  auditTrail.unshift({
+    id: `aud-${Date.now()}`,
+    userEmail: user.email,
+    userName: user.name,
+    action: 'PROFILE_SWITCHED',
+    module: 'AUTH',
+    details: `Session profile switched from ${previousUser?.email || 'System'} (${previousUser?.role}) to ${user.email} (${user.role})`,
+    timestampAD: new Date().toISOString(),
+    timestampBS: '2083-04-16 BS',
+  });
+
+  const { password: _, ...userWithoutPass } = user;
+  res.json({ user: userWithoutPass, token: `session-token-${user.id}` });
+});
+
+// Profile Update Endpoint
+app.put('/api/auth/profile', (req, res) => {
+  if (!activeUser) {
+    return res.status(401).json({ message: 'Not authenticated' });
+  }
+  const { name, email, branchId, newPassword } = req.body;
+
+  const idx = users.findIndex((u) => u.id === activeUser.id);
+  if (idx !== -1) {
+    if (name) users[idx].name = name;
+    if (email) users[idx].email = email;
+    if (branchId) users[idx].branchId = branchId;
+    if (newPassword) users[idx].password = newPassword;
+    activeUser = users[idx];
+  }
+
+  const { password: _, ...userWithoutPass } = activeUser;
+  res.json(userWithoutPass);
+});
+
 // Branches
 app.get('/api/branches', (req, res) => {
   res.json(branches);
@@ -1099,7 +1198,7 @@ app.post('/api/purchase-orders', (req, res) => {
 
   const newPO = {
     id: `po-${Date.now()}`,
-    poNumber: `PO-2083-${Math.floor(100 + Math.random() * 900)}`,
+    poNumber: generateStandardTransactionId(req.body.branchId || 'WH001', 'PO'),
     subtotalAmount,
     taxAmount,
     totalAmount,
@@ -1194,13 +1293,13 @@ app.get('/api/purchase-invoices', (req, res) => {
 });
 
 app.post('/api/purchase-invoices', (req, res) => {
+  const targetBranchId = req.body.branchId || branches[0]?.id || 'WH001';
   const newInv = {
     id: `inv-${Date.now()}`,
-    invoiceNumber: `INV-2083-${Math.floor(1000 + Math.random() * 9000)}`,
+    invoiceNumber: generateStandardTransactionId(targetBranchId, 'PI'),
     ...req.body,
   };
 
-  const targetBranchId = req.body.branchId || branches[0]?.id || 'BR-KTM';
   const items = req.body.items || req.body.lines || [];
 
   items.forEach((item: any) => {
@@ -1321,7 +1420,7 @@ app.post('/api/shipments', (req, res) => {
 
   const newShipment = {
     id: `sh-${Date.now()}`,
-    trackingCode: `TRF-2083-${Math.floor(1000 + Math.random() * 9000)}`,
+    trackingCode: generateStandardTransactionId(req.body.sourceBranchId || 'WH001', 'TRF'),
     sourceBranchName: sourceBranch?.name,
     destinationBranchName: destBranch?.name || 'Destination',
     status: 'IN_TRANSIT' as const,
@@ -1463,7 +1562,7 @@ app.post('/api/stock-operations', (req, res) => {
 
   const newOp = {
     id: `op-${Date.now()}`,
-    referenceNumber: `${opType.slice(0, 3)}-2083-${Math.floor(100 + Math.random() * 900)}`,
+    referenceNumber: generateStandardTransactionId(req.body.branchId || 'WH001', opType),
     dateAD: new Date().toISOString().split('T')[0],
     dateBS: '2083-04-16 BS',
     totalValue,
@@ -1475,48 +1574,63 @@ app.post('/api/stock-operations', (req, res) => {
     ...req.body,
   };
 
-  // If multi-item Pullout or Damage Bin
+  // If multi-item Pullout, Damage, Stock-Out, or Consumable Issue
   if (items.length > 0) {
     items.forEach((item: any) => {
       let stk = inventoryStock.find(
         (s) => s.productId === item.productId && s.branchId === req.body.branchId
       );
-      if (stk) {
-        const qtyBefore = stk.quantityOnHand;
-
-        if (opType === 'PULLOUT') {
-          // If pulling out damaged stock, deduct from damagedQty; else deduct from usable quantityOnHand
-          if (item.condition === 'DAMAGED_STOCK') {
-            stk.damagedQty = Math.max(0, (stk.damagedQty || 0) - item.quantity);
-          } else {
-            stk.quantityOnHand = Math.max(0, stk.quantityOnHand - item.quantity);
-          }
-        } else if (opType === 'DAMAGE') {
-          // Flagging stock as damaged at branch/warehouse:
-          // Reduce usable stock and increase local damaged stock!
-          stk.quantityOnHand = Math.max(0, stk.quantityOnHand - item.quantity);
-          stk.damagedQty = (stk.damagedQty || 0) + item.quantity;
-        }
-
-        stk.lastUpdated = new Date().toISOString();
-
-        transactionLogs.unshift({
-          id: `txn-${Date.now()}-${item.productId}`,
-          transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+      if (!stk) {
+        stk = {
+          id: `stk-${(req.body.branchId || 'BR-KTM').toLowerCase()}-${item.productId}`,
           productId: item.productId,
-          productSku: item.sku || '',
-          productName: item.productName || 'Product',
-          branchId: req.body.branchId,
-          changeType: opType === 'PULLOUT' ? 'PULLOUT' : 'DAMAGE',
-          quantityBefore: qtyBefore,
-          quantityChanged: -item.quantity,
-          quantityAfter: stk.quantityOnHand,
-          unitCost: item.unitCost || 0,
-          referenceDocId: newOp.referenceNumber,
-          timestampAD: new Date().toISOString(),
-          timestampBS: '2083-04-16 BS',
-        });
+          branchId: req.body.branchId || 'BR-KTM',
+          quantityOnHand: 0,
+          damagedQty: 0,
+          reservedQty: 0,
+          incomingQty: 0,
+          lastUpdated: new Date().toISOString(),
+        };
+        inventoryStock.push(stk);
       }
+
+      const qtyBefore = stk.quantityOnHand;
+
+      if (opType === 'PULLOUT') {
+        // If pulling out damaged stock, deduct from damagedQty; else deduct from usable quantityOnHand
+        if (item.condition === 'DAMAGED_STOCK') {
+          stk.damagedQty = Math.max(0, (stk.damagedQty || 0) - item.quantity);
+        } else {
+          stk.quantityOnHand = Math.max(0, stk.quantityOnHand - item.quantity);
+        }
+      } else if (opType === 'DAMAGE') {
+        // Flagging stock as damaged at branch/warehouse:
+        // Reduce usable stock and increase local damaged stock!
+        stk.quantityOnHand = Math.max(0, stk.quantityOnHand - item.quantity);
+        stk.damagedQty = (stk.damagedQty || 0) + item.quantity;
+      } else if (opType === 'STOCK_OUT' || opType === 'CONSUMABLE_ISSUE') {
+        // Deduct quantity from store/branch usable stock
+        stk.quantityOnHand = Math.max(0, stk.quantityOnHand - item.quantity);
+      }
+
+      stk.lastUpdated = new Date().toISOString();
+
+      transactionLogs.unshift({
+        id: `txn-${Date.now()}-${item.productId}`,
+        transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+        productId: item.productId,
+        productSku: item.sku || '',
+        productName: item.productName || 'Product',
+        branchId: req.body.branchId,
+        changeType: opType,
+        quantityBefore: qtyBefore,
+        quantityChanged: -item.quantity,
+        quantityAfter: stk.quantityOnHand,
+        unitCost: item.unitCost || item.costPerUnit || item.sellingPrice || 0,
+        referenceDocId: newOp.referenceNumber,
+        timestampAD: new Date().toISOString(),
+        timestampBS: '2083-04-16 BS',
+      });
     });
   } else if (req.body.productId) {
     // Single item stock operation / damage log / consumable issue

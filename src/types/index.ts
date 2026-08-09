@@ -256,6 +256,31 @@ export interface PulloutItem {
   unitCost: number;
   totalValue: number;
   reason?: string;
+  deviceSerials?: DeviceSerialPair[];
+}
+
+export interface SaleItem {
+  id: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  unit?: string;
+  quantity: number;
+  sellingPrice: number;
+  discount: number;
+  totalValue: number;
+  deviceSerials?: DeviceSerialPair[];
+}
+
+export interface ConsumableIssueItem {
+  id: string;
+  productId: string;
+  productName: string;
+  sku: string;
+  unit?: string;
+  quantity: number;
+  unitCost: number;
+  totalValue: number;
 }
 
 export interface StockOperation {

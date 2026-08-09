@@ -5,6 +5,10 @@ import {
   Branch,
   InventoryStock,
   PulloutItem,
+  ShipmentItem,
+  SaleItem,
+  ConsumableIssueItem,
+  DeviceSerialPair,
   User,
   Shipment,
   Asset,
@@ -45,9 +49,11 @@ import {
   ArrowUpRight,
   Lock,
   ClipboardList,
+  RotateCcw,
 } from 'lucide-react';
 import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../utils/permissions';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
+import { ProductSearchBar } from './ProductSearchBar';
 
 interface StockOperationsProps {
   operations: StockOperation[];
@@ -157,14 +163,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [damageReason, setDamageReason] = useState<string>('Overstock transit damage / defective hardware unit');
   const [damageInspector, setDamageInspector] = useState<string>(currentUser?.name || 'Branch Quality Inspector');
 
-  // 3. Create Transfer Form State
+  // 3. Create Transfer Form State (Multi-Item Shipment Dispatch)
   const [xferSourceBranchId, setXferSourceBranchId] = useState<string>(userBranchId);
   const [xferDestBranchId, setXferDestBranchId] = useState<string>(
     branches.find((b) => b.id !== userBranchId)?.id || branches[1]?.id || ''
   );
-  const [xferProductId, setXferProductId] = useState<string>(products[0]?.id || '');
-  const [xferQty, setXferQty] = useState<number>(1);
   const [xferNotes, setXferNotes] = useState<string>('Inter-branch inventory transfer dispatch');
+  const [transferItems, setTransferItems] = useState<ShipmentItem[]>([]);
 
   // 4. Assign Fixed Asset Form State
   const [assignTargetType, setAssignTargetType] = useState<'LOCATION' | 'CUSTOMER'>('LOCATION');
@@ -172,25 +177,19 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [assignCustomerId, setAssignCustomerId] = useState<string>(customers[0]?.id || '');
   const [assignNotes, setAssignNotes] = useState<string>('Installed & commissioned as operational fixed asset');
 
-  // 5. Product Sale Form State
+  // 5. Product Sale Form State (Multi-Item Sales Invoice)
   const [saleCustomerId, setSaleCustomerId] = useState<string>(customers[0]?.id || '');
   const [saleBranchId, setSaleBranchId] = useState<string>(userBranchId);
-  const [saleProductId, setSaleProductId] = useState<string>(products[0]?.id || '');
-  const [saleQty, setSaleQty] = useState<number>(1);
-  const [salePrice, setSalePrice] = useState<number>(products[0]?.sellingPrice || 1000);
-  const [saleDiscount, setSaleDiscount] = useState<number>(0);
   const [salePaymentMethod, setSalePaymentMethod] = useState<string>('Cash / Direct Payment');
   const [saleNotes, setSaleNotes] = useState<string>('Direct retail product item sale to customer');
+  const [saleItems, setSaleItems] = useState<SaleItem[]>([]);
 
-  // 6. Consumable Issue Form State (Splitters, Sleeves, Couplers field usage)
+  // 6. Consumable Issue Form State (Multi-Item Requisition)
   const [consumableBranchId, setConsumableBranchId] = useState<string>(userBranchId);
-  const [consumableProductId, setConsumableProductId] = useState<string>(
-    products.find((p) => p.productGroup === 'Consumable Item')?.id || products[0]?.id || ''
-  );
-  const [consumableQty, setConsumableQty] = useState<number>(5);
   const [consumableTechnician, setConsumableTechnician] = useState<string>('Field Splicing Technician');
   const [consumableWorkOrder, setConsumableWorkOrder] = useState<string>('WO-2081-SPLIT-01');
   const [consumableReason, setConsumableReason] = useState<string>('Field fiber splicing & customer drop installation material usage');
+  const [consumableItems, setConsumableItems] = useState<ConsumableIssueItem[]>([]);
 
   // Filtered products for pullout search
   const matchingProducts = products.filter((p) => {
@@ -204,6 +203,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     );
   });
 
+  // Pullout Item Handlers
   const handleAddProductToPullout = (prod: Product) => {
     const existing = pulloutItems.find((i) => i.productId === prod.id);
     if (existing) {
@@ -219,6 +219,18 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       const availDamaged = srcStock?.damagedQty || 0;
       const defaultCond = availDamaged > 0 ? 'DAMAGED_STOCK' : 'OVERSTOCK';
 
+      // Auto generate initial serials if required
+      let initialSerials: DeviceSerialPair[] | undefined = undefined;
+      if (prod.requiresSerialTracking || prod.trackingType === 'SERIAL_MAC_PON') {
+        initialSerials = [
+          {
+            deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+            ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+            macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
+          },
+        ];
+      }
+
       setPulloutItems([
         ...pulloutItems,
         {
@@ -232,6 +244,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           unitCost: prod.costPrice,
           totalValue: prod.costPrice,
           reason: defaultCond === 'DAMAGED_STOCK' ? 'Damaged inventory return' : 'Surplus overstock return to warehouse',
+          deviceSerials: initialSerials,
         },
       ]);
     }
@@ -246,6 +259,19 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         const updated = { ...item, ...updates };
         if (updates.quantity !== undefined || updates.unitCost !== undefined) {
           updated.totalValue = updated.quantity * updated.unitCost;
+          // Sync serials count if quantity changed and serials exist
+          const prod = products.find((p) => p.id === updated.productId);
+          if (prod && (prod.requiresSerialTracking || prod.trackingType === 'SERIAL_MAC_PON')) {
+            const curSerials = [...(updated.deviceSerials || [])];
+            while (curSerials.length < updated.quantity) {
+              curSerials.push({
+                deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+                ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+                macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
+              });
+            }
+            updated.deviceSerials = curSerials.slice(0, updated.quantity);
+          }
         }
         return updated;
       })
@@ -254,6 +280,236 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   const handleRemovePulloutItem = (id: string) => {
     setPulloutItems(pulloutItems.filter((i) => i.id !== id));
+  };
+
+  // Transfer Items Handlers
+  const handleResetTransferForm = () => {
+    setTransferItems([]);
+    setXferNotes('Inter-branch inventory transfer dispatch');
+    setXferSourceBranchId(userBranchId);
+    setXferDestBranchId(branches.find((b) => b.id !== userBranchId)?.id || branches[1]?.id || '');
+  };
+
+  const handleAddTransferItem = (prodId?: string) => {
+    const selProd = products.find((p) => p.id === prodId) || products[0];
+    if (!selProd) return;
+
+    const existingItem = transferItems.find((i) => i.productId === selProd.id);
+    if (existingItem) {
+      handleUpdateTransferItem(existingItem.id, { quantitySent: existingItem.quantitySent + 1 });
+      return;
+    }
+
+    let initialSerials: DeviceSerialPair[] | undefined = undefined;
+    if (selProd.requiresSerialTracking || selProd.trackingType === 'SERIAL_MAC_PON') {
+      initialSerials = [
+        {
+          deviceSerial: `SN-${selProd.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+          macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
+        },
+      ];
+    }
+
+    setTransferItems([
+      ...transferItems,
+      {
+        id: `xfer-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: selProd.id,
+        productName: selProd.name,
+        sku: selProd.sku,
+        unit: selProd.unit,
+        quantity: 1,
+        quantitySent: 1,
+        deviceSerials: initialSerials,
+      },
+    ]);
+  };
+
+  const handleUpdateTransferItem = (id: string, updates: Partial<ShipmentItem>) => {
+    setTransferItems(
+      transferItems.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, ...updates };
+        if (updates.productId) {
+          const selProd = products.find((p) => p.id === updates.productId);
+          if (selProd) {
+            updated.productName = selProd.name;
+            updated.sku = selProd.sku;
+            updated.unit = selProd.unit;
+          }
+        }
+        if (updates.quantitySent !== undefined) {
+          updated.quantity = updated.quantitySent;
+          const prod = products.find((p) => p.id === updated.productId);
+          if (prod && (prod.requiresSerialTracking || prod.trackingType === 'SERIAL_MAC_PON')) {
+            const curSerials = [...(updated.deviceSerials || [])];
+            while (curSerials.length < updated.quantitySent) {
+              curSerials.push({
+                deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+                ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+                macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
+              });
+            }
+            updated.deviceSerials = curSerials.slice(0, updated.quantitySent);
+          }
+        }
+        return updated;
+      })
+    );
+  };
+
+  const handleRemoveTransferItem = (id: string) => {
+    setTransferItems(transferItems.filter((i) => i.id !== id));
+  };
+
+  // Sale Items Handlers
+  const handleResetSaleForm = () => {
+    setSaleItems([]);
+    setSaleCustomerId(customers[0]?.id || '');
+    setSaleBranchId(userBranchId);
+    setSalePaymentMethod('Cash / Direct Payment');
+    setSaleNotes('Direct retail product item sale to customer');
+  };
+
+  const handleAddSaleItem = (prodId?: string) => {
+    const selProd = products.find((p) => p.id === prodId) || products[0];
+    if (!selProd) return;
+
+    const existingItem = saleItems.find((i) => i.productId === selProd.id);
+    if (existingItem) {
+      handleUpdateSaleItem(existingItem.id, { quantity: existingItem.quantity + 1 });
+      return;
+    }
+
+    let initialSerials: DeviceSerialPair[] | undefined = undefined;
+    if (selProd.requiresSerialTracking || selProd.trackingType === 'SERIAL_MAC_PON') {
+      initialSerials = [
+        {
+          deviceSerial: `SN-${selProd.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+          macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
+        },
+      ];
+    }
+
+    const price = selProd.sellingPrice || 1000;
+    setSaleItems([
+      ...saleItems,
+      {
+        id: `sli-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: selProd.id,
+        productName: selProd.name,
+        sku: selProd.sku,
+        unit: selProd.unit,
+        quantity: 1,
+        sellingPrice: price,
+        discount: 0,
+        totalValue: price,
+        deviceSerials: initialSerials,
+      },
+    ]);
+  };
+
+  const handleUpdateSaleItem = (id: string, updates: Partial<SaleItem>) => {
+    setSaleItems(
+      saleItems.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, ...updates };
+        if (updates.productId) {
+          const selProd = products.find((p) => p.id === updates.productId);
+          if (selProd) {
+            updated.productName = selProd.name;
+            updated.sku = selProd.sku;
+            updated.unit = selProd.unit;
+            if (updates.sellingPrice === undefined) {
+              updated.sellingPrice = selProd.sellingPrice || 1000;
+            }
+          }
+        }
+        if (updates.quantity !== undefined || updates.sellingPrice !== undefined || updates.discount !== undefined) {
+          updated.totalValue = Math.max(0, (updated.quantity * updated.sellingPrice) - updated.discount);
+          const prod = products.find((p) => p.id === updated.productId);
+          if (prod && (prod.requiresSerialTracking || prod.trackingType === 'SERIAL_MAC_PON')) {
+            const curSerials = [...(updated.deviceSerials || [])];
+            while (curSerials.length < updated.quantity) {
+              curSerials.push({
+                deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
+                ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+                macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
+              });
+            }
+            updated.deviceSerials = curSerials.slice(0, updated.quantity);
+          }
+        }
+        return updated;
+      })
+    );
+  };
+
+  const handleRemoveSaleItem = (id: string) => {
+    setSaleItems(saleItems.filter((i) => i.id !== id));
+  };
+
+  // Consumable Items Handlers
+  const handleResetConsumableForm = () => {
+    setConsumableItems([]);
+    setConsumableBranchId(userBranchId);
+    setConsumableTechnician('Field Splicing Technician');
+    setConsumableWorkOrder('WO-2081-SPLIT-01');
+    setConsumableReason('Field fiber splicing & customer drop installation material usage');
+  };
+
+  const handleAddConsumableItem = (prodId?: string) => {
+    const consumableProducts = products.filter(p => p.productGroup === 'Consumable Item' || p.category.includes('Consumable'));
+    const selProd = products.find((p) => p.id === prodId) || consumableProducts[0] || products[0];
+    if (!selProd) return;
+
+    const existingItem = consumableItems.find((i) => i.productId === selProd.id);
+    if (existingItem) {
+      handleUpdateConsumableItem(existingItem.id, { quantity: existingItem.quantity + 1 });
+      return;
+    }
+
+    setConsumableItems([
+      ...consumableItems,
+      {
+        id: `cni-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        productId: selProd.id,
+        productName: selProd.name,
+        sku: selProd.sku,
+        unit: selProd.unit,
+        quantity: 5,
+        unitCost: selProd.costPrice,
+        totalValue: 5 * selProd.costPrice,
+      },
+    ]);
+  };
+
+  const handleUpdateConsumableItem = (id: string, updates: Partial<ConsumableIssueItem>) => {
+    setConsumableItems(
+      consumableItems.map((item) => {
+        if (item.id !== id) return item;
+        const updated = { ...item, ...updates };
+        if (updates.productId) {
+          const selProd = products.find((p) => p.id === updates.productId);
+          if (selProd) {
+            updated.productName = selProd.name;
+            updated.sku = selProd.sku;
+            updated.unit = selProd.unit;
+            updated.unitCost = selProd.costPrice;
+          }
+        }
+        if (updates.quantity !== undefined || updates.unitCost !== undefined) {
+          updated.totalValue = updated.quantity * updated.unitCost;
+        }
+        return updated;
+      })
+    );
+  };
+
+  const handleRemoveConsumableItem = (id: string) => {
+    setConsumableItems(consumableItems.filter((i) => i.id !== id));
   };
 
   // 1. Submit Pullout Dispatch
@@ -311,26 +567,19 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // 3. Submit Create Transfer
   const handleSubmitCreateTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    const prod = products.find((p) => p.id === xferProductId);
     const srcBranch = branches.find((b) => b.id === xferSourceBranchId);
     const destBranch = branches.find((b) => b.id === xferDestBranchId);
 
-    if (!prod || !srcBranch || !destBranch) return;
+    if (!srcBranch || !destBranch) return;
 
     if (xferSourceBranchId === xferDestBranchId) {
       alert('Source and Destination branches must be different.');
       return;
     }
 
-    // Generate serial pairs if product requires serial/MAC/PON tracking
-    const deviceSerials = [];
-    if (prod.requiresSerialTracking || prod.trackingType === 'SERIAL_MAC_PON') {
-      for (let i = 0; i < Number(xferQty); i++) {
-        deviceSerials.push({
-          deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-        });
-      }
+    if (transferItems.length === 0) {
+      alert('Please add at least one product item to transfer.');
+      return;
     }
 
     if (onCreateShipment) {
@@ -345,21 +594,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         dispatchDateBS: '2083-04-16 BS',
         estimatedArrivalAD: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
         status: 'DISPATCHED',
-        items: [
-          {
-            id: `item-${Date.now()}`,
-            productId: prod.id,
-            productName: prod.name,
-            sku: prod.sku,
-            unit: prod.unit,
-            quantity: Number(xferQty),
-            quantitySent: Number(xferQty),
-            deviceSerials: deviceSerials.length > 0 ? deviceSerials : undefined,
-          },
-        ],
+        items: transferItems,
         notes: xferNotes,
       });
-      alert(`Inter-Branch Stock Transfer TRF-BR-${Math.floor(100000 + Math.random() * 900000)} successfully dispatched with serial tracking intact!`);
+      alert(`Inter-Branch Stock Transfer with ${transferItems.length} line item(s) successfully dispatched!`);
+      setTransferItems([]);
       setActiveTab('RECEIVE_TRANSFER');
     }
   };
@@ -425,31 +664,20 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // 6. Submit Consumable Issue to Technician / Work Order Field Usage
   const handleSubmitConsumableIssue = async (e: React.FormEvent) => {
     e.preventDefault();
-    const prod = products.find((p) => p.id === consumableProductId);
+    if (consumableItems.length === 0) {
+      alert('Please add at least one consumable item to issue.');
+      return;
+    }
+
     const branchObj = branches.find((b) => b.id === consumableBranchId);
-
-    if (!prod) {
-      alert('Please select a valid consumable product.');
-      return;
-    }
-
-    const qtyToIssue = Math.abs(Number(consumableQty));
-    if (qtyToIssue <= 0) {
-      alert('Please enter a valid quantity to issue.');
-      return;
-    }
-
-    const totalVal = qtyToIssue * prod.costPrice;
+    const grandTotal = consumableItems.reduce((sum, item) => sum + item.totalValue, 0);
 
     await onCreateOperation({
       type: 'CONSUMABLE_ISSUE',
       branchId: consumableBranchId,
       branchName: branchObj?.name,
-      productId: prod.id,
-      productName: prod.name,
-      quantityChanged: -qtyToIssue,
-      costPerUnit: prod.costPrice,
-      totalValue: totalVal,
+      items: consumableItems,
+      totalValue: grandTotal,
       technicianName: consumableTechnician,
       workOrderRef: consumableWorkOrder,
       reason: `Consumable Field Issue: WO ${consumableWorkOrder} (${consumableTechnician}) - ${consumableReason}`,
@@ -457,41 +685,44 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       status: 'LOGGED',
     });
 
-    alert(`Successfully issued ${qtyToIssue} ${prod.unit} of ${prod.name} to Technician ${consumableTechnician} for Work Order ${consumableWorkOrder}!`);
-    setConsumableQty(5);
+    alert(`Successfully issued ${consumableItems.length} consumable material line item(s) to Technician ${consumableTechnician} for Work Order ${consumableWorkOrder}!`);
+    setConsumableItems([]);
     setConsumableReason('Field fiber splicing & customer drop installation material usage');
   };
 
   // 5. Submit Product Sale to Customer
   const handleSubmitProductSale = async (e: React.FormEvent) => {
     e.preventDefault();
-    const prod = products.find((p) => p.id === saleProductId);
     const cust = customers.find((c) => c.id === saleCustomerId);
     const branchObj = branches.find((b) => b.id === saleBranchId);
 
-    if (!prod || !cust) return;
+    if (!cust) return;
 
-    const totalSaleAmount = (Number(saleQty) * Number(salePrice)) - Number(saleDiscount);
+    if (saleItems.length === 0) {
+      alert('Please add at least one product item to the sales invoice.');
+      return;
+    }
+
+    const grossTotal = saleItems.reduce((s, i) => s + (i.quantity * i.sellingPrice), 0);
+    const totalDiscount = saleItems.reduce((s, i) => s + i.discount, 0);
+    const netSaleAmount = Math.max(0, grossTotal - totalDiscount);
 
     await onCreateOperation({
       type: 'STOCK_OUT',
       branchId: saleBranchId,
       branchName: branchObj?.name,
-      productId: saleProductId,
-      productName: prod.name,
-      quantityChanged: -Math.abs(Number(saleQty)),
-      costPerUnit: prod.costPrice,
-      sellingUnitPrice: Number(salePrice),
-      totalValue: totalSaleAmount,
+      items: saleItems,
+      totalValue: netSaleAmount,
       customerId: cust.id,
       customerName: `${cust.customerName} (${cust.customerId})`,
       paymentMethod: salePaymentMethod,
-      reason: `Customer Product Sale: ${cust.customerName} - ${saleNotes}`,
+      reason: `Customer Product Sale Invoice (${saleItems.length} items): ${cust.customerName} - ${saleNotes}`,
       inspectorName: currentUser?.name || 'Sales Representative',
       status: 'LOGGED',
     });
 
-    alert(`Product Sale logged successfully! Total Bill Amount: रु ${totalSaleAmount.toLocaleString('en-IN')}`);
+    alert(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: रु ${netSaleAmount.toLocaleString('en-IN')}`);
+    setSaleItems([]);
   };
 
   // Helper to check if an operation belongs to user's allowed branches
@@ -979,9 +1210,78 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <span>{sh.destinationBranchName || sh.destinationBranchId}</span>
                       </div>
 
-                      <div className="mt-2 text-[11px] text-slate-600 dark:text-slate-300 bg-white/60 dark:bg-slate-800/60 p-2 rounded-lg border border-slate-200/50">
-                        <span className="font-bold">Transfer Items: </span>
-                        {sh.items?.map((i) => `${i.productName} (${i.quantity} ${i.unit || 'pcs'})`).join(', ')}
+                      {/* Itemized Transferred Stock List & Serial Tracking Inspector */}
+                      <div className="mt-2 space-y-2">
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 block">
+                          Transferred Stock Items ({sh.items?.length || 0}):
+                        </span>
+                        
+                        <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-xs">
+                          <table className="w-full text-left border-collapse">
+                            <thead className={`text-[10px] font-bold uppercase tracking-wider border-b ${
+                              isDarkMode ? 'bg-slate-800/80 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
+                            }`}>
+                              <tr>
+                                <th className="p-2">SKU & Item Name</th>
+                                <th className="p-2 text-center">Transfer Qty</th>
+                                <th className="p-2">Serial & MAC Tracking</th>
+                              </tr>
+                            </thead>
+                            <tbody className={`divide-y text-[11px] ${isDarkMode ? 'divide-slate-800' : 'divide-slate-100'}`}>
+                              {sh.items?.map((item, idx) => {
+                                const prod = products.find((p) => p.id === item.productId || p.sku === item.sku);
+                                const isSerialized = Boolean(
+                                  item.deviceSerials?.length || 
+                                  prod?.requiresSerialTracking || 
+                                  prod?.trackingType === 'SERIAL_MAC_PON'
+                                );
+
+                                return (
+                                  <tr key={item.id || idx} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                                    <td className="p-2">
+                                      <div className="font-bold text-slate-900 dark:text-white">{item.productName}</div>
+                                      <div className="text-[10px] font-mono text-slate-400">SKU: {item.sku || prod?.sku || 'N/A'}</div>
+                                    </td>
+                                    <td className="p-2 text-center font-mono font-bold text-sky-600 dark:text-sky-400 whitespace-nowrap">
+                                      {item.quantitySent || item.quantity} {item.unit || 'pcs'}
+                                    </td>
+                                    <td className="p-2">
+                                      {isSerialized ? (
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                                            <Tag className="h-3 w-3" />
+                                            <span>Serial Tracked ({item.deviceSerials?.length || item.quantitySent || item.quantity} Units)</span>
+                                          </div>
+                                          
+                                          {item.deviceSerials && item.deviceSerials.length > 0 ? (
+                                            <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+                                              {item.deviceSerials.map((ser, sIdx) => (
+                                                <div key={sIdx} className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-[10px] space-y-0.5">
+                                                  <div className="text-slate-800 dark:text-slate-200 font-bold flex items-center justify-between">
+                                                    <span>SN: {ser.deviceSerial}</span>
+                                                    <span className="text-[9px] px-1 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-extrabold">VERIFIED</span>
+                                                  </div>
+                                                  {ser.ponSerial && <div className="text-slate-500 dark:text-slate-400 text-[9.5px]">PON: {ser.ponSerial}</div>}
+                                                  {ser.macAddress && <div className="text-slate-500 dark:text-slate-400 text-[9.5px]">MAC: {ser.macAddress}</div>}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <div className="text-[10px] font-mono text-slate-500 bg-amber-50 dark:bg-amber-950/40 p-1.5 rounded border border-amber-200 dark:border-amber-800">
+                                              Auto Serial Generation on Receive Confirmation
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-400 text-[10px] italic">Non-serialized bulk material</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
 
                       {sh.notes && <p className="text-[11px] text-slate-400 mt-1 italic">{sh.notes}</p>}
@@ -1013,16 +1313,22 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 4: CREATE TRANSFER */}
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 4: CREATE TRANSFER (Multi-Item Inter-Branch Dispatch) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CREATE_TRANSFER' && (
-        <div className={`p-6 rounded-2xl border max-w-2xl mx-auto shadow-sm ${
+        <div className={`p-6 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
         }`}>
-          <h3 className="text-base font-serif font-bold flex items-center gap-2 mb-4 pb-3 border-b border-slate-200 dark:border-slate-800">
-            <Send className="h-5 w-5 text-sky-500" />
-            <span>Create Inter-Branch Stock Transfer</span>
-          </h3>
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
+            <h3 className="text-base font-serif font-bold flex items-center gap-2">
+              <Send className="h-5 w-5 text-sky-500" />
+              <span>Create Inter-Branch Multi-Stock Transfer Dispatch</span>
+            </h3>
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-200 border border-sky-200 dark:border-sky-800">
+              Inter-Branch Shipment GRN
+            </span>
+          </div>
 
           <form onSubmit={handleSubmitCreateTransfer} className="space-y-4 text-xs">
             <div className="grid grid-cols-2 gap-3">
@@ -1059,38 +1365,135 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="block font-bold mb-1">Select Product to Transfer *</label>
-              <select
-                value={xferProductId}
-                onChange={(e) => setXferProductId(e.target.value)}
-                className={`w-full rounded-xl border p-2.5 ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                }`}
-              >
-                {products.map((p) => {
-                  const srcStock = stock.find((s) => s.productId === p.id && s.branchId === xferSourceBranchId);
-                  return (
-                    <option key={p.id} value={p.id}>
-                      [{p.sku}] {p.name} (Available: {srcStock?.quantityOnHand || 0} {p.unit})
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+            {/* Multi-Item Transfer Table */}
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="block font-bold">Scan Barcode or Search & Enter Product Name / SKU to Add *</label>
+                <ProductSearchBar
+                  products={products}
+                  onAddOrIncrementProduct={(prod) => handleAddTransferItem(prod.id)}
+                  placeholder="Scan Barcode or Search & Enter Product Name / SKU to Add to Transfer..."
+                />
+              </div>
 
-            <div>
-              <label className="block font-bold mb-1">Transfer Quantity *</label>
-              <input
-                type="number"
-                min={1}
-                required
-                value={xferQty}
-                onChange={(e) => setXferQty(Number(e.target.value))}
-                className={`w-full rounded-xl border p-2.5 font-mono ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                }`}
-              />
+              <div className="flex items-center justify-between pt-1">
+                <label className="block font-bold">Transfer Line Items ({transferItems.length}) *</label>
+                <button
+                  type="button"
+                  onClick={() => handleAddTransferItem()}
+                  className="px-3 py-1 rounded-lg bg-sky-600 text-white font-bold text-[11px] hover:bg-sky-500 shadow-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Add Line Item</span>
+                </button>
+              </div>
+
+              {transferItems.length === 0 ? (
+                <div className="p-8 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 text-center text-slate-400">
+                  <Package className="h-8 w-8 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
+                  <p>No stock items added to this inter-branch transfer yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => handleAddTransferItem()}
+                    className="mt-2 text-sky-500 hover:text-sky-600 font-bold text-xs cursor-pointer"
+                  >
+                    + Click here to add products to transfer
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+                      isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}>
+                      <tr>
+                        <th className="p-2.5">Product SKU & Name</th>
+                        <th className="p-2.5 text-center">Branch Stock</th>
+                        <th className="p-2.5 text-center">Transfer Qty</th>
+                        <th className="p-2.5">Serials & MAC Tracking</th>
+                        <th className="p-2.5 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                      {transferItems.map((item) => {
+                        const prod = products.find((p) => p.id === item.productId);
+                        const stk = stock.find((s) => s.productId === item.productId && s.branchId === xferSourceBranchId);
+                        const isSerialized = prod?.requiresSerialTracking || prod?.trackingType === 'SERIAL_MAC_PON';
+
+                        return (
+                          <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                            <td className="p-2.5">
+                              <select
+                                value={item.productId}
+                                onChange={(e) => handleUpdateTransferItem(item.id, { productId: e.target.value })}
+                                className={`w-full rounded-lg border p-1.5 font-bold ${
+                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
+                                }`}
+                              >
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    [{p.sku}] {p.name} ({p.unit})
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+
+                            <td className="p-2.5 text-center font-mono font-bold text-slate-500">
+                              {stk?.quantityOnHand || 0} {item.unit}
+                            </td>
+
+                            <td className="p-2.5 text-center">
+                              <input
+                                type="number"
+                                min={1}
+                                required
+                                value={item.quantitySent}
+                                onChange={(e) => handleUpdateTransferItem(item.id, { quantitySent: Number(e.target.value) })}
+                                className={`w-20 rounded-lg border p-1 text-center font-mono font-bold ${
+                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
+                                }`}
+                              />
+                            </td>
+
+                            <td className="p-2.5">
+                              {isSerialized ? (
+                                <div className="space-y-1">
+                                  <span className="text-[10px] text-sky-600 dark:text-sky-400 font-bold block">
+                                    ✓ Serial Tracking Active ({item.deviceSerials?.length || 0} Units)
+                                  </span>
+                                  {item.deviceSerials?.slice(0, 2).map((ser, sIdx) => (
+                                    <div key={sIdx} className="text-[10px] font-mono text-slate-500 flex items-center gap-1">
+                                      <span>SN: {ser.deviceSerial}</span>
+                                      {ser.ponSerial && <span>| PON: {ser.ponSerial}</span>}
+                                    </div>
+                                  ))}
+                                  {(item.deviceSerials?.length || 0) > 2 && (
+                                    <span className="text-[9px] text-slate-400 font-mono">
+                                      +{(item.deviceSerials?.length || 0) - 2} more serials auto-generated
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 italic text-[11px]">Non-serialized bulk product</span>
+                              )}
+                            </td>
+
+                            <td className="p-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveTransferItem(item.id)}
+                                className="text-rose-500 hover:text-rose-700 cursor-pointer p-1"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             <div>
@@ -1105,13 +1508,22 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               />
             </div>
 
-            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={handleResetTransferForm}
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span>Reset / Cancel Form</span>
+              </button>
+
               <button
                 type="submit"
                 className="px-5 py-2.5 rounded-xl bg-sky-600 text-white font-bold hover:bg-sky-500 shadow-md flex items-center gap-2 cursor-pointer"
               >
                 <Send className="h-4 w-4" />
-                <span>Dispatch Transfer Shipment</span>
+                <span>Dispatch Multi-Item Transfer Shipment</span>
               </button>
             </div>
           </form>
@@ -1254,7 +1666,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 6: CONSUMABLE ISSUE TO TECHNICIAN / FIELD USAGE */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CONSUMABLE_ISSUE' && (
-        <div className={`p-6 rounded-2xl border max-w-2xl mx-auto shadow-sm ${
+        <div className={`p-6 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
         }`}>
           <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
@@ -1263,49 +1675,16 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               <span>Issue Consumable Items (Splitter, Sleeve, Coupler, Fast Connector)</span>
             </h3>
             <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
-              Quantity-Only Store Usage
+              Quantity Store Requisition
             </span>
           </div>
 
           <form onSubmit={handleSubmitConsumableIssue} className="space-y-4 text-xs">
             <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-[11px] leading-relaxed">
-              <strong>Consumables Operational Rule:</strong> Field materials (Splitters, Protection Sleeves, Couplers, Fast Connectors, Patch Cords, Drop Clamps) do NOT carry individual serial numbers or depreciation schedules. Issuing deducts store stock directly and logs the assigned field technician and work order ticket.
+              <strong>Consumables Operational Rule:</strong> Field materials (Splitters, Protection Sleeves, Couplers, Fast Connectors, Patch Cords, Drop Clamps) do NOT carry individual serial numbers. Issuing deducts store stock directly and logs the assigned field technician and work order ticket.
             </div>
 
-            {/* Current Available Stock Banner */}
-            {(() => {
-              const currentStockItem = stock.find(
-                (s) => s.productId === consumableProductId && s.branchId === consumableBranchId
-              );
-              const availQty = currentStockItem?.quantityOnHand || 0;
-              const selProd = products.find((p) => p.id === consumableProductId);
-
-              return (
-                <div
-                  className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
-                    availQty > 0
-                      ? isDarkMode
-                        ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300'
-                        : 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                      : isDarkMode
-                      ? 'bg-rose-950/40 border-rose-800/60 text-rose-300'
-                      : 'bg-rose-50 border-rose-200 text-rose-900'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Package className="h-4 w-4" />
-                    <span>
-                      Current Store Stock ({branches.find((b) => b.id === consumableBranchId)?.name}):
-                    </span>
-                  </div>
-                  <div className="font-mono font-bold text-sm">
-                    {availQty} {selProd?.unit || 'Pcs'} Available
-                  </div>
-                </div>
-              );
-            })()}
-
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block font-bold mb-1">Source Store Branch *</label>
                 <select
@@ -1319,42 +1698,6 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                   ))}
                 </select>
-              </div>
-
-              <div>
-                <label className="block font-bold mb-1">Select Consumable Material *</label>
-                <select
-                  value={consumableProductId}
-                  onChange={(e) => setConsumableProductId(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 font-medium ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
-                >
-                  {products.map((p) => {
-                    const groupLabel = p.productGroup || 'Product Item';
-                    return (
-                      <option key={p.id} value={p.id}>
-                        [{groupLabel}] {p.sku} - {p.name} ({p.unit})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block font-bold mb-1">Quantity to Issue *</label>
-                <input
-                  type="number"
-                  min={1}
-                  required
-                  value={consumableQty}
-                  onChange={(e) => setConsumableQty(Number(e.target.value))}
-                  className={`w-full rounded-xl border p-2.5 font-mono ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
-                />
               </div>
 
               <div>
@@ -1386,6 +1729,121 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </div>
             </div>
 
+            {/* Multi-Item Consumables Requisition Table */}
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="block font-bold">Scan Barcode or Search & Enter Consumable Material / SKU to Add *</label>
+                <ProductSearchBar
+                  products={products}
+                  onAddOrIncrementProduct={(prod) => handleAddConsumableItem(prod.id)}
+                  placeholder="Scan Barcode or Search & Enter Consumable Product / SKU to Issue..."
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <label className="block font-bold">Consumable Material Line Items ({consumableItems.length}) *</label>
+                <button
+                  type="button"
+                  onClick={() => handleAddConsumableItem()}
+                  className="px-3 py-1 rounded-lg bg-amber-600 text-white font-bold text-[11px] hover:bg-amber-500 shadow-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Add Material Line Item</span>
+                </button>
+              </div>
+
+              {consumableItems.length === 0 ? (
+                <div className="p-8 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 text-center text-slate-400">
+                  <Wrench className="h-8 w-8 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
+                  <p>No consumable materials added to this requisition form yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => handleAddConsumableItem()}
+                    className="mt-2 text-amber-500 hover:text-amber-600 font-bold text-xs cursor-pointer"
+                  >
+                    + Click here to add consumable products to issue
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+                      isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}>
+                      <tr>
+                        <th className="p-2.5">Consumable Material</th>
+                        <th className="p-2.5 text-center">Store Stock</th>
+                        <th className="p-2.5 text-center">Issue Qty</th>
+                        <th className="p-2.5 text-right">Unit Cost</th>
+                        <th className="p-2.5 text-right">Total Cost</th>
+                        <th className="p-2.5 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                      {consumableItems.map((item) => {
+                        const stk = stock.find((s) => s.productId === item.productId && s.branchId === consumableBranchId);
+
+                        return (
+                          <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                            <td className="p-2.5">
+                              <select
+                                value={item.productId}
+                                onChange={(e) => handleUpdateConsumableItem(item.id, { productId: e.target.value })}
+                                className={`w-full rounded-lg border p-1.5 font-bold ${
+                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
+                                }`}
+                              >
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    [{p.sku}] {p.name} ({p.unit})
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+
+                            <td className="p-2.5 text-center font-mono font-bold text-slate-500">
+                              {stk?.quantityOnHand || 0} {item.unit}
+                            </td>
+
+                            <td className="p-2.5 text-center">
+                              <input
+                                type="number"
+                                min={1}
+                                required
+                                value={item.quantity}
+                                onChange={(e) => handleUpdateConsumableItem(item.id, { quantity: Number(e.target.value) })}
+                                className={`w-20 rounded-lg border p-1 text-center font-mono font-bold ${
+                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
+                                }`}
+                              />
+                            </td>
+
+                            <td className="p-2.5 text-right font-mono text-slate-500">
+                              रु {item.unitCost}
+                            </td>
+
+                            <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
+                              रु {item.totalValue.toLocaleString('en-IN')}
+                            </td>
+
+                            <td className="p-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveConsumableItem(item.id)}
+                                className="text-rose-500 hover:text-rose-700 cursor-pointer p-1"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
             <div>
               <label className="block font-bold mb-1">Field Usage Description / Notes</label>
               <textarea
@@ -1399,13 +1857,24 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               />
             </div>
 
-            <button
-              type="submit"
-              className="w-full py-3 rounded-xl font-bold text-xs text-white bg-amber-600 hover:bg-amber-500 shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
-            >
-              <Wrench className="h-4 w-4" />
-              <span>Record Consumable Issue & Deduct Stock</span>
-            </button>
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleResetConsumableForm}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span>Reset / Cancel Form</span>
+              </button>
+
+              <button
+                type="submit"
+                className="flex-1 py-3 rounded-xl font-bold text-xs text-white bg-amber-600 hover:bg-amber-500 shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Wrench className="h-4 w-4" />
+                <span>Record Multi-Item Consumable Issue & Deduct Stock</span>
+              </button>
+            </div>
           </form>
 
           {/* Table of Issued Consumables */}
@@ -1439,9 +1908,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <td className="p-2.5 font-mono text-slate-400 text-[11px]">{op.dateAD}</td>
                         <td className="p-2.5 font-mono font-bold text-amber-600 dark:text-amber-400">{op.workOrderRef || op.referenceNumber}</td>
                         <td className="p-2.5 font-medium">{op.branchName || op.branchId}</td>
-                        <td className="p-2.5 font-bold text-slate-900 dark:text-white">{op.productName}</td>
+                        <td className="p-2.5 font-bold text-slate-900 dark:text-white">{op.productName || (op.items && op.items[0]?.productName) || 'Multiple Line Items'}</td>
                         <td className="p-2.5 text-center font-mono font-bold text-rose-600">
-                          {Math.abs(op.quantityChanged || 0)} Pcs
+                          {Math.abs(op.quantityChanged || (op.items ? op.items.reduce((s,i)=>s+i.quantity,0) : 1))} Pcs
                         </td>
                         <td className="p-2.5 font-medium text-slate-700 dark:text-slate-300">{op.technicianName || 'N/A'}</td>
                         <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
@@ -1458,19 +1927,24 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 7: PRODUCT SALE TO CUSTOMER */}
+      {/* TAB 7: PRODUCT SALE TO CUSTOMER (Multi-Item Sales Invoice) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'PRODUCT_SALE' && (
-        <div className={`p-6 rounded-2xl border max-w-2xl mx-auto shadow-sm ${
+        <div className={`p-6 rounded-2xl border max-w-4xl mx-auto shadow-sm ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
         }`}>
-          <h3 className="text-base font-serif font-bold flex items-center gap-2 mb-4 pb-3 border-b border-slate-200 dark:border-slate-800">
-            <PackageMinus className="h-5 w-5 text-purple-500" />
-            <span>Product Sale to Customer (Stock Out)</span>
-          </h3>
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
+            <h3 className="text-base font-serif font-bold flex items-center gap-2">
+              <PackageMinus className="h-5 w-5 text-purple-500" />
+              <span>Multi-Item Product Sales Invoice (Stock Out)</span>
+            </h3>
+            <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-200 border border-purple-200 dark:border-purple-800">
+              Retail Sales Invoice
+            </span>
+          </div>
 
           <form onSubmit={handleSubmitProductSale} className="space-y-4 text-xs">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block font-bold mb-1">Select Customer *</label>
                 <select
@@ -1502,76 +1976,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   ))}
                 </select>
               </div>
-            </div>
 
-            <div>
-              <label className="block font-bold mb-1">Product Item *</label>
-              <select
-                value={saleProductId}
-                onChange={(e) => {
-                  setSaleProductId(e.target.value);
-                  const p = products.find((pr) => pr.id === e.target.value);
-                  if (p) setSalePrice(p.sellingPrice);
-                }}
-                className={`w-full rounded-xl border p-2.5 ${
-                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                }`}
-              >
-                {products.map((p) => {
-                  const stk = stock.find((s) => s.productId === p.id && s.branchId === saleBranchId);
-                  return (
-                    <option key={p.id} value={p.id}>
-                      [{p.sku}] {p.name} (Stock: {stk?.quantityOnHand || 0} {p.unit} | Cost: रु {p.costPrice})
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block font-bold mb-1">Sale Quantity *</label>
-                <input
-                  type="number"
-                  min={1}
-                  required
-                  value={saleQty}
-                  onChange={(e) => setSaleQty(Number(e.target.value))}
-                  className={`w-full rounded-xl border p-2.5 font-mono ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold mb-1">Selling Price / Unit (रु) *</label>
-                <input
-                  type="number"
-                  min={0}
-                  required
-                  value={salePrice}
-                  onChange={(e) => setSalePrice(Number(e.target.value))}
-                  className={`w-full rounded-xl border p-2.5 font-mono ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold mb-1">Discount (रु)</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={saleDiscount}
-                  onChange={(e) => setSaleDiscount(Number(e.target.value))}
-                  className={`w-full rounded-xl border p-2.5 font-mono ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block font-bold mb-1">Payment Method</label>
                 <select
@@ -1587,14 +1992,175 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <option value="Customer Account Credit">Customer Account Credit</option>
                 </select>
               </div>
+            </div>
 
-              <div>
-                <label className="block font-bold mb-1">Total Net Billing Amount</label>
-                <div className="p-2.5 rounded-xl border bg-indigo-50 dark:bg-indigo-950/60 border-indigo-200 dark:border-indigo-800 font-mono font-bold text-indigo-700 dark:text-indigo-300 text-sm">
-                  रु {((saleQty * salePrice) - saleDiscount).toLocaleString('en-IN')}
+            {/* Multi-Item Sales Table */}
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="block font-bold">Scan Barcode or Search & Enter Product Name / SKU to Add *</label>
+                <ProductSearchBar
+                  products={products}
+                  onAddOrIncrementProduct={(prod) => handleAddSaleItem(prod.id)}
+                  placeholder="Scan Barcode or Search & Enter Product Name / SKU to Add to Sales Invoice..."
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-1">
+                <label className="block font-bold">Sales Invoice Line Items ({saleItems.length}) *</label>
+                <button
+                  type="button"
+                  onClick={() => handleAddSaleItem()}
+                  className="px-3 py-1 rounded-lg bg-purple-600 text-white font-bold text-[11px] hover:bg-purple-500 shadow-xs flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>Add Product to Invoice</span>
+                </button>
+              </div>
+
+              {saleItems.length === 0 ? (
+                <div className="p-8 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 text-center text-slate-400">
+                  <PackageMinus className="h-8 w-8 mx-auto mb-2 text-slate-300 dark:text-slate-700" />
+                  <p>No product items added to this sales invoice yet.</p>
+                  <button
+                    type="button"
+                    onClick={() => handleAddSaleItem()}
+                    className="mt-2 text-purple-500 hover:text-purple-600 font-bold text-xs cursor-pointer"
+                  >
+                    + Click here to add products to sale invoice
+                  </button>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className={`font-bold uppercase text-[9px] tracking-wider border-b ${
+                      isDarkMode ? 'bg-slate-900 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}>
+                      <tr>
+                        <th className="p-2.5">Product Name</th>
+                        <th className="p-2.5 text-center">Branch Stock</th>
+                        <th className="p-2.5 text-center">Sale Qty</th>
+                        <th className="p-2.5 text-right">Unit Price (रु)</th>
+                        <th className="p-2.5 text-right">Discount (रु)</th>
+                        <th className="p-2.5 text-right">Subtotal</th>
+                        <th className="p-2.5 text-center">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                      {saleItems.map((item) => {
+                        const prod = products.find((p) => p.id === item.productId);
+                        const stk = stock.find((s) => s.productId === item.productId && s.branchId === saleBranchId);
+                        const isSerialized = prod?.requiresSerialTracking || prod?.trackingType === 'SERIAL_MAC_PON';
+
+                        return (
+                          <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                            <td className="p-2.5">
+                              <select
+                                value={item.productId}
+                                onChange={(e) => handleUpdateSaleItem(item.id, { productId: e.target.value })}
+                                className={`w-full rounded-lg border p-1.5 font-bold ${
+                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
+                                }`}
+                              >
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    [{p.sku}] {p.name} ({p.unit})
+                                  </option>
+                                ))}
+                              </select>
+                              {isSerialized && (
+                                <span className="text-[10px] text-purple-600 dark:text-purple-400 font-bold block mt-1">
+                                  ✓ Serial Tracking Engaged ({item.deviceSerials?.length || 0} Units)
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="p-2.5 text-center font-mono font-bold text-slate-500">
+                              {stk?.quantityOnHand || 0} {item.unit}
+                            </td>
+
+                            <td className="p-2.5 text-center">
+                              <input
+                                type="number"
+                                min={1}
+                                required
+                                value={item.quantity}
+                                onChange={(e) => handleUpdateSaleItem(item.id, { quantity: Number(e.target.value) })}
+                                className={`w-16 rounded-lg border p-1 text-center font-mono font-bold ${
+                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
+                                }`}
+                              />
+                            </td>
+
+                            <td className="p-2.5 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                required
+                                value={item.sellingPrice}
+                                onChange={(e) => handleUpdateSaleItem(item.id, { sellingPrice: Number(e.target.value) })}
+                                className={`w-24 rounded-lg border p-1 text-right font-mono font-bold ${
+                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
+                                }`}
+                              />
+                            </td>
+
+                            <td className="p-2.5 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                value={item.discount}
+                                onChange={(e) => handleUpdateSaleItem(item.id, { discount: Number(e.target.value) })}
+                                className={`w-20 rounded-lg border p-1 text-right font-mono text-amber-600 dark:text-amber-400 ${
+                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
+                                }`}
+                              />
+                            </td>
+
+                            <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
+                              रु {item.totalValue.toLocaleString('en-IN')}
+                            </td>
+
+                            <td className="p-2.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSaleItem(item.id)}
+                                className="text-rose-500 hover:text-rose-700 cursor-pointer p-1"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Billing Summary Banner */}
+            {saleItems.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl border bg-purple-50/50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800/60 text-xs">
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Gross Product Bill</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                    रु {saleItems.reduce((s, i) => s + (i.quantity * i.sellingPrice), 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Total Discounts Applied</span>
+                  <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                    रु {saleItems.reduce((s, i) => s + i.discount, 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Net Receivable Bill Amount</span>
+                  <span className="font-mono font-extrabold text-purple-700 dark:text-purple-300 text-sm">
+                    रु {Math.max(0, saleItems.reduce((s, i) => s + (i.quantity * i.sellingPrice), 0) - saleItems.reduce((s, i) => s + i.discount, 0)).toLocaleString('en-IN')}
+                  </span>
                 </div>
               </div>
-            </div>
+            )}
 
             <div>
               <label className="block font-bold mb-1">Sale Notes / Remarks</label>
@@ -1608,13 +2174,22 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               />
             </div>
 
-            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={handleResetSaleForm}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5 transition-all"
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span>Reset / Cancel Form</span>
+              </button>
+
               <button
                 type="submit"
                 className="px-5 py-2.5 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-500 shadow-md flex items-center gap-2 cursor-pointer"
               >
                 <PackageMinus className="h-4 w-4" />
-                <span>Submit Product Sale</span>
+                <span>Submit Product Sales Invoice</span>
               </button>
             </div>
           </form>
@@ -1716,79 +2291,89 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </div>
 
               <div>
-                <label className="block font-bold mb-1">Add Items to Pullout Bin</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search product SKU or name to add..."
-                    value={prodSearchInput}
-                    onChange={(e) => {
-                      setProdSearchInput(e.target.value);
-                      setIsSearchOpen(true);
-                    }}
-                    className={`w-full rounded-xl border p-2.5 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  />
-                  {isSearchOpen && matchingProducts.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border shadow-xl bg-white dark:bg-slate-900 divide-y dark:divide-slate-800">
-                      {matchingProducts.slice(0, 6).map((p) => (
-                        <div
-                          key={p.id}
-                          onClick={() => handleAddProductToPullout(p)}
-                          className="p-2.5 hover:bg-indigo-50 dark:hover:bg-slate-800 cursor-pointer flex justify-between items-center"
-                        >
-                          <div>
-                            <span className="font-bold text-slate-900 dark:text-white">{p.name}</span>
-                            <span className="text-[10px] text-slate-400 block">SKU: {p.sku} | Unit: {p.unit}</span>
-                          </div>
-                          <span className="font-mono font-bold text-indigo-600">रु {p.costPrice}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <label className="block font-bold mb-1">Scan Barcode or Search & Enter Product Name / SKU to Add *</label>
+                <ProductSearchBar
+                  products={products}
+                  onAddOrIncrementProduct={(prod) => handleAddProductToPullout(prod)}
+                  placeholder="Scan Barcode or Search & Enter Product Name / SKU for Pullout..."
+                />
               </div>
 
               {/* Added Pullout Items List */}
-              <div className="space-y-2 max-h-40 overflow-y-auto border rounded-xl p-2">
+              <div className="space-y-2 max-h-52 overflow-y-auto border rounded-xl p-2">
                 {pulloutItems.length === 0 ? (
-                  <p className="text-slate-400 text-center py-4 text-xs">No items added to pullout bin yet.</p>
+                  <p className="text-slate-400 text-center py-4 text-xs">No items added to pullout bin yet. Search above to add items.</p>
                 ) : (
-                  pulloutItems.map((item) => (
-                    <div key={item.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60">
-                      <div className="flex-1">
-                        <span className="font-bold text-slate-900 dark:text-white">{item.productName}</span>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <select
-                            value={item.condition}
-                            onChange={(e) => handleUpdatePulloutItem(item.id, { condition: e.target.value as any })}
-                            className="text-[10px] rounded border px-1.5 py-0.5 bg-white dark:bg-slate-900"
-                          >
-                            <option value="OVERSTOCK">OVERSTOCK</option>
-                            <option value="DAMAGED_STOCK">DAMAGED_STOCK</option>
-                          </select>
-                        </div>
-                      </div>
+                  pulloutItems.map((item) => {
+                    const prod = products.find((p) => p.id === item.productId);
+                    const isSerialized = prod?.requiresSerialTracking || prod?.trackingType === 'SERIAL_MAC_PON';
 
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={1}
-                          value={item.quantity}
-                          onChange={(e) => handleUpdatePulloutItem(item.id, { quantity: Number(e.target.value) })}
-                          className="w-16 rounded border p-1 text-center font-mono text-xs bg-white dark:bg-slate-900"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleRemovePulloutItem(item.id)}
-                          className="text-rose-500 hover:text-rose-700 cursor-pointer p-1"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                    return (
+                      <div key={item.id} className="p-2.5 rounded-xl border bg-slate-50 dark:bg-slate-800/60 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1">
+                            <span className="font-bold text-slate-900 dark:text-white block">{item.productName}</span>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[10px] font-mono text-slate-400">SKU: {item.sku}</span>
+                              <select
+                                value={item.condition}
+                                onChange={(e) => handleUpdatePulloutItem(item.id, { condition: e.target.value as any })}
+                                className="text-[10px] font-bold rounded border px-1.5 py-0.5 bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400"
+                              >
+                                <option value="OVERSTOCK">OVERSTOCK</option>
+                                <option value="DAMAGED_STOCK">DAMAGED_STOCK</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3">
+                            <div>
+                              <span className="text-[9px] text-slate-400 block text-right">Pullout Qty</span>
+                              <input
+                                type="number"
+                                min={1}
+                                value={item.quantity}
+                                onChange={(e) => handleUpdatePulloutItem(item.id, { quantity: Number(e.target.value) })}
+                                className="w-16 rounded border p-1 text-center font-mono font-bold text-xs bg-white dark:bg-slate-900"
+                              />
+                            </div>
+
+                            <div className="text-right">
+                              <span className="text-[9px] text-slate-400 block">Total Val</span>
+                              <span className="font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
+                                रु {item.totalValue.toLocaleString('en-IN')}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleRemovePulloutItem(item.id)}
+                              className="text-rose-500 hover:text-rose-700 cursor-pointer p-1"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Serial Tracking Badge & List */}
+                        {isSerialized && (
+                          <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700/60">
+                            <div className="flex items-center justify-between text-[10px] text-indigo-600 dark:text-indigo-400 font-bold mb-1">
+                              <span>✓ Device Serials ({item.deviceSerials?.length || 0} Units)</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1 bg-white dark:bg-slate-900/80 p-1.5 rounded-lg border text-[10px] font-mono">
+                              {item.deviceSerials?.slice(0, 2).map((s, idx) => (
+                                <div key={idx} className="text-slate-500">
+                                  <span>SN: {s.deviceSerial}</span>
+                                  {s.ponSerial && <span className="block text-[9px]">PON: {s.ponSerial}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
 
@@ -1804,20 +2389,34 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsPulloutModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 cursor-pointer"
+                  onClick={() => {
+                    setPulloutItems([]);
+                    setBinNotes('Warehouse overstock & damaged inventory pullout return dispatch');
+                  }}
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
                 >
-                  Cancel
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Reset Form</span>
                 </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 shadow-md cursor-pointer"
-                >
-                  Dispatch Pullout Bin
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsPulloutModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-500 shadow-md cursor-pointer"
+                  >
+                    Dispatch Pullout Bin
+                  </button>
+                </div>
               </div>
             </form>
           </div>
@@ -1866,20 +2465,20 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </div>
 
               <div>
-                <label className="block font-bold mb-1">Damaged Product *</label>
-                <select
-                  value={damageProductId}
-                  onChange={(e) => setDamageProductId(e.target.value)}
-                  className={`w-full rounded-xl border p-2.5 ${
-                    isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                  }`}
-                >
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      [{p.sku}] {p.name} ({p.unit})
-                    </option>
-                  ))}
-                </select>
+                <label className="block font-bold mb-1">Scan Barcode or Search & Select Damaged Product *</label>
+                <ProductSearchBar
+                  products={products}
+                  onAddOrIncrementProduct={(prod) => setDamageProductId(prod.id)}
+                  placeholder="Scan Barcode or Search & Select Damaged Product..."
+                />
+                {damageProductId && (
+                  <div className="mt-1.5 p-2 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-between font-mono text-xs">
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      Selected: {products.find((p) => p.id === damageProductId)?.name}
+                    </span>
+                    <span className="text-[10px] text-slate-400">SKU: {products.find((p) => p.id === damageProductId)?.sku}</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1922,20 +2521,35 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+              <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsDamageModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 cursor-pointer"
+                  onClick={() => {
+                    setDamageQty(1);
+                    setDamageReason('');
+                    setDamageInspector('Stores Quality Inspector');
+                  }}
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer flex items-center gap-1.5"
                 >
-                  Cancel
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>Reset Form</span>
                 </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-500 shadow-md cursor-pointer"
-                >
-                  Save Damaged Stock Tag
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsDamageModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-slate-500 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-500 shadow-md cursor-pointer"
+                  >
+                    Save Damaged Stock Tag
+                  </button>
+                </div>
               </div>
             </form>
           </div>
