@@ -43,6 +43,7 @@ import { FinancialStatements } from './components/FinancialStatements';
 import { VatRegister } from './components/VatRegister';
 import { DepreciationRegister } from './components/DepreciationRegister';
 import { StockValuation } from './components/StockValuation';
+import { NotificationCenter } from './components/NotificationCenter';
 import { ApprovalWorkflowCenter } from './components/ApprovalWorkflowCenter';
 import { StockMovementLedger } from './components/StockMovementLedger';
 import { WarrantyProducts } from './components/WarrantyProducts';
@@ -72,6 +73,7 @@ export default function App() {
   const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
   const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState<boolean>(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState<boolean>(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState<boolean>(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [permissionsVersion, setPermissionsVersion] = useState<number>(0);
@@ -544,6 +546,13 @@ export default function App() {
         onToggleTheme={handleToggleTheme}
         onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
         isSidebarOpen={isSidebarOpen}
+        products={products}
+        stock={stock}
+        approvalRequests={approvalRequests}
+        purchaseOrders={purchaseOrders}
+        shipments={shipments}
+        onSelectTab={setActiveTab}
+        onOpenNotification={() => setIsNotificationOpen((prev) => !prev)}
       />
 
       {/* Main Workspace Layout */}
@@ -1275,6 +1284,24 @@ export default function App() {
           setIsGlobalSearchOpen(false);
         }}
         isDarkMode={isDarkMode}
+      />
+
+      {/* Realtime Notification & Action Center Modal */}
+      <NotificationCenter
+        isOpen={isNotificationOpen}
+        onClose={() => setIsNotificationOpen(false)}
+        products={products}
+        stock={stock}
+        approvalRequests={approvalRequests}
+        purchaseOrders={purchaseOrders}
+        shipments={shipments}
+        branches={branches}
+        selectedBranchId={selectedBranchId}
+        isDarkMode={isDarkMode}
+        onSelectTab={(tab) => {
+          setActiveTab(tab);
+          setIsNotificationOpen(false);
+        }}
       />
     </div>
   );

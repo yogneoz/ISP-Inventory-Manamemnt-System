@@ -100,8 +100,9 @@ export const StockValuation: React.FC<StockValuationProps> = ({
       const q = searchQuery.toLowerCase().trim();
       const matchName = prod.name.toLowerCase().includes(q);
       const matchSKU = prod.sku.toLowerCase().includes(q);
+      const matchBarcode = prod.barcode ? prod.barcode.toLowerCase().includes(q) : false;
       const matchCat = prod.category.toLowerCase().includes(q);
-      if (!matchName && !matchSKU && !matchCat) return false;
+      if (!matchName && !matchSKU && !matchBarcode && !matchCat) return false;
     }
     return true;
   });

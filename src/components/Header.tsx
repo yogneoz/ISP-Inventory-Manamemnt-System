@@ -1,7 +1,8 @@
-import React from 'react';
-import { Branch, User } from '../types';
+import React, { useState } from 'react';
+import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment } from '../types';
 import { convertADToBS } from '../utils/nepaliCalendar';
 import { canUserSeeAllBranches, getAllowedBranches } from '../utils/permissions';
+import { NotificationCenter } from './NotificationCenter';
 import {
   Building2,
   Calendar,
@@ -39,6 +40,14 @@ interface HeaderProps {
   onToggleTheme: () => void;
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
+
+  products?: Product[];
+  stock?: InventoryStock[];
+  approvalRequests?: ApprovalRequest[];
+  purchaseOrders?: PurchaseOrder[];
+  shipments?: Shipment[];
+  onSelectTab?: (tab: string) => void;
+  onOpenNotification?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -62,9 +71,32 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme,
   onToggleSidebar,
   isSidebarOpen = false,
+
+  products = [],
+  stock = [],
+  approvalRequests = [],
+  purchaseOrders = [],
+  shipments = [],
+  onSelectTab = (_tab: string) => {},
+  onOpenNotification = () => {},
 }) => {
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+
   const todayAD = new Date().toISOString().split('T')[0];
   const bsInfo = convertADToBS(todayAD);
+
+  // Total actionable notifications badge
+  const pendingApprovalsCount = approvalRequests.filter(
+    (r) => r.status === 'PENDING' && (selectedBranchId === 'ALL' || r.branchId === selectedBranchId)
+  ).length;
+
+  const inTransitShipmentsCount = shipments.filter(
+    (s) =>
+      (s.status === 'IN_TRANSIT' || s.status === 'DISPATCHED') &&
+      (selectedBranchId === 'ALL' || s.destinationBranchId === selectedBranchId)
+  ).length;
+
+  const totalNotificationBadge = lowStockCount + pendingApprovalsCount + inTransitShipmentsCount;
 
   return (
     <header
@@ -140,7 +172,7 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Middle: Search input (Desktop) */}
       <div className="hidden lg:flex items-center max-w-sm flex-1 mx-4">
         <div
-          className="relative w-full cursor-pointer"
+          className="relative w-full cursor-pointer flex items-center"
           onClick={() => {
             if (onOpenSearchModal) onOpenSearchModal();
           }}
@@ -157,15 +189,30 @@ export const Header: React.FC<HeaderProps> = ({
               if (onOpenSearchModal) onOpenSearchModal();
             }}
             placeholder="Scan Barcode or Search Product Name / SKU:"
-            className={`w-full rounded-full pl-8 pr-10 py-1 text-[11px] focus:outline-none transition-all cursor-pointer ${
+            className={`w-full rounded-full pl-8 pr-16 py-1 text-[11px] focus:outline-none transition-all cursor-pointer ${
               isDarkMode
                 ? 'border border-slate-800 bg-[#0f1218] text-slate-200 placeholder-slate-500 focus:bg-slate-900 focus:border-indigo-500'
                 : 'border border-white/30 bg-white/10 text-white placeholder-indigo-200/60 focus:bg-white/20'
             }`}
           />
-          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 hidden xl:inline-block px-1 py-0.2 text-[9px] font-mono text-indigo-200 bg-white/10 rounded border border-white/20 pointer-events-none">
-            ⌘K
-          </kbd>
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {onOpenBarcodeModal && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenBarcodeModal();
+                }}
+                title="Scan Barcode with Camera"
+                className="p-1 rounded bg-white/10 hover:bg-white/20 text-indigo-200 hover:text-white transition-colors cursor-pointer"
+              >
+                <QrCode className="h-3 w-3" />
+              </button>
+            )}
+            <kbd className="hidden xl:inline-block px-1 py-0.2 text-[9px] font-mono text-indigo-200 bg-white/10 rounded border border-white/20 pointer-events-none">
+              ⌘K
+            </kbd>
+          </div>
         </div>
       </div>
 
@@ -270,6 +317,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Notifications badge */}
         <div className="relative">
           <button
+            onClick={onOpenNotification}
             title="Notifications & Reorder Alerts"
             className={`p-1 rounded-lg transition-colors relative cursor-pointer ${
               isDarkMode
@@ -278,9 +326,9 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <Bell className="h-3.5 w-3.5" />
-            {lowStockCount > 0 && (
+            {totalNotificationBadge > 0 && (
               <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white">
-                {lowStockCount}
+                {totalNotificationBadge}
               </span>
             )}
           </button>
