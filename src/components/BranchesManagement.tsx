@@ -30,6 +30,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
   const [location, setLocation] = useState('');
   const [phone, setPhone] = useState('');
   const [isHeadquarters, setIsHeadquarters] = useState(false);
+  const [isWarehouse, setIsWarehouse] = useState(false);
   const [allowProcurement, setAllowProcurement] = useState(true);
 
   const filtered = branches.filter(
@@ -46,6 +47,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setLocation('');
     setPhone('');
     setIsHeadquarters(false);
+    setIsWarehouse(false);
     setAllowProcurement(true);
     setIsModalOpen(true);
   };
@@ -57,6 +59,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
     setLocation(b.location);
     setPhone(b.phone);
     setIsHeadquarters(b.isHeadquarters);
+    setIsWarehouse(!!b.isWarehouse || b.code.toUpperCase().startsWith('WH'));
     setAllowProcurement(b.allowProcurement !== false);
     setIsModalOpen(true);
   };
@@ -81,6 +84,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           location,
           phone: phone || '+977-1-4200000',
           isHeadquarters,
+          isWarehouse,
           allowProcurement,
         });
       }
@@ -92,6 +96,7 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
           location,
           phone: phone || '+977-1-4200000',
           isHeadquarters,
+          isWarehouse,
           active: true,
           allowProcurement,
         });
@@ -304,6 +309,19 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
                   />
                   <label htmlFor="hq-check" className="font-semibold cursor-pointer">
                     Mark as Central Warehouse / Headquarters (HQ)
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="wh-check"
+                    checked={isWarehouse}
+                    onChange={(e) => setIsWarehouse(e.target.checked)}
+                    className="h-4 w-4 rounded text-indigo-600 cursor-pointer"
+                  />
+                  <label htmlFor="wh-check" className="font-semibold cursor-pointer">
+                    Mark as Regional Warehouse / Distribution Facility
                   </label>
                 </div>
 

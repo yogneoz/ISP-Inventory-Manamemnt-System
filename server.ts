@@ -18,6 +18,7 @@ import {
   AuditLog,
   TransactionLog,
   CustomerDeviceRecord,
+  CustomerRecord,
   ApprovalRequest,
 } from './src/types';
 
@@ -666,6 +667,62 @@ let transactionLogs: TransactionLog[] = [
     referenceDocId: 'DMG-2083-001',
     timestampAD: '2026-07-22T10:30:00Z',
     timestampBS: '2083-04-07 BS',
+  },
+];
+
+// Pre-seeded Customer Master Database
+let customerMasterRecords: CustomerRecord[] = [
+  {
+    id: 'CUS-10291',
+    customerId: 'CUS-10291',
+    customerName: 'Aarav Sharma',
+    username: 'aarav.sharma',
+    contactNumber: '9851092810',
+    branchId: 'BRC01',
+    address: 'Durbar Marg Ward 4, Kathmandu, Nepal',
+    email: 'aarav@gmail.com',
+    status: 'ACTIVE',
+    creditLimit: 25000,
+    assignedDevicesCount: 2,
+  },
+  {
+    id: 'CUS-10292',
+    customerId: 'CUS-10292',
+    customerName: 'Pooja Gurung',
+    username: 'pooja.g',
+    contactNumber: '9846019283',
+    branchId: 'BTM01',
+    address: 'Lakeside Ward 6, Pokhara, Nepal',
+    email: 'pooja.g@yahoo.com',
+    status: 'ACTIVE',
+    creditLimit: 15000,
+    assignedDevicesCount: 1,
+  },
+  {
+    id: 'CUS-10293',
+    customerId: 'CUS-10293',
+    customerName: 'Subash Shrestha',
+    username: 'subash.sh',
+    contactNumber: '9801029381',
+    branchId: 'WH001',
+    address: 'Jawalakhel Ward 2, Lalitpur, Nepal',
+    email: 'subash@outlook.com',
+    status: 'ACTIVE',
+    creditLimit: 50000,
+    assignedDevicesCount: 0,
+  },
+  {
+    id: 'CUS-10294',
+    customerId: 'CUS-10294',
+    customerName: 'Bina Thapa',
+    username: 'bina.t',
+    contactNumber: '9855019284',
+    branchId: 'CHU01',
+    address: 'Lions Chowk Ward 1, Narayangarh, Nepal',
+    email: 'bina@gmail.com',
+    status: 'ACTIVE',
+    creditLimit: 20000,
+    assignedDevicesCount: 1,
   },
 ];
 
@@ -1829,6 +1886,108 @@ app.patch('/api/customer-devices/:id/status', (req, res) => {
 
   record.status = status;
   res.json(record);
+});
+
+// Customer Master Database Endpoints
+app.get('/api/customers', (req, res) => {
+  const { branchId, query } = req.query;
+  let list = customerMasterRecords;
+
+  if (branchId && branchId !== 'ALL') {
+    list = list.filter((c) => c.branchId === branchId);
+  }
+
+  if (query && typeof query === 'string' && query.trim()) {
+    const q = query.toLowerCase().trim();
+    list = list.filter(
+      (c) =>
+        c.customerId?.toLowerCase().includes(q) ||
+        c.customerName?.toLowerCase().includes(q) ||
+        c.username?.toLowerCase().includes(q) ||
+        c.contactNumber?.toLowerCase().includes(q) ||
+        c.email?.toLowerCase().includes(q) ||
+        c.address?.toLowerCase().includes(q)
+    );
+  }
+
+  res.json(list);
+});
+
+app.post('/api/customers', (req, res) => {
+  const body = req.body;
+  const newRecord: CustomerRecord = {
+    id: body.id || body.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+    customerId: body.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+    customerName: body.customerName || 'New Customer',
+    username: body.username || (body.customerId ? body.customerId.toLowerCase() : 'user'),
+    contactNumber: body.contactNumber || '9800000000',
+    branchId: body.branchId || 'WH001',
+    address: body.address || 'Nepal',
+    email: body.email || '',
+    status: body.status || 'ACTIVE',
+    creditLimit: Number(body.creditLimit) || 0,
+    assignedDevicesCount: 0,
+  };
+
+  const idx = customerMasterRecords.findIndex((c) => c.id === newRecord.id || c.customerId === newRecord.customerId);
+  if (idx >= 0) {
+    customerMasterRecords[idx] = newRecord;
+  } else {
+    customerMasterRecords.unshift(newRecord);
+  }
+
+  res.status(201).json(newRecord);
+});
+
+app.post('/api/customers/bulk', (req, res) => {
+  const items: CustomerRecord[] = req.body.customers || [];
+  let count = 0;
+  items.forEach((cust) => {
+    const newRecord: CustomerRecord = {
+      id: cust.id || cust.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+      customerId: cust.customerId || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+      customerName: cust.customerName || 'Imported Customer',
+      username: cust.username || cust.customerId.toLowerCase(),
+      contactNumber: cust.contactNumber || '9800000000',
+      branchId: cust.branchId || 'WH001',
+      address: cust.address || 'Nepal',
+      email: cust.email || '',
+      status: cust.status || 'ACTIVE',
+      creditLimit: Number(cust.creditLimit) || 0,
+      assignedDevicesCount: 0,
+    };
+
+    const idx = customerMasterRecords.findIndex((c) => c.id === newRecord.id || c.customerId === newRecord.customerId);
+    if (idx >= 0) {
+      customerMasterRecords[idx] = newRecord;
+    } else {
+      customerMasterRecords.unshift(newRecord);
+    }
+    count++;
+  });
+
+  res.status(201).json({ success: true, count, total: customerMasterRecords.length });
+});
+
+app.put('/api/customers/:id', (req, res) => {
+  const { id } = req.params;
+  const idx = customerMasterRecords.findIndex((c) => c.id === id || c.customerId === id);
+  if (idx < 0) {
+    return res.status(404).json({ message: 'Customer record not found' });
+  }
+
+  customerMasterRecords[idx] = {
+    ...customerMasterRecords[idx],
+    ...req.body,
+  };
+
+  res.json(customerMasterRecords[idx]);
+});
+
+app.delete('/api/customers/:id', (req, res) => {
+  const { id } = req.params;
+  customerMasterRecords = customerMasterRecords.filter((c) => c.id !== id && c.customerId !== id);
+  res.json({ success: true, deletedId: id });
 });
 
 // Approval Requests & Workflow Authorization Routes

@@ -14,6 +14,7 @@ import {
   Asset,
   LocationRecord,
   CustomerRecord,
+  CustomerDeviceRecord,
 } from '../types';
 import { initialLocationsData, initialCustomersData } from '../data/initialData';
 import { formatDualDate } from '../utils/nepaliCalendar';
@@ -70,6 +71,7 @@ interface StockOperationsProps {
   assets?: Asset[];
   locations?: LocationRecord[];
   customers?: CustomerRecord[];
+  customerDevices?: CustomerDeviceRecord[];
   onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
   onReceiveOperation?: (id: string) => Promise<void>;
   onCreateShipment?: (sh: Partial<Shipment>) => Promise<void>;
@@ -92,6 +94,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   assets = [],
   locations = initialLocationsData,
   customers = initialCustomersData,
+  customerDevices = [],
   onCreateOperation,
   onReceiveOperation,
   onCreateShipment,
@@ -143,12 +146,53 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
   // --- FORM STATES ---
 
+  // Filter Central Warehouse & Warehouse locations for pullouts (exclude standard retail branches)
+  const warehouseLocations = branches.filter(
+    (b) =>
+      b.isHeadquarters ||
+      b.isWarehouse ||
+      b.code.toUpperCase().startsWith('WH') ||
+      b.name.toLowerCase().includes('warehouse') ||
+      b.name.toLowerCase().includes('head office') ||
+      b.name.toLowerCase().includes('central')
+  );
+  const destWarehouseOptions = warehouseLocations.length > 0 ? warehouseLocations : branches.filter((b) => b.isHeadquarters);
+
+  // Filter source branches for pullouts: ONLY retail / store branches (exclude Head Office / WH001 / warehouses)
+  const pulloutSourceBranches = allowedBranches.filter(
+    (b) =>
+      !b.isHeadquarters &&
+      !b.isWarehouse &&
+      b.id !== 'WH001' &&
+      !b.code.toUpperCase().startsWith('WH') &&
+      !b.name.toLowerCase().includes('head office') &&
+      !b.name.toLowerCase().includes('central warehouse')
+  );
+  const effectivePulloutSourceBranches =
+    pulloutSourceBranches.length > 0
+      ? pulloutSourceBranches
+      : allowedBranches.filter((b) => b.id !== 'WH001');
+
   // 1. Pullout Bin Form State
   const userBranchId = allowedBranches[0]?.id || branches[0]?.id || '';
-  const [sourceBranchId, setSourceBranchId] = useState<string>(userBranchId);
+  const initialPulloutSourceBranchId =
+    effectivePulloutSourceBranches.find((b) => b.id === userBranchId)?.id ||
+    effectivePulloutSourceBranches[0]?.id ||
+    allowedBranches.find((b) => b.id !== 'WH001')?.id ||
+    'BRC01';
+
+  const [sourceBranchId, setSourceBranchId] = useState<string>(initialPulloutSourceBranchId);
   const [destWarehouseId, setDestWarehouseId] = useState<string>(
-    branches.find((b) => b.isHeadquarters)?.id || 'BR-KTM'
+    destWarehouseOptions[0]?.id || branches.find((b) => b.isHeadquarters)?.id || 'WH001'
   );
+
+  useEffect(() => {
+    if (effectivePulloutSourceBranches.length > 0) {
+      if (!effectivePulloutSourceBranches.some((b) => b.id === sourceBranchId)) {
+        setSourceBranchId(effectivePulloutSourceBranches[0].id);
+      }
+    }
+  }, [effectivePulloutSourceBranches, sourceBranchId]);
   const [binInspector, setBinInspector] = useState<string>(currentUser?.name || 'Logistics Officer');
   const [binNotes, setBinNotes] = useState<string>('Overstock / Damaged stock return dispatch to central warehouse');
   const [pulloutItems, setPulloutItems] = useState<PulloutItem[]>([]);
@@ -203,36 +247,52 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     );
   });
 
+  // Helper to focus element by ID safely
+  const focusInput = (id: string) => {
+    setTimeout(() => {
+      const el = document.getElementById(id) as HTMLInputElement;
+      if (el) {
+        el.focus();
+        if ('select' in el) el.select();
+      }
+    }, 60);
+  };
+
   // Pullout Item Handlers
   const handleAddProductToPullout = (prod: Product) => {
-    const existing = pulloutItems.find((i) => i.productId === prod.id);
-    if (existing) {
-      setPulloutItems(
-        pulloutItems.map((i) =>
-          i.productId === prod.id
-            ? { ...i, quantity: i.quantity + 1, totalValue: (i.quantity + 1) * i.unitCost }
-            : i
-        )
+    const isSerialized = prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY';
+    let targetLineIdx = 0;
+    let targetSerialIdx = 0;
+
+    const existingIdx = pulloutItems.findIndex((i) => i.productId === prod.id);
+    if (existingIdx !== -1) {
+      targetLineIdx = existingIdx;
+      setPulloutItems((prev) =>
+        prev.map((i, idx) => {
+          if (idx !== existingIdx) return i;
+          const newQty = i.quantity + 1;
+          const currentSerials = [...(i.deviceSerials || [])];
+          targetSerialIdx = currentSerials.length;
+          if (isSerialized) {
+            currentSerials.push({ deviceSerial: '', ponSerial: '' });
+          }
+          return {
+            ...i,
+            quantity: newQty,
+            totalValue: newQty * i.unitCost,
+            deviceSerials: isSerialized ? currentSerials : undefined,
+          };
+        })
       );
     } else {
+      targetLineIdx = pulloutItems.length;
+      targetSerialIdx = 0;
       const srcStock = stock.find((s) => s.productId === prod.id && s.branchId === sourceBranchId);
       const availDamaged = srcStock?.damagedQty || 0;
       const defaultCond = availDamaged > 0 ? 'DAMAGED_STOCK' : 'OVERSTOCK';
 
-      // Auto generate initial serials if required
-      let initialSerials: DeviceSerialPair[] | undefined = undefined;
-      if (prod.requiresSerialTracking || prod.trackingType === 'SERIAL_MAC_PON') {
-        initialSerials = [
-          {
-            deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-            ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-            macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
-          },
-        ];
-      }
-
-      setPulloutItems([
-        ...pulloutItems,
+      setPulloutItems((prev) => [
+        ...prev,
         {
           id: `pli-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           productId: prod.id,
@@ -244,12 +304,38 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           unitCost: prod.costPrice,
           totalValue: prod.costPrice,
           reason: defaultCond === 'DAMAGED_STOCK' ? 'Damaged inventory return' : 'Surplus overstock return to warehouse',
-          deviceSerials: initialSerials,
+          deviceSerials: isSerialized ? [{ deviceSerial: '', ponSerial: '' }] : undefined,
         },
       ]);
     }
     setProdSearchInput('');
     setIsSearchOpen(false);
+
+    if (isSerialized) {
+      focusInput(`pullout-serial-device-${targetLineIdx}-${targetSerialIdx}`);
+    }
+  };
+
+  const updatePulloutDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setPulloutItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
+  const updatePulloutPonSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setPulloutItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
   };
 
   const handleUpdatePulloutItem = (id: string, updates: Partial<PulloutItem>) => {
@@ -261,14 +347,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           updated.totalValue = updated.quantity * updated.unitCost;
           // Sync serials count if quantity changed and serials exist
           const prod = products.find((p) => p.id === updated.productId);
-          if (prod && (prod.requiresSerialTracking || prod.trackingType === 'SERIAL_MAC_PON')) {
+          if (prod && prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY') {
             const curSerials = [...(updated.deviceSerials || [])];
             while (curSerials.length < updated.quantity) {
-              curSerials.push({
-                deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-                ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-                macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
-              });
+              curSerials.push({ deviceSerial: '', ponSerial: '' });
             }
             updated.deviceSerials = curSerials.slice(0, updated.quantity);
           }
@@ -290,40 +372,77 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     setXferDestBranchId(branches.find((b) => b.id !== userBranchId)?.id || branches[1]?.id || '');
   };
 
+  const updateTransferDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setTransferItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
+  const updateTransferPonSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setTransferItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
   const handleAddTransferItem = (prodId?: string) => {
     const selProd = products.find((p) => p.id === prodId) || products[0];
     if (!selProd) return;
 
-    const existingItem = transferItems.find((i) => i.productId === selProd.id);
-    if (existingItem) {
-      handleUpdateTransferItem(existingItem.id, { quantitySent: existingItem.quantitySent + 1 });
-      return;
-    }
+    const isSerialized = selProd.requiresSerialTracking !== false && selProd.trackingType !== 'QUANTITY_ONLY';
+    let targetLineIdx = 0;
+    let targetSerialIdx = 0;
 
-    let initialSerials: DeviceSerialPair[] | undefined = undefined;
-    if (selProd.requiresSerialTracking || selProd.trackingType === 'SERIAL_MAC_PON') {
-      initialSerials = [
+    const existingIdx = transferItems.findIndex((i) => i.productId === selProd.id);
+    if (existingIdx !== -1) {
+      targetLineIdx = existingIdx;
+      setTransferItems((prev) =>
+        prev.map((item, idx) => {
+          if (idx !== existingIdx) return item;
+          const newQty = item.quantitySent + 1;
+          const currentSerials = [...(item.deviceSerials || [])];
+          targetSerialIdx = currentSerials.length;
+          if (isSerialized) {
+            currentSerials.push({ deviceSerial: '', ponSerial: '' });
+          }
+          return {
+            ...item,
+            quantity: newQty,
+            quantitySent: newQty,
+            deviceSerials: isSerialized ? currentSerials : undefined,
+          };
+        })
+      );
+    } else {
+      targetLineIdx = transferItems.length;
+      targetSerialIdx = 0;
+      setTransferItems((prev) => [
+        ...prev,
         {
-          deviceSerial: `SN-${selProd.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-          macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
+          id: `xfer-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          productId: selProd.id,
+          productName: selProd.name,
+          sku: selProd.sku,
+          unit: selProd.unit,
+          quantity: 1,
+          quantitySent: 1,
+          deviceSerials: isSerialized ? [{ deviceSerial: '', ponSerial: '' }] : undefined,
         },
-      ];
+      ]);
     }
 
-    setTransferItems([
-      ...transferItems,
-      {
-        id: `xfer-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        productId: selProd.id,
-        productName: selProd.name,
-        sku: selProd.sku,
-        unit: selProd.unit,
-        quantity: 1,
-        quantitySent: 1,
-        deviceSerials: initialSerials,
-      },
-    ]);
+    if (isSerialized) {
+      focusInput(`transfer-serial-device-${targetLineIdx}-${targetSerialIdx}`);
+    }
   };
 
   const handleUpdateTransferItem = (id: string, updates: Partial<ShipmentItem>) => {
@@ -342,14 +461,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         if (updates.quantitySent !== undefined) {
           updated.quantity = updated.quantitySent;
           const prod = products.find((p) => p.id === updated.productId);
-          if (prod && (prod.requiresSerialTracking || prod.trackingType === 'SERIAL_MAC_PON')) {
+          if (prod && prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY') {
             const curSerials = [...(updated.deviceSerials || [])];
             while (curSerials.length < updated.quantitySent) {
-              curSerials.push({
-                deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-                ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-                macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
-              });
+              curSerials.push({ deviceSerial: '', ponSerial: '' });
             }
             updated.deviceSerials = curSerials.slice(0, updated.quantitySent);
           }
@@ -372,43 +487,80 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     setSaleNotes('Direct retail product item sale to customer');
   };
 
+  const updateSaleDeviceSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setSaleItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], deviceSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
+  const updateSalePonSerial = (lineIdx: number, sIdx: number, val: string) => {
+    setSaleItems((prev) =>
+      prev.map((item, idx) => {
+        if (idx !== lineIdx) return item;
+        const serials = [...(item.deviceSerials || [])];
+        serials[sIdx] = { ...serials[sIdx], ponSerial: val };
+        return { ...item, deviceSerials: serials };
+      })
+    );
+  };
+
   const handleAddSaleItem = (prodId?: string) => {
     const selProd = products.find((p) => p.id === prodId) || products[0];
     if (!selProd) return;
 
-    const existingItem = saleItems.find((i) => i.productId === selProd.id);
-    if (existingItem) {
-      handleUpdateSaleItem(existingItem.id, { quantity: existingItem.quantity + 1 });
-      return;
-    }
+    const isSerialized = selProd.requiresSerialTracking !== false && selProd.trackingType !== 'QUANTITY_ONLY';
+    let targetLineIdx = 0;
+    let targetSerialIdx = 0;
 
-    let initialSerials: DeviceSerialPair[] | undefined = undefined;
-    if (selProd.requiresSerialTracking || selProd.trackingType === 'SERIAL_MAC_PON') {
-      initialSerials = [
+    const existingIdx = saleItems.findIndex((i) => i.productId === selProd.id);
+    if (existingIdx !== -1) {
+      targetLineIdx = existingIdx;
+      setSaleItems((prev) =>
+        prev.map((item, idx) => {
+          if (idx !== existingIdx) return item;
+          const newQty = item.quantity + 1;
+          const currentSerials = [...(item.deviceSerials || [])];
+          targetSerialIdx = currentSerials.length;
+          if (isSerialized) {
+            currentSerials.push({ deviceSerial: '', ponSerial: '' });
+          }
+          return {
+            ...item,
+            quantity: newQty,
+            totalValue: Math.max(0, newQty * item.sellingPrice - item.discount),
+            deviceSerials: isSerialized ? currentSerials : undefined,
+          };
+        })
+      );
+    } else {
+      targetLineIdx = saleItems.length;
+      targetSerialIdx = 0;
+      const price = selProd.sellingPrice || 1000;
+      setSaleItems((prev) => [
+        ...prev,
         {
-          deviceSerial: `SN-${selProd.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-          macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
+          id: `sli-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          productId: selProd.id,
+          productName: selProd.name,
+          sku: selProd.sku,
+          unit: selProd.unit,
+          quantity: 1,
+          sellingPrice: price,
+          discount: 0,
+          totalValue: price,
+          deviceSerials: isSerialized ? [{ deviceSerial: '', ponSerial: '' }] : undefined,
         },
-      ];
+      ]);
     }
 
-    const price = selProd.sellingPrice || 1000;
-    setSaleItems([
-      ...saleItems,
-      {
-        id: `sli-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        productId: selProd.id,
-        productName: selProd.name,
-        sku: selProd.sku,
-        unit: selProd.unit,
-        quantity: 1,
-        sellingPrice: price,
-        discount: 0,
-        totalValue: price,
-        deviceSerials: initialSerials,
-      },
-    ]);
+    if (isSerialized) {
+      focusInput(`sale-serial-device-${targetLineIdx}-${targetSerialIdx}`);
+    }
   };
 
   const handleUpdateSaleItem = (id: string, updates: Partial<SaleItem>) => {
@@ -430,14 +582,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         if (updates.quantity !== undefined || updates.sellingPrice !== undefined || updates.discount !== undefined) {
           updated.totalValue = Math.max(0, (updated.quantity * updated.sellingPrice) - updated.discount);
           const prod = products.find((p) => p.id === updated.productId);
-          if (prod && (prod.requiresSerialTracking || prod.trackingType === 'SERIAL_MAC_PON')) {
+          if (prod && prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY') {
             const curSerials = [...(updated.deviceSerials || [])];
             while (curSerials.length < updated.quantity) {
-              curSerials.push({
-                deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-                ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-                macAddress: `00:1A:2B:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}:${Math.floor(10 + Math.random() * 89)}`,
-              });
+              curSerials.push({ deviceSerial: '', ponSerial: '' });
             }
             updated.deviceSerials = curSerials.slice(0, updated.quantity);
           }
@@ -512,6 +660,97 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     setConsumableItems(consumableItems.filter((i) => i.id !== id));
   };
 
+  // Shared Branch Inventory & Serial Register Validation
+  const validateSourceBranchStockAndSerials = (
+    branchId: string,
+    branchName: string,
+    items: {
+      productId: string;
+      productName: string;
+      quantity: number;
+      deviceSerials?: { deviceSerial: string; ponSerial?: string }[];
+    }[]
+  ): boolean => {
+    const seenSerials = new Set<string>();
+
+    for (const item of items) {
+      const prod = products.find((p) => p.id === item.productId);
+      const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
+      const srcStock = stock.find((s) => s.productId === item.productId && s.branchId === branchId);
+      const availStock = srcStock ? srcStock.quantityOnHand : 0;
+
+      // 1. Validate Branch Stock Quantity On Hand
+      if (availStock < item.quantity) {
+        alert(
+          `Branch Stock Error: "${branchName}" only has ${availStock} unit(s) of "${item.productName}" on hand, but ${item.quantity} unit(s) are requested.`
+        );
+        return false;
+      }
+
+      // 2. Validate Serial Tracking & Register for Serialized Items
+      if (isSerialized) {
+        if (!item.deviceSerials || item.deviceSerials.length < item.quantity) {
+          alert(`Validation Error: Please enter serial numbers for all ${item.quantity} unit(s) of "${item.productName}".`);
+          return false;
+        }
+
+        for (let sIdx = 0; sIdx < item.quantity; sIdx++) {
+          const s = item.deviceSerials[sIdx];
+          if (!s || !s.deviceSerial?.trim()) {
+            alert(`Validation Error: Device Serial # is required for "${item.productName}" (Unit #${sIdx + 1}).`);
+            return false;
+          }
+
+          const cleanSerial = s.deviceSerial.trim().toUpperCase();
+          const cleanPon = s.ponSerial?.trim().toUpperCase();
+
+          if (seenSerials.has(cleanSerial)) {
+            alert(`Validation Error: Duplicate Device Serial #${cleanSerial} detected in requested items.`);
+            return false;
+          }
+          seenSerials.add(cleanSerial);
+
+          // Check against customerDevices serial register if populated
+          if (customerDevices.length > 0) {
+            const match = customerDevices.find(
+              (cd) =>
+                cd.deviceSerial.trim().toUpperCase() === cleanSerial ||
+                (cleanPon && cd.ponSerial && cd.ponSerial.trim().toUpperCase() === cleanPon)
+            );
+
+            if (match) {
+              if (match.branchId !== branchId) {
+                const regBranch = branches.find((b) => b.id === match.branchId);
+                alert(
+                  `Serial Register Error: Serial #${cleanSerial} is registered to branch "${regBranch?.name || match.branchId}", not "${branchName}".`
+                );
+                return false;
+              }
+              if (match.status && match.status !== 'IN_STOCK') {
+                alert(
+                  `Serial Register Error: Serial #${cleanSerial} in branch "${branchName}" has status "${match.status}" (must be "IN_STOCK").`
+                );
+                return false;
+              }
+            } else {
+              const branchInStockSerials = customerDevices.filter(
+                (cd) => cd.branchId === branchId && cd.status === 'IN_STOCK'
+              );
+              if (branchInStockSerials.length > 0) {
+                alert(
+                  `Serial Register Error: Serial #${cleanSerial} for "${item.productName}" is not found in the branch serial register for "${branchName}".`
+                );
+                return false;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return true;
+  };
+
   // 1. Submit Pullout Dispatch
   const handleSubmitPulloutBin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -522,6 +761,23 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
     const srcBranch = branches.find((b) => b.id === sourceBranchId);
     const destWh = branches.find((b) => b.id === destWarehouseId);
+
+    // Strict validation for Branch Stock Quantity and Serial Register
+    if (
+      !validateSourceBranchStockAndSerials(
+        sourceBranchId,
+        srcBranch?.name || sourceBranchId,
+        pulloutItems.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          quantity: i.quantity,
+          deviceSerials: i.deviceSerials,
+        }))
+      )
+    ) {
+      return;
+    }
+
     const grandTotal = pulloutItems.reduce((sum, item) => sum + item.totalValue, 0);
 
     await onCreateOperation({
@@ -579,6 +835,21 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
     if (transferItems.length === 0) {
       alert('Please add at least one product item to transfer.');
+      return;
+    }
+
+    if (
+      !validateSourceBranchStockAndSerials(
+        xferSourceBranchId,
+        srcBranch.name,
+        transferItems.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          quantity: i.quantitySent,
+          deviceSerials: i.deviceSerials,
+        }))
+      )
+    ) {
       return;
     }
 
@@ -670,6 +941,21 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     }
 
     const branchObj = branches.find((b) => b.id === consumableBranchId);
+
+    if (
+      !validateSourceBranchStockAndSerials(
+        consumableBranchId,
+        branchObj?.name || consumableBranchId,
+        consumableItems.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          quantity: i.quantity,
+        }))
+      )
+    ) {
+      return;
+    }
+
     const grandTotal = consumableItems.reduce((sum, item) => sum + item.totalValue, 0);
 
     await onCreateOperation({
@@ -700,6 +986,22 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
     if (saleItems.length === 0) {
       alert('Please add at least one product item to the sales invoice.');
+      return;
+    }
+
+    // Strict validation for Branch Stock Quantity and Serial Register
+    if (
+      !validateSourceBranchStockAndSerials(
+        saleBranchId,
+        branchObj?.name || saleBranchId,
+        saleItems.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          quantity: i.quantity,
+          deviceSerials: i.deviceSerials,
+        }))
+      )
+    ) {
       return;
     }
 
@@ -1373,6 +1675,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   products={products}
                   onAddOrIncrementProduct={(prod) => handleAddTransferItem(prod.id)}
                   placeholder="Scan Barcode or Search & Enter Product Name / SKU to Add to Transfer..."
+                  inputId="transfer-product-search-input"
                 />
               </div>
 
@@ -1410,15 +1713,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <th className="p-2.5">Product SKU & Name</th>
                         <th className="p-2.5 text-center">Branch Stock</th>
                         <th className="p-2.5 text-center">Transfer Qty</th>
-                        <th className="p-2.5">Serials & MAC Tracking</th>
+                        <th className="p-2.5 min-w-[280px]">Serials & PON Scanning</th>
                         <th className="p-2.5 text-center">Action</th>
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                      {transferItems.map((item) => {
+                      {transferItems.map((item, idx) => {
                         const prod = products.find((p) => p.id === item.productId);
                         const stk = stock.find((s) => s.productId === item.productId && s.branchId === xferSourceBranchId);
-                        const isSerialized = prod?.requiresSerialTracking || prod?.trackingType === 'SERIAL_MAC_PON';
+                        const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
 
                         return (
                           <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
@@ -1457,21 +1760,59 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
                             <td className="p-2.5">
                               {isSerialized ? (
-                                <div className="space-y-1">
+                                <div className="space-y-1.5">
                                   <span className="text-[10px] text-sky-600 dark:text-sky-400 font-bold block">
-                                    ✓ Serial Tracking Active ({item.deviceSerials?.length || 0} Units)
+                                    ✓ Scan Serials for {item.productName} ({item.quantitySent} Unit{item.quantitySent > 1 ? 's' : ''})
                                   </span>
-                                  {item.deviceSerials?.slice(0, 2).map((ser, sIdx) => (
-                                    <div key={sIdx} className="text-[10px] font-mono text-slate-500 flex items-center gap-1">
-                                      <span>SN: {ser.deviceSerial}</span>
-                                      {ser.ponSerial && <span>| PON: {ser.ponSerial}</span>}
+                                  {Array.from({ length: item.quantitySent }).map((_, sIdx) => (
+                                    <div key={sIdx} className="bg-sky-50/50 dark:bg-sky-950/40 p-1.5 rounded-lg border border-sky-200 dark:border-sky-800 flex items-center gap-1.5 text-xs">
+                                      <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
+                                      <input
+                                        id={`transfer-serial-device-${idx}-${sIdx}`}
+                                        type="text"
+                                        placeholder="Device Serial #"
+                                        value={item.deviceSerials?.[sIdx]?.deviceSerial || ''}
+                                        onChange={(e) => updateTransferDeviceSerial(idx, sIdx, e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            const nextEl = document.getElementById(`transfer-serial-pon-${idx}-${sIdx}`) as HTMLInputElement;
+                                            if (nextEl) {
+                                              nextEl.focus();
+                                              if ('select' in nextEl) nextEl.select();
+                                            }
+                                          }
+                                        }}
+                                        className="w-1/2 px-2 py-1 text-[11px] font-mono font-bold text-sky-900 dark:text-sky-200 bg-white dark:bg-slate-900 rounded border border-sky-300 dark:border-sky-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                      />
+                                      <input
+                                        id={`transfer-serial-pon-${idx}-${sIdx}`}
+                                        type="text"
+                                        placeholder="PON Serial #"
+                                        value={item.deviceSerials?.[sIdx]?.ponSerial || ''}
+                                        onChange={(e) => updateTransferPonSerial(idx, sIdx, e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            if (sIdx + 1 < item.quantitySent) {
+                                              const nextDev = document.getElementById(`transfer-serial-device-${idx}-${sIdx + 1}`) as HTMLInputElement;
+                                              if (nextDev) {
+                                                nextDev.focus();
+                                                if ('select' in nextDev) nextDev.select();
+                                              }
+                                            } else {
+                                              const searchInput = document.getElementById('transfer-product-search-input') as HTMLInputElement;
+                                              if (searchInput) {
+                                                searchInput.focus();
+                                                if ('select' in searchInput) searchInput.select();
+                                              }
+                                            }
+                                          }
+                                        }}
+                                        className="w-1/2 px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 dark:text-indigo-200 bg-white dark:bg-slate-900 rounded border border-indigo-300 dark:border-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                      />
                                     </div>
                                   ))}
-                                  {(item.deviceSerials?.length || 0) > 2 && (
-                                    <span className="text-[9px] text-slate-400 font-mono">
-                                      +{(item.deviceSerials?.length || 0) - 2} more serials auto-generated
-                                    </span>
-                                  )}
                                 </div>
                               ) : (
                                 <span className="text-slate-400 italic text-[11px]">Non-serialized bulk product</span>
@@ -2002,6 +2343,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   products={products}
                   onAddOrIncrementProduct={(prod) => handleAddSaleItem(prod.id)}
                   placeholder="Scan Barcode or Search & Enter Product Name / SKU to Add to Sales Invoice..."
+                  inputId="sale-product-search-input"
                 />
               </div>
 
@@ -2046,14 +2388,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       </tr>
                     </thead>
                     <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
-                      {saleItems.map((item) => {
+                      {saleItems.map((item, idx) => {
                         const prod = products.find((p) => p.id === item.productId);
                         const stk = stock.find((s) => s.productId === item.productId && s.branchId === saleBranchId);
-                        const isSerialized = prod?.requiresSerialTracking || prod?.trackingType === 'SERIAL_MAC_PON';
+                        const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
 
                         return (
                           <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                            <td className="p-2.5">
+                            <td className="p-2.5 min-w-[240px]">
                               <select
                                 value={item.productId}
                                 onChange={(e) => handleUpdateSaleItem(item.id, { productId: e.target.value })}
@@ -2067,10 +2409,62 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                   </option>
                                 ))}
                               </select>
+
                               {isSerialized && (
-                                <span className="text-[10px] text-purple-600 dark:text-purple-400 font-bold block mt-1">
-                                  ✓ Serial Tracking Engaged ({item.deviceSerials?.length || 0} Units)
-                                </span>
+                                <div className="mt-2 space-y-1 bg-purple-50/50 dark:bg-purple-950/40 p-2 rounded-lg border border-purple-200 dark:border-purple-800/60">
+                                  <span className="text-[10px] text-purple-700 dark:text-purple-300 font-bold block">
+                                    ✓ Scan Serials for {item.productName} ({item.quantity} Unit{item.quantity > 1 ? 's' : ''})
+                                  </span>
+                                  {Array.from({ length: item.quantity }).map((_, sIdx) => (
+                                    <div key={sIdx} className="flex items-center gap-1.5 mt-1 text-xs">
+                                      <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
+                                      <input
+                                        id={`sale-serial-device-${idx}-${sIdx}`}
+                                        type="text"
+                                        placeholder="Device Serial #"
+                                        value={item.deviceSerials?.[sIdx]?.deviceSerial || ''}
+                                        onChange={(e) => updateSaleDeviceSerial(idx, sIdx, e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            const nextEl = document.getElementById(`sale-serial-pon-${idx}-${sIdx}`) as HTMLInputElement;
+                                            if (nextEl) {
+                                              nextEl.focus();
+                                              if ('select' in nextEl) nextEl.select();
+                                            }
+                                          }
+                                        }}
+                                        className="w-1/2 px-2 py-1 text-[11px] font-mono font-bold text-purple-900 dark:text-purple-200 bg-white dark:bg-slate-900 rounded border border-purple-300 dark:border-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                      />
+                                      <input
+                                        id={`sale-serial-pon-${idx}-${sIdx}`}
+                                        type="text"
+                                        placeholder="PON Serial #"
+                                        value={item.deviceSerials?.[sIdx]?.ponSerial || ''}
+                                        onChange={(e) => updateSalePonSerial(idx, sIdx, e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            if (sIdx + 1 < item.quantity) {
+                                              const nextDev = document.getElementById(`sale-serial-device-${idx}-${sIdx + 1}`) as HTMLInputElement;
+                                              if (nextDev) {
+                                                nextDev.focus();
+                                                if ('select' in nextDev) nextDev.select();
+                                              }
+                                            } else {
+                                              const searchInput = document.getElementById('sale-product-search-input') as HTMLInputElement;
+                                              if (searchInput) {
+                                                searchInput.focus();
+                                                if ('select' in searchInput) searchInput.select();
+                                              }
+                                            }
+                                          }
+                                        }}
+                                        className="w-1/2 px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 dark:text-indigo-200 bg-white dark:bg-slate-900 rounded border border-indigo-300 dark:border-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
                               )}
                             </td>
 
@@ -2268,7 +2662,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                     }`}
                   >
-                    {allowedBranches.map((b) => (
+                    {effectivePulloutSourceBranches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                     ))}
                   </select>
@@ -2283,8 +2677,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
                     }`}
                   >
-                    {branches.map((b) => (
-                      <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
+                    {destWarehouseOptions.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.code}) {b.isHeadquarters ? '⭐ Central HQ' : '🏬 Warehouse'}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -2296,17 +2692,18 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   products={products}
                   onAddOrIncrementProduct={(prod) => handleAddProductToPullout(prod)}
                   placeholder="Scan Barcode or Search & Enter Product Name / SKU for Pullout..."
+                  inputId="pullout-product-search-input"
                 />
               </div>
 
               {/* Added Pullout Items List */}
-              <div className="space-y-2 max-h-52 overflow-y-auto border rounded-xl p-2">
+              <div className="space-y-2 max-h-60 overflow-y-auto border rounded-xl p-2">
                 {pulloutItems.length === 0 ? (
                   <p className="text-slate-400 text-center py-4 text-xs">No items added to pullout bin yet. Search above to add items.</p>
                 ) : (
-                  pulloutItems.map((item) => {
+                  pulloutItems.map((item, idx) => {
                     const prod = products.find((p) => p.id === item.productId);
-                    const isSerialized = prod?.requiresSerialTracking || prod?.trackingType === 'SERIAL_MAC_PON';
+                    const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
 
                     return (
                       <div key={item.id} className="p-2.5 rounded-xl border bg-slate-50 dark:bg-slate-800/60 space-y-2">
@@ -2355,20 +2752,61 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                           </div>
                         </div>
 
-                        {/* Serial Tracking Badge & List */}
+                        {/* Serial Tracking Inputs */}
                         {isSerialized && (
-                          <div className="pt-1.5 border-t border-slate-200 dark:border-slate-700/60">
-                            <div className="flex items-center justify-between text-[10px] text-indigo-600 dark:text-indigo-400 font-bold mb-1">
-                              <span>✓ Device Serials ({item.deviceSerials?.length || 0} Units)</span>
+                          <div className="pt-2 border-t border-slate-200 dark:border-slate-700/60 space-y-1.5">
+                            <div className="flex items-center justify-between text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+                              <span>✓ Scan Serials for {item.productName} ({item.quantity} Unit{item.quantity > 1 ? 's' : ''})</span>
                             </div>
-                            <div className="grid grid-cols-2 gap-1 bg-white dark:bg-slate-900/80 p-1.5 rounded-lg border text-[10px] font-mono">
-                              {item.deviceSerials?.slice(0, 2).map((s, idx) => (
-                                <div key={idx} className="text-slate-500">
-                                  <span>SN: {s.deviceSerial}</span>
-                                  {s.ponSerial && <span className="block text-[9px]">PON: {s.ponSerial}</span>}
-                                </div>
-                              ))}
-                            </div>
+                            {Array.from({ length: item.quantity }).map((_, sIdx) => (
+                              <div key={sIdx} className="bg-white dark:bg-slate-900/80 p-1.5 rounded-lg border flex items-center gap-1.5 text-xs">
+                                <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
+                                <input
+                                  id={`pullout-serial-device-${idx}-${sIdx}`}
+                                  type="text"
+                                  placeholder="Device Serial #"
+                                  value={item.deviceSerials?.[sIdx]?.deviceSerial || ''}
+                                  onChange={(e) => updatePulloutDeviceSerial(idx, sIdx, e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      const nextEl = document.getElementById(`pullout-serial-pon-${idx}-${sIdx}`) as HTMLInputElement;
+                                      if (nextEl) {
+                                        nextEl.focus();
+                                        if ('select' in nextEl) nextEl.select();
+                                      }
+                                    }
+                                  }}
+                                  className="w-1/2 px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 dark:text-indigo-200 bg-slate-50 dark:bg-slate-950 rounded border border-indigo-200 dark:border-indigo-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                />
+                                <input
+                                  id={`pullout-serial-pon-${idx}-${sIdx}`}
+                                  type="text"
+                                  placeholder="PON Serial #"
+                                  value={item.deviceSerials?.[sIdx]?.ponSerial || ''}
+                                  onChange={(e) => updatePulloutPonSerial(idx, sIdx, e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      if (sIdx + 1 < item.quantity) {
+                                        const nextDev = document.getElementById(`pullout-serial-device-${idx}-${sIdx + 1}`) as HTMLInputElement;
+                                        if (nextDev) {
+                                          nextDev.focus();
+                                          if ('select' in nextDev) nextDev.select();
+                                        }
+                                      } else {
+                                        const searchInput = document.getElementById('pullout-product-search-input') as HTMLInputElement;
+                                        if (searchInput) {
+                                          searchInput.focus();
+                                          if ('select' in searchInput) searchInput.select();
+                                        }
+                                      }
+                                    }
+                                  }}
+                                  className="w-1/2 px-2 py-1 text-[11px] font-mono font-bold text-sky-900 dark:text-sky-200 bg-slate-50 dark:bg-slate-950 rounded border border-sky-200 dark:border-sky-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                />
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>

@@ -141,20 +141,23 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   // Search/Scan Product Add or Duplicate Quantity Increment
   const handleAddOrIncrementProduct = (prod: Product) => {
     const isSerialized = prod.requiresSerialTracking !== false;
+    let targetLineIdx = 0;
+    let targetSerialIdx = 0;
+
     setLines((prevLines) => {
       const existingIdx = prevLines.findIndex((l) => l.productId === prod.id);
       if (existingIdx !== -1) {
         // Duplicate product entered -> Increase quantity!
+        targetLineIdx = existingIdx;
         const updated = [...prevLines];
         const newQty = updated[existingIdx].quantity + 1;
         const currentSerials = [...(updated[existingIdx].deviceSerials || [])];
         if (isSerialized) {
-          while (currentSerials.length < newQty) {
-            currentSerials.push({
-              deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-              ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
-            });
-          }
+          targetSerialIdx = currentSerials.length;
+          currentSerials.push({
+            deviceSerial: '',
+            ponSerial: '',
+          });
         }
         updated[existingIdx] = {
           ...updated[existingIdx],
@@ -164,6 +167,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         return updated;
       } else {
         // Add new row with initial serial pair if serialized
+        targetLineIdx = prevLines.length;
+        targetSerialIdx = 0;
         return [
           ...prevLines,
           {
@@ -177,8 +182,8 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             deviceSerials: isSerialized
               ? [
                   {
-                    deviceSerial: `SN-${prod.sku}-${Math.floor(100000 + Math.random() * 900000)}`,
-                    ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+                    deviceSerial: '',
+                    ponSerial: '',
                   },
                 ]
               : [],
@@ -186,6 +191,16 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
         ];
       }
     });
+
+    if (isSerialized) {
+      setTimeout(() => {
+        const el = document.getElementById(`serial-device-${targetLineIdx}-${targetSerialIdx}`) as HTMLInputElement;
+        if (el) {
+          el.focus();
+          if ('select' in el) el.select();
+        }
+      }, 60);
+    }
   };
 
   const removeLine = (index: number) => {
@@ -734,6 +749,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   products={products}
                   onAddOrIncrementProduct={handleAddOrIncrementProduct}
                   placeholder="Scan barcode or type code/item name and press Enter to add..."
+                  inputId="purchase-product-search-input"
                 />
               </div>
 
@@ -874,21 +890,43 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                         
                                         <div className="flex-1 min-w-0">
                                           <input
+                                            id={`serial-device-${idx}-${sIdx}`}
                                             type="text"
                                             placeholder="Device Serial #"
                                             value={line.deviceSerials?.[sIdx]?.deviceSerial || ''}
                                             onChange={(e) => updateLineDeviceSerial(idx, sIdx, e.target.value)}
-                                            className="w-full px-2 py-1 text-[11px] font-mono font-bold text-blue-900 bg-blue-50/50 rounded border border-blue-200 focus:bg-white focus:outline-none"
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                const nextEl = document.getElementById(`serial-pon-${idx}-${sIdx}`) as HTMLInputElement;
+                                                if (nextEl) {
+                                                  nextEl.focus();
+                                                  if ('select' in nextEl) nextEl.select();
+                                                }
+                                              }
+                                            }}
+                                            className="w-full px-2 py-1 text-[11px] font-mono font-bold text-blue-900 bg-blue-50/50 rounded border border-blue-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                                           />
                                         </div>
 
                                         <div className="flex-1 min-w-0">
                                           <input
+                                            id={`serial-pon-${idx}-${sIdx}`}
                                             type="text"
                                             placeholder="PON Serial #"
                                             value={line.deviceSerials?.[sIdx]?.ponSerial || ''}
                                             onChange={(e) => updateLinePonSerial(idx, sIdx, e.target.value)}
-                                            className="w-full px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 bg-indigo-50/50 rounded border border-indigo-200 focus:bg-white focus:outline-none"
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                const searchInput = document.getElementById('purchase-product-search-input') as HTMLInputElement;
+                                                if (searchInput) {
+                                                  searchInput.focus();
+                                                  if ('select' in searchInput) searchInput.select();
+                                                }
+                                              }
+                                            }}
+                                            className="w-full px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 bg-indigo-50/50 rounded border border-indigo-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                           />
                                         </div>
                                       </div>

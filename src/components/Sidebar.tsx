@@ -61,6 +61,7 @@ export type NavTab =
   | 'stock-ledger'
   | 'fixed-assets'
   | 'customers'
+  | 'customer-devices'
   | 'locations'
   | 'product-master'
   | 'category-management'
@@ -153,7 +154,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badgeColor: 'bg-amber-500 text-white',
     },
     { id: 'stock-valuation' as NavTab, label: 'Stock Valuation & Insights', icon: DollarSign },
-    { id: 'customers' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
+    { id: 'customer-devices' as NavTab, label: 'Customer Device Serials', icon: Smartphone },
   ];
   groups.push({
     id: 'dashboard',
@@ -244,6 +245,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ...(isSuperAdmin || currentUser?.branchId === 'BR-KTM' || !currentUser?.branchId || currentUser?.branchId === 'ALL'
       ? [{ id: 'create-shipment' as NavTab, label: 'Warehouse Shipment Dispatch', icon: Send }]
       : []),
+    {
+      id: 'receive-shipment' as NavTab,
+      label: 'Receive Inbound Stock & Pullouts',
+      icon: Inbox,
+      badge: inTransitShipmentCount,
+      badgeColor: 'bg-amber-500 text-white',
+    },
     { id: 'shipment-list' as NavTab, label: 'Shipment & Transfer History', icon: History },
   ];
   groups.push({
@@ -296,7 +304,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // 7. Inventory Setup Group
   const inventorySetupChildren = [
-    { id: 'customers' as NavTab, label: 'Customer Management', icon: Smartphone },
+    { id: 'customers' as NavTab, label: 'Customer Master Directory', icon: Users },
     { id: 'locations' as NavTab, label: 'Location Management (POP/GPS)', icon: MapPin },
     { id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package },
     { id: 'category-management' as NavTab, label: 'Category Management', icon: Grid },
@@ -323,7 +331,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Settings,
       children: [
         { id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck },
-        { id: 'import-customers' as NavTab, label: 'Import Customers', icon: UserPlus },
+        { id: 'import-customers' as NavTab, label: 'Import Customers (Excel)', icon: UserPlus },
         { id: 'financial-statements' as NavTab, label: 'Financial Statements', icon: Scale },
         { id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt },
         { id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck },

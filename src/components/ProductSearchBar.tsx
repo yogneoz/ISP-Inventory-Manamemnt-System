@@ -6,12 +6,14 @@ interface ProductSearchBarProps {
   products: Product[];
   onAddOrIncrementProduct: (product: Product) => void;
   placeholder?: string;
+  inputId?: string;
 }
 
 export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
   products,
   onAddOrIncrementProduct,
   placeholder = 'Scan Barcode or Search & Enter Product Name / SKU:',
+  inputId,
 }) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -32,7 +34,8 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
     onAddOrIncrementProduct(product);
     setQuery('');
     setIsOpen(false);
-    if (inputRef.current) {
+    const isSerialized = product.requiresSerialTracking !== false && product.trackingType !== 'QUANTITY_ONLY';
+    if (!isSerialized && inputRef.current) {
       inputRef.current.focus();
     }
   };
@@ -75,6 +78,7 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
         </div>
         <input
           ref={inputRef}
+          id={inputId}
           type="text"
           value={query}
           onChange={(e) => {

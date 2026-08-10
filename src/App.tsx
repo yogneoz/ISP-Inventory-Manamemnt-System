@@ -15,6 +15,7 @@ import {
   TransactionLog,
   FinancialSummary,
   CustomerDeviceRecord,
+  CustomerRecord,
   ApprovalRequest,
 } from './types';
 import { api } from './services/api';
@@ -29,6 +30,7 @@ import { ReorderStockTracking } from './components/ReorderStockTracking';
 import { DamagedStockTracking } from './components/DamagedStockTracking';
 import { FixedAssetRegister } from './components/FixedAssetRegister';
 import { CustomersManagement } from './components/CustomersManagement';
+import { CustomerMasterDirectory } from './components/CustomerMasterDirectory';
 import { PurchaseOrders, OrderFormLine } from './components/PurchaseOrders';
 import { PurchaseInvoices } from './components/PurchaseInvoices';
 import { Shipments } from './components/Shipments';
@@ -124,6 +126,7 @@ export default function App() {
   const [stock, setStock] = useState<InventoryStock[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [customerDevices, setCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
+  const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([]);
@@ -162,6 +165,7 @@ export default function App() {
         supList,
         usrList,
         aprList,
+        custList,
       ] = await Promise.all([
         api.getBranches(),
         api.getProducts(),
@@ -179,6 +183,7 @@ export default function App() {
         api.getSuppliers(),
         api.getUsers(),
         api.getApprovalRequests(selectedBranchId),
+        api.getCustomers(selectedBranchId),
       ]);
 
       setBranches(brList);
@@ -186,6 +191,7 @@ export default function App() {
       setStock(sList);
       setAssets(astList);
       setCustomerDevices(devList);
+      setCustomers(custList);
       setPurchaseOrders(poList);
       setPurchaseInvoices(invList);
       setShipments(shList);
@@ -801,6 +807,28 @@ export default function App() {
               )}
 
               {activeTab === 'customers' && (
+                <CustomerMasterDirectory
+                  customers={customers}
+                  branches={branches}
+                  currentUser={currentUser}
+                  onAddCustomer={async (customer) => {
+                    await api.createCustomer(customer);
+                    await refreshAllData();
+                  }}
+                  onUpdateCustomer={async (id, updates) => {
+                    await api.updateCustomer(id, updates);
+                    await refreshAllData();
+                  }}
+                  onDeleteCustomer={async (id) => {
+                    await api.deleteCustomer(id);
+                    await refreshAllData();
+                  }}
+                  onNavigateToImport={() => setActiveTab('import-customers')}
+                  isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'customer-devices' && (
                 <CustomersManagement
                   currentUser={currentUser}
                   customerDevices={customerDevices}
@@ -832,7 +860,8 @@ export default function App() {
                 <ImportCustomers
                   branches={branches}
                   onImportCustomersSuccess={async (newCustomers) => {
-                    refreshAllData();
+                    await api.bulkImportCustomers(newCustomers);
+                    await refreshAllData();
                   }}
                   isDarkMode={isDarkMode}
                 />
@@ -912,6 +941,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customerDevices={customerDevices}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   onCreateShipment={async (sh) => {
@@ -929,6 +959,8 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customerDevices={customerDevices}
+                  customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="CREATE_TRANSFER"
@@ -954,6 +986,8 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customerDevices={customerDevices}
+                  customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="RECEIVE_TRANSFER"
@@ -981,6 +1015,7 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customerDevices={customerDevices}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   onCreateShipment={async (sh) => {
@@ -998,6 +1033,8 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customerDevices={customerDevices}
+                  customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="PULLOUT"
@@ -1023,6 +1060,8 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customerDevices={customerDevices}
+                  customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="DAMAGE"
@@ -1048,6 +1087,8 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customerDevices={customerDevices}
+                  customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="STOCK_OUT"
@@ -1073,6 +1114,8 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customerDevices={customerDevices}
+                  customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="ASSIGN_ASSET"
@@ -1098,6 +1141,8 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customerDevices={customerDevices}
+                  customers={customers}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="CONSUMABLE_ISSUE"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shipment, ShipmentItem, Product, Branch, InventoryStock, User } from '../types';
+import { Shipment, ShipmentItem, Product, Branch, InventoryStock, User, CustomerDeviceRecord } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
 import { getAllowedBranches } from '../utils/permissions';
 import { ProductSearchBar } from './ProductSearchBar';
@@ -26,6 +26,7 @@ interface ShipmentsProps {
   products: Product[];
   branches: Branch[];
   stock: InventoryStock[];
+  customerDevices?: CustomerDeviceRecord[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   onCreateShipment: (
@@ -48,6 +49,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   products,
   branches,
   stock,
+  customerDevices = [],
   selectedBranchId,
   dateMode,
   onCreateShipment,
@@ -88,16 +90,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   };
 
   // Multi-Item Transfer Lines with Serial tracking
-  const [lines, setLines] = useState<ShipmentFormLine[]>(() => {
-    const initialProd = products[0];
-    return [
-      {
-        productId: initialProd?.id || '',
-        quantitySent: 2,
-        deviceSerials: generateSerialsForProduct(initialProd, 2),
-      },
-    ];
-  });
+  const [lines, setLines] = useState<ShipmentFormLine[]>([]);
 
   const filteredShipments = shipments.filter((sh) => {
     // If branch user, show shipments involving their branch
@@ -132,8 +125,7 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   };
 
   const removeLine = (index: number) => {
-    if (lines.length === 1) return;
-    setLines(lines.filter((_, i) => i !== index));
+    setLines((prev) => prev.filter((_, i) => i !== index));
   };
 
   const updateLineProduct = (index: number, newProductId: string) => {
@@ -197,6 +189,71 @@ export const Shipments: React.FC<ShipmentsProps> = ({
     const bsObj = convertADToBS(todayAD);
     const srcBranch = branches.find((b) => b.id === sourceBranchId);
     const destBranch = branches.find((b) => b.id === destinationBranchId);
+
+    // Validate Branch Stock Quantity & Serial Register for Source Branch
+    const seenSerials = new Set<string>();
+    for (const l of lines) {
+      const prod = products.find((p) => p.id === l.productId);
+      const prodName = prod?.name || 'Item';
+      const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
+      const srcStock = stock.find((s) => s.productId === l.productId && s.branchId === sourceBranchId);
+      const availStock = srcStock ? srcStock.quantityOnHand : 0;
+
+      if (availStock < l.quantitySent) {
+        alert(`Branch Stock Error: "${srcBranch?.name || sourceBranchId}" only has ${availStock} unit(s) of "${prodName}" on hand, but ${l.quantitySent} unit(s) are requested for transfer shipment.`);
+        return;
+      }
+
+      if (isSerialized) {
+        if (!l.deviceSerials || l.deviceSerials.length < l.quantitySent) {
+          alert(`Validation Error: Please enter serial numbers for all ${l.quantitySent} unit(s) of "${prodName}".`);
+          return;
+        }
+        for (let sIdx = 0; sIdx < l.quantitySent; sIdx++) {
+          const s = l.deviceSerials[sIdx];
+          if (!s || !s.deviceSerial?.trim()) {
+            alert(`Validation Error: Device Serial # is required for "${prodName}" (Unit #${sIdx + 1}).`);
+            return;
+          }
+          const cleanSerial = s.deviceSerial.trim().toUpperCase();
+          const cleanPon = s.ponSerial?.trim().toUpperCase();
+
+          if (seenSerials.has(cleanSerial)) {
+            alert(`Validation Error: Duplicate Device Serial #${cleanSerial} detected in shipment lines.`);
+            return;
+          }
+          seenSerials.add(cleanSerial);
+
+          if (customerDevices.length > 0) {
+            const match = customerDevices.find(
+              (cd) =>
+                cd.deviceSerial.trim().toUpperCase() === cleanSerial ||
+                (cleanPon && cd.ponSerial && cd.ponSerial.trim().toUpperCase() === cleanPon)
+            );
+
+            if (match) {
+              if (match.branchId !== sourceBranchId) {
+                const regBranch = branches.find((b) => b.id === match.branchId);
+                alert(`Serial Register Error: Serial #${cleanSerial} is registered to branch "${regBranch?.name || match.branchId}", not "${srcBranch?.name || sourceBranchId}".`);
+                return;
+              }
+              if (match.status && match.status !== 'IN_STOCK') {
+                alert(`Serial Register Error: Serial #${cleanSerial} in branch "${srcBranch?.name || sourceBranchId}" has status "${match.status}" (must be "IN_STOCK").`);
+                return;
+              }
+            } else {
+              const branchInStockSerials = customerDevices.filter(
+                (cd) => cd.branchId === sourceBranchId && cd.status === 'IN_STOCK'
+              );
+              if (branchInStockSerials.length > 0) {
+                alert(`Serial Register Error: Serial #${cleanSerial} for "${prodName}" is not found in the branch serial register for "${srcBranch?.name || sourceBranchId}".`);
+                return;
+              }
+            }
+          }
+        }
+      }
+    }
 
     const items: ShipmentItem[] = lines.map((l, idx) => {
       const prod = products.find((p) => p.id === l.productId);
@@ -525,98 +582,119 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   </button>
                 </div>
 
-                <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                  {lines.map((line, idx) => {
-                    const availableStock = getSourceStock(line.productId, sourceBranchId);
-                    const prod = products.find((p) => p.id === line.productId);
-                    return (
-                      <div
-                        key={idx}
-                        className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 text-xs"
-                      >
-                        <div className="grid grid-cols-12 gap-3 items-center">
-                          <div className="col-span-6">
-                            <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Product Item</label>
-                            <select
-                              value={line.productId}
-                              onChange={(e) => updateLineProduct(idx, e.target.value)}
-                              className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-slate-100 font-medium"
-                            >
-                              {products.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  [{p.sku}] {p.name}
-                                </option>
+                {lines.length === 0 ? (
+                  <div className="p-8 text-center rounded-2xl border-2 border-dashed border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/30 dark:bg-indigo-950/20 space-y-2">
+                    <Boxes className="h-8 w-8 text-indigo-400 mx-auto" />
+                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                      Transfer Bin is Empty
+                    </p>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                      Scan barcodes or search item names above to add products into this transfer dispatch, or click <strong className="text-indigo-600 dark:text-indigo-400">+ Add Item Line</strong> to choose manually.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1.5">
+                    {lines.map((line, idx) => {
+                      const availableStock = getSourceStock(line.productId, sourceBranchId);
+                      const prod = products.find((p) => p.id === line.productId);
+                      return (
+                        <div
+                          key={idx}
+                          className="bg-slate-50 dark:bg-slate-900/60 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 space-y-3 text-xs"
+                        >
+                          <div className="grid grid-cols-12 gap-3 items-center">
+                            <div className="col-span-6">
+                              <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Product Item</label>
+                              <select
+                                value={line.productId}
+                                onChange={(e) => updateLineProduct(idx, e.target.value)}
+                                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-slate-100 font-medium"
+                              >
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    [{p.sku}] {p.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <div className="col-span-3 text-center">
+                              <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Available Stock</label>
+                              <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
+                                {availableStock} Units
+                              </span>
+                            </div>
+
+                            <div className="col-span-2">
+                              <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Transfer Qty</label>
+                              <input
+                                type="number"
+                                min={1}
+                                required
+                                value={line.quantitySent}
+                                onChange={(e) => updateLineQuantity(idx, Number(e.target.value))}
+                                className="w-full text-center font-mono font-bold rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-white"
+                              />
+                            </div>
+
+                            <div className="col-span-1 text-center pt-3">
+                              <button
+                                type="button"
+                                onClick={() => removeLine(idx)}
+                                className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                                title="Remove item line"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Expandable Device Serial & PON Serial Fields per Unit */}
+                          <div className="bg-indigo-50/50 dark:bg-indigo-950/40 p-2.5 rounded-lg border border-indigo-100 dark:border-indigo-900/50 space-y-2">
+                            <div className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
+                              <Barcode className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                              <span>Serial Numbers for {prod?.name || 'Item'} (Qty: {line.quantitySent})</span>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {Array.from({ length: line.quantitySent }).map((_, sIdx) => (
+                                <div key={sIdx} className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-indigo-200 dark:border-indigo-800 flex items-center gap-2">
+                                  <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
+                                  <div className="flex-1 min-w-0">
+                                    <input
+                                      type="text"
+                                      placeholder="Device Serial #"
+                                      value={line.deviceSerials?.[sIdx]?.deviceSerial || ''}
+                                      onChange={(e) => updateLineDeviceSerial(idx, sIdx, e.target.value)}
+                                      className="w-full px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/50 rounded border border-indigo-200 dark:border-indigo-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
+                                    />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <input
+                                      type="text"
+                                      placeholder="PON Serial #"
+                                      value={line.deviceSerials?.[sIdx]?.ponSerial || ''}
+                                      onChange={(e) => updateLinePonSerial(idx, sIdx, e.target.value)}
+                                      className="w-full px-2 py-1 text-[11px] font-mono font-bold text-blue-900 dark:text-blue-200 bg-blue-50/50 dark:bg-blue-950/50 rounded border border-blue-200 dark:border-blue-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
+                                    />
+                                  </div>
+                                </div>
                               ))}
-                            </select>
-                          </div>
-
-                          <div className="col-span-3 text-center">
-                            <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Available Stock</label>
-                            <span className="font-mono font-bold text-slate-700 dark:text-slate-300">
-                              {availableStock} Units
-                            </span>
-                          </div>
-
-                          <div className="col-span-2">
-                            <label className="block text-[10px] font-semibold text-slate-400 mb-0.5">Transfer Qty</label>
-                            <input
-                              type="number"
-                              min={1}
-                              required
-                              value={line.quantitySent}
-                              onChange={(e) => updateLineQuantity(idx, Number(e.target.value))}
-                              className="w-full text-center font-mono font-bold rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-slate-900 dark:text-white"
-                            />
-                          </div>
-
-                          <div className="col-span-1 text-center pt-3">
-                            <button
-                              type="button"
-                              onClick={() => removeLine(idx)}
-                              disabled={lines.length === 1}
-                              className="p-1 text-slate-400 hover:text-rose-500 disabled:opacity-30 cursor-pointer"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            </div>
                           </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                )}
 
-                        {/* Expandable Device Serial & PON Serial Fields per Unit */}
-                        <div className="bg-indigo-50/50 dark:bg-indigo-950/40 p-2.5 rounded-lg border border-indigo-100 dark:border-indigo-900/50 space-y-2">
-                          <div className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5">
-                            <Barcode className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
-                            <span>Serial Numbers for {prod?.name || 'Item'} (Qty: {line.quantitySent})</span>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {Array.from({ length: line.quantitySent }).map((_, sIdx) => (
-                              <div key={sIdx} className="bg-white dark:bg-slate-900 p-2 rounded-lg border border-indigo-200 dark:border-indigo-800 flex items-center gap-2">
-                                <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
-                                <div className="flex-1 min-w-0">
-                                  <input
-                                    type="text"
-                                    placeholder="Device Serial #"
-                                    value={line.deviceSerials?.[sIdx]?.deviceSerial || ''}
-                                    onChange={(e) => updateLineDeviceSerial(idx, sIdx, e.target.value)}
-                                    className="w-full px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/50 rounded border border-indigo-200 dark:border-indigo-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
-                                  />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <input
-                                    type="text"
-                                    placeholder="PON Serial #"
-                                    value={line.deviceSerials?.[sIdx]?.ponSerial || ''}
-                                    onChange={(e) => updateLinePonSerial(idx, sIdx, e.target.value)}
-                                    className="w-full px-2 py-1 text-[11px] font-mono font-bold text-blue-900 dark:text-blue-200 bg-blue-50/50 dark:bg-blue-950/50 rounded border border-blue-200 dark:border-blue-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none"
-                                  />
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                {lines.length > 0 && (
+                  <div className="flex items-center justify-between px-3 py-2 bg-indigo-50/80 dark:bg-indigo-950/60 rounded-xl border border-indigo-200 dark:border-indigo-900 text-xs text-indigo-900 dark:text-indigo-200">
+                    <span className="font-semibold">Transfer Bin Summary:</span>
+                    <span className="font-bold font-mono">
+                      {lines.length} Product SKU{lines.length > 1 ? 's' : ''} | {lines.reduce((sum, l) => sum + (l.quantitySent || 0), 0)} Total Units
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div>

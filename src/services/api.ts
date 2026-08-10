@@ -14,6 +14,7 @@ import {
   TransactionLog,
   FinancialSummary,
   CustomerDeviceRecord,
+  CustomerRecord,
   ApprovalRequest,
 } from '../types';
 
@@ -341,6 +342,42 @@ export const api = {
     return fetchJson(`/api/customer-devices/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
+    });
+  },
+
+  // Customer Master Database
+  async getCustomers(branchId?: string, query?: string): Promise<CustomerRecord[]> {
+    const params = new URLSearchParams();
+    if (branchId && branchId !== 'ALL') params.append('branchId', branchId);
+    if (query) params.append('query', query);
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return fetchJson(`/api/customers${queryString}`);
+  },
+
+  async createCustomer(record: Omit<CustomerRecord, 'id'> | CustomerRecord): Promise<CustomerRecord> {
+    return fetchJson('/api/customers', {
+      method: 'POST',
+      body: JSON.stringify(record),
+    });
+  },
+
+  async bulkImportCustomers(customers: CustomerRecord[]): Promise<{ success: boolean; count: number }> {
+    return fetchJson('/api/customers/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ customers }),
+    });
+  },
+
+  async updateCustomer(id: string, updates: Partial<CustomerRecord>): Promise<CustomerRecord> {
+    return fetchJson(`/api/customers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async deleteCustomer(id: string): Promise<void> {
+    return fetchJson(`/api/customers/${id}`, {
+      method: 'DELETE',
     });
   },
 

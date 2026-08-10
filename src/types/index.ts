@@ -35,6 +35,7 @@ export interface Branch {
   isHeadquarters: boolean;
   active: boolean;
   allowProcurement?: boolean;
+  isWarehouse?: boolean;
 }
 
 export interface Product {
@@ -388,6 +389,7 @@ export interface CustomerRecord {
   address: string;
   email?: string;
   status: 'ACTIVE' | 'INACTIVE';
+  creditLimit?: number;
   assignedDevicesCount?: number;
 }
 

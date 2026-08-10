@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Branch, CustomerRecord } from '../types';
-import { UserPlus, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, RefreshCw, Smartphone } from 'lucide-react';
+import { UserPlus, Download, CheckCircle2, AlertCircle, ArrowRight, FileText, Check, Upload, Smartphone, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 interface ImportCustomersProps {
   branches: Branch[];
@@ -30,82 +31,138 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [importSuccessMessage, setImportSuccessMessage] = useState<string | null>(null);
 
-  const sampleCsvData = `CustomerID,CustomerName,Username,ContactNumber,Branch,Address,Email
-CUS-10291,Aarav Sharma,aarav.sharma,9851092810,BR-KTM,Durbar Marg Ward 4 Kathmandu,aarav@gmail.com
-CUS-10292,Pooja Gurung,pooja.g,9846019283,BR-PKR,Lakeside Ward 6 Pokhara,pooja.g@yahoo.com
-CUS-10293,Subash Shrestha,subash.sh,9801029381,BR-KTM,Jawalakhel Ward 2 Lalitpur,subash@outlook.com
-CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bina@gmail.com`;
+  // Sample data array for Excel creation
+  const sampleExcelData = [
+    {
+      'Cus. Code': 'CUS-10291',
+      'Customer Name': 'Aarav Sharma',
+      'Username': 'aarav.sharma',
+      'Primary Mobile': '9851092810',
+      'Branch Code': 'BRC01',
+      'Address': 'Durbar Marg Ward 4 Kathmandu',
+      'Email': 'aarav@gmail.com',
+    },
+    {
+      'Cus. Code': 'CUS-10292',
+      'Customer Name': 'Pooja Gurung',
+      'Username': 'pooja.g',
+      'Primary Mobile': '9846019283',
+      'Branch Code': 'BTM01',
+      'Address': 'Lakeside Ward 6 Pokhara',
+      'Email': 'pooja.g@yahoo.com',
+    },
+    {
+      'Cus. Code': 'CUS-10293',
+      'Customer Name': 'Subash Shrestha',
+      'Username': 'subash.sh',
+      'Primary Mobile': '9801029381',
+      'Branch Code': 'WH001',
+      'Address': 'Jawalakhel Ward 2 Lalitpur',
+      'Email': 'subash@outlook.com',
+    },
+    {
+      'Cus. Code': 'CUS-10294',
+      'Customer Name': 'Bina Thapa',
+      'Username': 'bina.t',
+      'Primary Mobile': '9855019284',
+      'Branch Code': 'CHU01',
+      'Address': 'Lions Chowk Ward 1 Narayangarh',
+      'Email': 'bina@gmail.com',
+    },
+  ];
 
-  const parseCsvContent = (content: string, filename?: string) => {
-    if (filename) setSelectedFileName(filename);
-    const lines = content.trim().split('\n');
-    if (lines.length <= 1) {
-      setParsedRows([]);
-      return;
-    }
+  const parseExcelArrayBuffer = (buffer: ArrayBuffer, filename: string) => {
+    setSelectedFileName(filename);
+    try {
+      const data = new Uint8Array(buffer);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      if (!sheetName) {
+        alert('No worksheet found in Excel file');
+        setParsedRows([]);
+        return;
+      }
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonRows = XLSX.utils.sheet_to_json<any>(worksheet, { defval: '' });
 
-    const rows: ParsedCustomerRow[] = [];
+      if (!jsonRows || jsonRows.length === 0) {
+        alert('Uploaded Excel sheet is empty');
+        setParsedRows([]);
+        return;
+      }
 
-    for (let i = 1; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
-      const cols = line.split(',').map((c) => c.trim().replace(/^["']|["']$/g, ''));
+      const rows: ParsedCustomerRow[] = [];
 
-      if (cols.length < 4) continue;
+      jsonRows.forEach((row: any, idx: number) => {
+        // Support flexible header names
+        const customerId =
+          String(row['Cus. Code'] || row['Cus Code'] || row['CustomerID'] || row['Customer ID'] || row['Code'] || `CUS-${10000 + idx}`).trim();
+        const customerName =
+          String(row['Customer Name'] || row['CustomerName'] || row['Name'] || '').trim();
+        const username =
+          String(row['Username'] || row['User Name'] || customerId.toLowerCase()).trim();
+        const contactNumber =
+          String(row['Primary Mobile'] || row['Contact Number'] || row['Mobile'] || row['Phone'] || '').trim();
+        const targetBranchCode =
+          String(row['Branch Code'] || row['Branch'] || row['BranchCode'] || 'WH001').trim();
+        const address =
+          String(row['Address'] || row['Location'] || '').trim();
+        const email =
+          String(row['Email'] || row['Email Address'] || '').trim();
 
-      const customerId = cols[0] || `CUS-${Math.floor(10000 + Math.random() * 90000)}`;
-      const customerName = cols[1] || 'Imported Customer';
-      const username = cols[2] || customerId.toLowerCase();
-      const contactNumber = cols[3] || '9800000000';
-      const targetBranchCode = cols[4] || 'BR-KTM';
-      const address = cols[5] || 'Kathmandu Nepal';
-      const email = cols[6] || `${username}@izone.np`;
+        const isValid = Boolean(customerName && contactNumber);
+        let notes = 'Valid Customer Record';
+        if (!customerName) notes = 'Missing Customer Name';
+        else if (!contactNumber) notes = 'Missing Primary Mobile';
 
-      const isValid = Boolean(customerId && customerName && contactNumber);
-      let notes = 'Valid Customer Record';
-      if (!customerName) notes = 'Missing Customer Name';
-      if (!contactNumber) notes = 'Missing Contact Number';
-
-      rows.push({
-        customerId,
-        customerName,
-        username,
-        contactNumber,
-        targetBranchCode,
-        address,
-        email,
-        isValid,
-        notes,
+        rows.push({
+          customerId: customerId || `CUS-${10000 + idx}`,
+          customerName: customerName || 'Imported Customer',
+          username: username || (customerId ? customerId.toLowerCase() : `user${idx}`),
+          contactNumber: contactNumber || '9800000000',
+          targetBranchCode: targetBranchCode || 'WH001',
+          address: address || 'Nepal',
+          email,
+          isValid,
+          notes,
+        });
       });
-    }
 
-    setParsedRows(rows);
+      setParsedRows(rows);
+    } catch (err: any) {
+      alert(`Excel Parse Error: ${err.message || 'Could not parse Excel spreadsheet'}`);
+      setParsedRows([]);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      if (text) {
-        parseCsvContent(text, file.name);
+      const buffer = event.target?.result as ArrayBuffer;
+      if (buffer) {
+        parseExcelArrayBuffer(buffer, file.name);
       }
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   };
 
   const handleLoadSample = () => {
-    parseCsvContent(sampleCsvData, 'Sample_Customer_List.csv');
+    // Generate buffer from sample data
+    const ws = XLSX.utils.json_to_sheet(sampleExcelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sample_Customers');
+    const outBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    parseExcelArrayBuffer(outBuffer, 'Sample_Customer_Master_List.xlsx');
   };
 
-  const handleDownloadSampleCsv = () => {
-    const blob = new Blob([sampleCsvData], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'iZone_Customer_Import_Template.csv';
-    a.click();
+  const handleDownloadSampleExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(sampleExcelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Customers');
+    XLSX.writeFile(wb, 'iZone_Customer_Master_Template.xlsx');
   };
 
   const handleProcessImport = async () => {
@@ -114,31 +171,38 @@ CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bin
     setImportSuccessMessage(null);
 
     try {
-      const importedCustomers: CustomerRecord[] = parsedRows
-        .filter((r) => r.isValid)
-        .map((r) => {
-          const matchingBranch = branches.find(
-            (b) => b.code.toLowerCase() === r.targetBranchCode.toLowerCase() || b.id.toLowerCase() === r.targetBranchCode.toLowerCase()
-          );
-          return {
-            id: `CUS-${Math.floor(1000 + Math.random() * 9000)}`,
-            customerId: r.customerId,
-            customerName: r.customerName,
-            username: r.username,
-            contactNumber: r.contactNumber,
-            branchId: matchingBranch ? matchingBranch.id : branches[0]?.id || 'BR-KTM',
-            address: r.address,
-            email: r.email,
-            status: 'ACTIVE',
-            assignedDevicesCount: 0,
-          };
-        });
-
-      if (onImportCustomersSuccess) {
-        onImportCustomersSuccess(importedCustomers);
+      const validRows = parsedRows.filter((r) => r.isValid);
+      if (validRows.length === 0) {
+        alert('No valid customer rows found to import.');
+        return;
       }
 
-      setImportSuccessMessage(`Successfully imported ${importedCustomers.length} customer records into system directory!`);
+      const importedCustomers: CustomerRecord[] = validRows.map((r) => {
+        const matchingBranch = branches.find(
+          (b) =>
+            b.code.toLowerCase() === r.targetBranchCode.toLowerCase() ||
+            b.id.toLowerCase() === r.targetBranchCode.toLowerCase() ||
+            b.name.toLowerCase().includes(r.targetBranchCode.toLowerCase())
+        );
+        return {
+          id: r.customerId || `CUS-${Math.floor(1000 + Math.random() * 9000)}`,
+          customerId: r.customerId,
+          customerName: r.customerName,
+          username: r.username,
+          contactNumber: r.contactNumber,
+          branchId: matchingBranch ? matchingBranch.id : branches[0]?.id || 'WH001',
+          address: r.address,
+          email: r.email,
+          status: 'ACTIVE',
+          assignedDevicesCount: 0,
+        };
+      });
+
+      if (onImportCustomersSuccess) {
+        await onImportCustomersSuccess(importedCustomers);
+      }
+
+      setImportSuccessMessage(`Successfully imported ${importedCustomers.length} customer records into Master Directory!`);
       setParsedRows([]);
       setSelectedFileName(null);
     } catch (err: any) {
@@ -157,22 +221,22 @@ CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bin
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <UserPlus className="h-5 w-5 text-indigo-500" />
-            <span>Import Customer Data</span>
+            <span>Import Customer Database (Excel)</span>
           </h2>
           <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Bulk import customer master records (Customer ID, Customer Name, Username, Contact Number, Branch, Address) via spreadsheet template.
+            Bulk import customer master records (Cus. Code, Customer Name, Username, Primary Mobile, Branch, Address) via Excel (.xlsx / .xls) spreadsheet template.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={handleDownloadSampleCsv}
+            onClick={handleDownloadSampleExcel}
             className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all ${
               isDarkMode ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
             }`}
           >
-            <Download className="h-4 w-4" />
-            <span>Download CSV Template</span>
+            <Download className="h-4 w-4 text-emerald-600" />
+            <span>Download Excel Template (.xlsx)</span>
           </button>
 
           <button
@@ -180,7 +244,7 @@ CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bin
             className="flex items-center gap-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-3 py-2 text-xs font-semibold hover:bg-indigo-100 transition-all cursor-pointer"
           >
             <Smartphone className="h-4 w-4" />
-            <span>Load Sample Customers</span>
+            <span>Load Sample Excel Data</span>
           </button>
         </div>
       </div>
@@ -210,44 +274,44 @@ CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bin
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <FileText className="h-4 w-4 text-indigo-500" />
-                <span>Upload Customer File</span>
+                <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
+                <span>Upload Excel File</span>
               </label>
-              <span className="text-[10px] text-slate-400 font-mono">.csv, .txt</span>
+              <span className="text-[10px] text-emerald-600 font-mono font-bold">.xlsx, .xls</span>
             </div>
 
             <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all ${
               selectedFileName
-                ? isDarkMode ? 'border-indigo-500 bg-indigo-950/20' : 'border-indigo-500 bg-indigo-50/50'
-                : isDarkMode ? 'border-slate-800 bg-slate-900/40 hover:border-slate-700' : 'border-slate-300 bg-slate-50 hover:border-indigo-300'
+                ? isDarkMode ? 'border-emerald-500 bg-emerald-950/20' : 'border-emerald-500 bg-emerald-50/50'
+                : isDarkMode ? 'border-slate-800 bg-slate-900/40 hover:border-slate-700' : 'border-slate-300 bg-slate-50 hover:border-emerald-300'
             }`}>
               <input
                 type="file"
-                accept=".csv,.txt"
+                accept=".xlsx, .xls"
                 onChange={handleFileUpload}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
 
-              <div className="h-12 w-12 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mb-3">
+              <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mb-3">
                 <Upload className="h-6 w-6" />
               </div>
 
               {selectedFileName ? (
                 <div>
-                  <span className="font-bold text-xs text-indigo-600 dark:text-indigo-400 block truncate max-w-[200px]">
+                  <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400 block truncate max-w-[200px]">
                     {selectedFileName}
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-0.5">
-                    {parsedRows.length} customer records loaded
+                    {parsedRows.length} customer records extracted from Excel
                   </span>
                 </div>
               ) : (
                 <div>
                   <span className="font-bold text-xs text-slate-800 dark:text-slate-200 block">
-                    Click to browse or drag & drop customer CSV file
+                    Click to browse or drag & drop Excel (.xlsx / .xls) file
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-1">
-                    Fields: Customer ID, Customer Name, Username, Contact Number, Branch, Address
+                    Columns: Cus. Code, Customer Name, Username, Primary Mobile, Branch Code, Address, Email
                   </span>
                 </div>
               )}
@@ -256,17 +320,17 @@ CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bin
             <div className="mt-4 p-3.5 rounded-xl border border-indigo-100 dark:border-indigo-950 bg-indigo-50/50 dark:bg-indigo-950/30 text-[11px] text-slate-600 dark:text-slate-300 space-y-1.5">
               <div className="font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
                 <UserPlus className="h-3.5 w-3.5" />
-                <span>Admin Governance Protection</span>
+                <span>Customer Master Direct Binding</span>
               </div>
               <p>
-                Imported customers will immediately be accessible across device assignment workflows and customer hardware registers.
+                Imported customers populate the Customer Master Table directly and become available instantly for product sales and rental asset assignments.
               </p>
             </div>
           </div>
 
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <span className="text-[11px] text-slate-400 font-medium">
-              {parsedRows.length} Records Validated
+              {parsedRows.length} Records Extracted
             </span>
             <button
               disabled={parsedRows.length === 0 || isProcessing}
@@ -277,13 +341,13 @@ CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bin
                   : 'hover:bg-indigo-500 cursor-pointer'
               }`}
             >
-              <span>Import Customer Records</span>
+              <span>{isProcessing ? 'Importing...' : 'Import to Customer Master'}</span>
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         </div>
 
-        {/* Live Preview Panel */}
+        {/* Live Excel Preview Panel */}
         <div className={`lg:col-span-7 flex flex-col rounded-2xl border shadow-lg overflow-hidden ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
         }`}>
@@ -292,7 +356,7 @@ CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bin
           }`}>
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              <span>Customer Import Preview</span>
+              <span>Excel Customer Import Preview</span>
             </span>
             <span className="text-[11px] text-slate-500 font-medium">
               Valid: {parsedRows.filter((r) => r.isValid).length} / {parsedRows.length}
@@ -305,10 +369,10 @@ CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bin
                 isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
               }`}>
                 <tr>
-                  <th className="p-2.5">Customer ID / Name</th>
-                  <th className="p-2.5">Username & Contact</th>
+                  <th className="p-2.5">Cus. Code / Name</th>
+                  <th className="p-2.5">Username & Mobile</th>
                   <th className="p-2.5">Branch Code</th>
-                  <th className="p-2.5">Installation Address</th>
+                  <th className="p-2.5">Address</th>
                   <th className="p-2.5">Status</th>
                 </tr>
               </thead>
@@ -316,7 +380,7 @@ CUS-10294,Bina Thapa,bina.t,9855019284,BR-CTN,Lions Chowk Ward 1 Narayangarh,bin
                 {parsedRows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-12 text-center text-slate-500 text-xs">
-                      No file loaded yet. Upload a CSV file or click "Load Sample Customers" above.
+                      No Excel file loaded yet. Upload an .xlsx file or click "Load Sample Excel Data" above.
                     </td>
                   </tr>
                 ) : (
