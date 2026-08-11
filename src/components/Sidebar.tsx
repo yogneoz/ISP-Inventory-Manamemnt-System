@@ -47,6 +47,8 @@ import {
   FolderTree,
   MapPin,
   UserPlus,
+  ClipboardCheck,
+  CalendarDays,
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -59,6 +61,7 @@ export type NavTab =
   | 'damaged-stock'
   | 'stock-valuation'
   | 'stock-ledger'
+  | 'physical-stock-audit'
   | 'fixed-assets'
   | 'customers'
   | 'customer-devices'
@@ -89,6 +92,8 @@ export type NavTab =
   | 'financial-statements'
   | 'vat-register'
   | 'depreciation-register'
+  | 'nepali-fiscal'
+  | 'fiscal-year-closing'
   | 'audit'
   | 'warranty-products'
   | 'export-reports';
@@ -172,6 +177,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'branch-stock' as NavTab,
       label: isBranchUser ? 'My Branch Stock' : 'Branch Stock Matrix',
       icon: Store,
+    },
+    {
+      id: 'physical-stock-audit' as NavTab,
+      label: 'Physical Stock Count Audit',
+      icon: ClipboardCheck,
     },
     {
       id: 'reorder-stock' as NavTab,
@@ -330,8 +340,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       shortLabel: 'Admin',
       icon: Settings,
       children: [
+        { id: 'fiscal-year-closing' as NavTab, label: 'Fiscal Year Closing Wizard', icon: CalendarDays },
+        { id: 'nepali-fiscal' as NavTab, label: 'BS Calendar & Fiscal Years', icon: CalendarDays },
         { id: 'users' as NavTab, label: 'Users & Staff Management', icon: UserCheck },
-        { id: 'import-customers' as NavTab, label: 'Import Customers (Excel)', icon: UserPlus },
+        { id: 'import-customers' as NavTab, label: 'Import Customers (CSV)', icon: UserPlus },
         { id: 'financial-statements' as NavTab, label: 'Financial Statements', icon: Scale },
         { id: 'vat-register' as NavTab, label: 'VAT Sales & Purchase Register', icon: Receipt },
         { id: 'permissions' as NavTab, label: 'Permission Management', icon: ShieldCheck },

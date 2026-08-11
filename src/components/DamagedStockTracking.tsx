@@ -244,9 +244,9 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                   : 'bg-white border-slate-200 text-slate-800'
               }`}
             >
-              <option value="ALL">All Categories</option>
+              <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Categories</option>
               {categories.map((cat) => (
-                <option key={cat} value={cat}>
+                <option key={cat} value={cat} className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">
                   {cat}
                 </option>
               ))}

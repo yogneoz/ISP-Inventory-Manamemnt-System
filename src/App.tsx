@@ -49,6 +49,8 @@ import { StockValuation } from './components/StockValuation';
 import { NotificationCenter } from './components/NotificationCenter';
 import { ApprovalWorkflowCenter } from './components/ApprovalWorkflowCenter';
 import { StockMovementLedger } from './components/StockMovementLedger';
+import { PhysicalStockAudit } from './components/PhysicalStockAudit';
+import { FiscalYearClosingWizard } from './components/FiscalYearClosingWizard';
 import { WarrantyProducts } from './components/WarrantyProducts';
 import { CategoryManagement } from './components/CategoryManagement';
 import { UomManagement } from './components/UomManagement';
@@ -793,6 +795,20 @@ export default function App() {
                 />
               )}
 
+              {activeTab === 'physical-stock-audit' && (
+                <PhysicalStockAudit
+                  currentUser={currentUser}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  isDarkMode={isDarkMode}
+                  onUpdateStockLevel={handleUpdateStockLevel}
+                  onNavigateTab={setActiveTab}
+                />
+              )}
+
               {activeTab === 'fixed-assets' && (
                 <FixedAssetRegister
                   currentUser={currentUser}
@@ -809,6 +825,7 @@ export default function App() {
               {activeTab === 'customers' && (
                 <CustomerMasterDirectory
                   customers={customers}
+                  customerDevices={customerDevices}
                   branches={branches}
                   currentUser={currentUser}
                   onAddCustomer={async (customer) => {
@@ -824,6 +841,10 @@ export default function App() {
                     await refreshAllData();
                   }}
                   onNavigateToImport={() => setActiveTab('import-customers')}
+                  onSelectTab={(tab, filter) => {
+                    setActiveTab(tab as any);
+                    if (filter) setSearchQuery(filter);
+                  }}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -832,6 +853,7 @@ export default function App() {
                 <CustomersManagement
                   currentUser={currentUser}
                   customerDevices={customerDevices}
+                  customers={customers}
                   branches={branches}
                   products={products}
                   selectedBranchId={selectedBranchId}
@@ -845,6 +867,7 @@ export default function App() {
                     await refreshAllData();
                   }}
                   onRequestApproval={handleCreateApprovalRequest}
+                  onNavigateToMaster={() => setActiveTab('customers')}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1170,6 +1193,7 @@ export default function App() {
                   products={products}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
+                  isDarkMode={isDarkMode}
                 />
               )}
 
@@ -1280,6 +1304,30 @@ export default function App() {
                   dateMode={dateMode}
                   onOpenAiModal={() => setIsAiModalOpen(true)}
                   isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'fiscal-year-closing' && (
+                <FiscalYearClosingWizard
+                  fiscalYears={fiscalYears}
+                  onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
+                  dateMode={dateMode}
+                  isDarkMode={isDarkMode}
+                  financialSummary={financialSummary}
+                  products={products}
+                  stock={stock}
+                  assets={assets}
+                  purchaseInvoices={purchaseInvoices}
+                  currentUser={currentUser}
+                  onRefreshData={refreshAllData}
+                />
+              )}
+
+              {activeTab === 'nepali-fiscal' && (
+                <NepaliFiscalManagement
+                  fiscalYears={fiscalYears}
+                  onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
+                  dateMode={dateMode}
                 />
               )}
 

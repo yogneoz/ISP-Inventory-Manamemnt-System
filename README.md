@@ -1,22 +1,31 @@
 # Enterprise ERP & Multi-Branch Inventory Management System
 
-A full-featured enterprise inventory tracking and multi-branch resource planning solution built with **React, TypeScript, Tailwind CSS** on the frontend and a **Python Django REST Framework with PostgreSQL** backend.
+A full-featured enterprise inventory tracking, physical stock audit, and multi-branch resource planning solution built for **React, TypeScript, Tailwind CSS** with **Node.js/Express** and **PostgreSQL / Django REST Framework**.
 
 ---
 
 ## 🌟 Key Features
 
-- **Multi-Branch & Multi-Warehouse Operations**: Manage central headquarters alongside satellite branches with independent stock tracking and inter-branch shipments.
-- **Role-Based Access Control (RBAC)**: Support for Super Admin, Inventory Manager, Branch Manager, Front Desk, and Accountant roles.
-- **Stock Movement Ledger & Audit Logs**: Detailed audit trail for every stock receipt, dispatch, issue, transfer, and adjustment.
+- **Multi-Branch & Multi-Warehouse Operations**: Manage central headquarters alongside satellite branches with independent stock tracking, reorder levels, and inter-branch shipments.
+- **Physical Stock Count & Reconciliation Audit**:
+  - Perform stock counting across branches with variance calculation (shortage/excess).
+  - Financial impact calculation, discrepancy reasoning, and automated stock adjustment posting.
+  - CSV export for physical audit records.
+- **Fiscal Year Closing & Lock Wizard**:
+  - 5-Step guided wizard for year-end inventory valuation, fixed asset depreciation posting, trial balance roll-forward, and IRD period locking.
+  - Super Admin authorization key check and downloadable official IRD Audit Closing Certificate.
+- **Role-Based Access Control (RBAC)**: Support for Super Admin, Inventory Manager, Branch Manager, Front Desk, and Accountant roles with permissions matrix.
+- **Stock Movement Ledger & Transaction Logs**: Complete audit trail for stock receipts, dispatches, issues, transfers, damage pullouts, and manual adjustments.
 - **Consumable & Fixed Asset Management**:
   - Consumable Stock Out & Issue logging with work order and technician tagging.
-  - Fixed Asset Register with Depreciation schedules (Straight Line, Declining Balance, Written Down Value).
-- **Serial, MAC & PON Tracking**: Track individual high-value items with warranty periods, serial numbers, and MAC addresses.
-- **Purchase Orders & Shipments**: Draft, approve, and track purchase orders with suppliers and inter-branch shipment workflows.
-- **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS) and Nepali fiscal year reporting.
-- **Realtime Action & Notification Center**: Centralized flyout modal in the top header tracking low-stock alerts, pending approvals, in-transit shipments, and purchase orders.
-- **Barcode & QR Code Scanner**: Integrated camera scanning for quick stock lookup and dispatching.
+  - Fixed Asset Register with Depreciation schedules (Straight Line, Declining Balance, Written Down Value) and automated Income Tax Act rates.
+- **Serial, MAC, PON & Customer Device Tracking**:
+  - Assign ONUs/routers to customers with PON serial number, MAC address, and warranty tracking.
+  - Multi-tier approval workflows for device returns, disconnection refunds, and restock.
+- **Purchase Orders, Invoices & Shipments**: Draft, approve, and receive purchase orders with suppliers, manage VAT purchase invoices, and track inter-branch shipments.
+- **Nepali Fiscal Calendar Support**: Native support for BS calendar conversion (AD/BS), Bikram Sambat months, and Nepali fiscal year reporting.
+- **Financial Statements & Tax Registers**: Income statement, balance sheet, trial balance, VAT purchase register, and depreciation schedules.
+- **Automated PostgreSQL Setup**: Built-in automated shell and Node.js setup scripts (`npm run setup:pg`) to automatically download, install, configure PostgreSQL, and migrate 17 relational database tables.
 
 ---
 
@@ -27,44 +36,51 @@ A full-featured enterprise inventory tracking and multi-branch resource planning
 ├── src/                          # React + TypeScript Frontend
 │   ├── components/               # UI Views and Modals
 │   │   ├── Header.tsx            # Sticky Header with Global Search & Notification Toggle
-│   │   ├── NotificationCenter.tsx# Actionable Notification Panel
+│   │   ├── Sidebar.tsx           # Multi-level Rail Navigation & Submenus
+│   │   ├── PhysicalStockAudit.tsx# Physical Stock Count & Reconciliation Audit View
+│   │   ├── FiscalYearClosingWizard.tsx # 5-Step Fiscal Closing & Lock Wizard
 │   │   ├── StockOperations.tsx   # Stock Out, Consumable Issue, Pullouts & Adjustments
-│   │   ├── ProductManagement.tsx # Item Catalog & Category Management
+│   │   ├── CustomerDeviceManagement.tsx # ONU / Router Serial & Customer Assignment
+│   │   ├── ApprovalWorkflowCenter.tsx   # Multi-tier Device Return & Refund Approvals
 │   │   ├── FixedAssetRegister.tsx# Fixed Assets & Depreciation Register
+│   │   ├── NepaliFiscalManagement.tsx # BS Fiscal Calendar & Year Settings
 │   │   └── ...
 │   ├── types/                    # Shared TypeScript Interfaces
 │   ├── utils/                    # BS/AD Calendar Utilities & Permissions
 │   └── App.tsx                   # Main React Application shell
 │
-├── backend_django/               # Django REST Framework Backend
-│   ├── config/                   # Django Settings, URLs & WSGI
-│   │   ├── settings.py           # PostgreSQL DB & REST Framework Configuration
-│   │   └── urls.py               # API & Swagger OpenAPI Documentation Router
-│   ├── inventory/                # Primary Inventory Application
-│   │   ├── models.py             # ORM Data Models (User, Branch, Product, Stock, etc.)
-│   │   ├── serializers.py        # DRF Serializers
-│   │   ├── views.py              # REST API ViewSets & Stock-Out Endpoints
-│   │   └── urls.py               # API Endpoints Router
-│   ├── requirements.txt          # Python Dependencies
-│   ├── Dockerfile                # Docker Build Specification
-│   └── docker-compose.yml        # Multi-Container Compose Setup (Django + PostgreSQL)
+├── scripts/                      # Database Automation Scripts
+│   ├── schema.sql                # Full 17-Table PostgreSQL Schema with Indexes & FKs
+│   ├── setup_postgres.sh         # Shell script for auto-downloading & configuring PostgreSQL
+│   └── setup_db.js               # Node.js runner for database setup & migration
 │
-└── package.json                  # Frontend Vite / React Configuration
+├── server.ts                     # Full-stack Node.js Express server with Vite middleware
+│
+├── backend_django/               # Django REST Framework Backend (Alternative option)
+│   ├── config/                   # Django Settings, URLs & WSGI
+│   ├── inventory/                # Primary Inventory Application Models & Views
+│   ├── requirements.txt          # Python Dependencies
+│   └── docker-compose.yml        # Multi-Container Compose Setup
+│
+└── package.json                  # Frontend Vite / React & Server Dependencies
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Quick Start & Installation
 
-### 1. Frontend Setup (React + Vite)
+### 1. Application Startup (Express + React + Vite)
 
-The frontend runs using Vite on Node.js:
+The application runs using Node.js with Vite and Express:
 
 ```bash
-# Install Node dependencies
+# Install dependencies
 npm install
 
-# Start development server
+# (Optional) Run automated PostgreSQL setup
+npm run setup:pg
+
+# Start full-stack development server
 npm run dev
 ```
 
@@ -72,41 +88,39 @@ The application will be accessible at `http://localhost:3000`.
 
 ---
 
-### 2. Backend Setup (Django + PostgreSQL)
+### 2. Automated PostgreSQL Database Setup
 
-#### Option A: Docker Compose (Recommended)
-
-Run both PostgreSQL and the Django REST API with a single command:
+To automatically detect, install, and configure PostgreSQL on port 5432, run:
 
 ```bash
-cd backend_django
-docker-compose up --build
+# Using Node.js setup runner
+npm run setup:pg
+
+# Or using the direct shell script
+npm run setup:postgres
 ```
 
-- **Django REST API**: `http://localhost:8000/api/v1/`
-- **Interactive OpenAPI / Swagger Documentation**: `http://localhost:8000/api/docs/`
-- **Database**: PostgreSQL on port `5432`
+The script automatically executes `/scripts/schema.sql` to initialize all 17 tables:
+- `branches`, `users`, `suppliers`, `categories`, `products`, `inventory_stock`
+- `fixed_assets`, `purchase_orders`, `purchase_invoices`, `shipments`, `stock_operations`
+- `fiscal_years`, `audit_logs`, `transaction_logs`, `customer_records`, `customer_device_records`, `approval_requests`
 
-#### Option B: Manual Virtual Environment
+---
+
+### 3. Alternative Django REST Backend Setup
+
+If you prefer using the Python Django backend:
 
 ```bash
 cd backend_django
 
-# Create and activate Python virtual environment
+# Option A: Docker Compose
+docker-compose up --build
+
+# Option B: Local Python Environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install Python requirements
+source venv/bin/activate
 pip install -r requirements.txt
-
-# Configure environment variables (or update config/settings.py)
-export POSTGRES_DB=inventory_db
-export POSTGRES_USER=inventory_user
-export POSTGRES_PASSWORD=securepassword
-export POSTGRES_HOST=localhost
-export POSTGRES_PORT=5432
-
-# Run migrations and start server
 python manage.py makemigrations
 python manage.py migrate
 python manage.py runserver 0.0.0.0:8000
@@ -114,22 +128,26 @@ python manage.py runserver 0.0.0.0:8000
 
 ---
 
-## 🛠️ Django REST API Reference
+## 🛠️ Key Environment Variables
 
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/api/v1/products/` | `GET`, `POST` | List or create products with filtering & search |
-| `/api/v1/products/lookup-barcode/?barcode=...` | `GET` | Instant barcode product lookup |
-| `/api/v1/stock/` | `GET`, `POST` | View branch-wise inventory quantities |
-| `/api/v1/stock/stock-out/` | `POST` | Atomic Stock-Out / Consumable Issue endpoint |
-| `/api/v1/movement-ledger/` | `GET` | Audit trail logs for all stock movements |
-| `/api/v1/stock-operations/` | `GET`, `POST` | Pullouts, damage logs, and manual adjustments |
-| `/api/v1/purchase-orders/` | `GET`, `POST` | Purchase orders & supplier procurement |
-| `/api/v1/shipments/` | `GET`, `POST` | Inter-branch shipments tracking |
-| `/api/docs/` | `GET` | Interactive Swagger UI API documentation |
+Define environment variables in `.env` (refer to `.env.example`):
+
+```env
+# Server Port
+PORT=3000
+
+# PostgreSQL Database Configuration
+DATABASE_URL="postgres://inventory_user:securepassword@localhost:5432/inventory_db"
+POSTGRES_HOST="localhost"
+POSTGRES_PORT="5432"
+POSTGRES_DB="inventory_db"
+POSTGRES_USER="inventory_user"
+POSTGRES_PASSWORD="securepassword"
+```
 
 ---
 
 ## 📄 License
 
 This project is licensed under the MIT License.
+

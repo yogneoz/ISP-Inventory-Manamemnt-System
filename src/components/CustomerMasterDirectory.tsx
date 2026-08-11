@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CustomerRecord, Branch, User } from '../types';
+import { CustomerRecord, CustomerDeviceRecord, Branch, User } from '../types';
 import {
   Users,
   Search,
@@ -19,28 +19,40 @@ import {
   CheckCircle2,
   XCircle,
   FileSpreadsheet,
+  ChevronDown,
+  ChevronUp,
+  Smartphone,
+  Wifi,
+  ExternalLink,
+  Copy,
+  Check,
+  Tag,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 interface CustomerMasterDirectoryProps {
   customers: CustomerRecord[];
+  customerDevices?: CustomerDeviceRecord[];
   branches: Branch[];
   currentUser?: User | null;
   onAddCustomer: (customer: Omit<CustomerRecord, 'id'> | CustomerRecord) => Promise<void>;
   onUpdateCustomer: (id: string, updates: Partial<CustomerRecord>) => Promise<void>;
   onDeleteCustomer: (id: string) => Promise<void>;
   onNavigateToImport: () => void;
+  onSelectTab?: (tab: string, searchQuery?: string) => void;
   isDarkMode?: boolean;
 }
 
 export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = ({
   customers,
+  customerDevices = [],
   branches,
   currentUser,
   onAddCustomer,
   onUpdateCustomer,
   onDeleteCustomer,
   onNavigateToImport,
+  onSelectTab,
   isDarkMode = false,
 }) => {
   // Check permission: Only Super Admin and Inventory Manager can Add / Edit / Delete in Customer Master Table
@@ -50,6 +62,10 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+
+  // Expanded customer rows state to show assigned device serials
+  const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
 
   // Modal States
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -183,8 +199,8 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     return matchesBranch && matchesStatus && matchesSearch;
   });
 
-  // Export Customer Master Table to Excel (.xlsx)
-  const handleExportExcel = () => {
+  // Export Customer Master Table to CSV (.csv)
+  const handleExportCSV = () => {
     if (filteredCustomers.length === 0) {
       alert('No customer records available to export.');
       return;
@@ -208,11 +224,18 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     });
 
     const worksheet = XLSX.utils.json_to_sheet(exportRows);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Customer_Master');
+    const csvOutput = XLSX.utils.sheet_to_csv(worksheet);
 
-    const fileName = `Customer_Master_Database_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    XLSX.writeFile(workbook, fileName);
+    const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    const fileName = `Customer_Master_Database_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -236,7 +259,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={handleExportExcel}
+              onClick={handleExportCSV}
               className={`flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-xl border transition-colors cursor-pointer ${
                 isDarkMode
                   ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200'
@@ -244,7 +267,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
               }`}
             >
               <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-              <span>Export Excel</span>
+              <span>Export CSV</span>
             </button>
 
             <button
@@ -256,7 +279,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
               }`}
             >
               <Upload className="h-4 w-4 text-indigo-600" />
-              <span>Import Excel</span>
+              <span>Import CSV</span>
             </button>
 
             {canManageMaster ? (
@@ -278,26 +301,26 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
 
         {/* Quick Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-100 dark:border-slate-800/80">
-          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Registered Customers</span>
             <div className="text-xl font-bold mt-1 text-slate-900 dark:text-white">{customers.length} Accounts</div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/10">
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
             <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Active Status Accounts</span>
             <div className="text-xl font-bold mt-1 text-emerald-700 dark:text-emerald-400">
               {customers.filter((c) => c.status === 'ACTIVE').length} Active
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-indigo-500/5 border border-indigo-500/10">
-            <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Assigned Branches</span>
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+            <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">Tracked Device Serials</span>
             <div className="text-xl font-bold mt-1 text-indigo-700 dark:text-indigo-400">
-              {new Set(customers.map((c) => c.branchId)).size} Branches
+              {customerDevices.length} Hardware Devices
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-amber-500/5 border border-amber-500/10">
+          <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
             <span className="text-xs font-medium text-amber-600 dark:text-amber-400">Total Credit Capacity</span>
             <div className="text-xl font-bold mt-1 text-amber-700 dark:text-amber-400">
               रु {customers.reduce((sum, c) => sum + (c.creditLimit || 0), 0).toLocaleString('en-IN')}
@@ -373,14 +396,15 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             <thead>
-              <tr className={`border-b text-xs uppercase font-semibold tracking-wider ${
-                isDarkMode ? 'bg-slate-800/80 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-500'
+              <tr className={`border-b text-xs uppercase font-bold tracking-wider ${
+                isDarkMode ? 'bg-slate-800/90 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
               }`}>
                 <th className="p-3.5">Cus. Code</th>
                 <th className="p-3.5">Customer Name & Username</th>
                 <th className="p-3.5">Primary Mobile</th>
                 <th className="p-3.5">Branch</th>
                 <th className="p-3.5">Contact Details & Address</th>
+                <th className="p-3.5 text-center">Assigned Hardware</th>
                 <th className="p-3.5 text-right">Credit Limit</th>
                 <th className="p-3.5 text-center">Status</th>
                 <th className="p-3.5 text-right">Actions</th>
@@ -389,113 +413,261 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {filteredCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-12 text-center text-slate-500 dark:text-slate-400">
+                  <td colSpan={9} className="p-12 text-center text-slate-500 dark:text-slate-400">
                     <Users className="h-10 w-10 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
                     <p className="font-semibold text-base">No Customer Records Found</p>
                     <p className="text-xs text-slate-400 mt-1">
-                      {searchQuery ? 'Try adjusting your search query or filters.' : 'Add a customer or import from Excel.'}
+                      {searchQuery ? 'Try adjusting your search query or filters.' : 'Add a customer or import from CSV.'}
                     </p>
                   </td>
                 </tr>
               ) : (
                 filteredCustomers.map((customer) => {
                   const branchObj = branches.find((b) => b.id === customer.branchId);
+                  
+                  // Matching device serial records from Customer Device Serials
+                  const matchingDevices = customerDevices.filter(
+                    (d) =>
+                      d.customerCode === customer.customerId ||
+                      d.customerId === customer.id ||
+                      d.customerName.toLowerCase() === customer.customerName.toLowerCase()
+                  );
+                  const isExpanded = expandedCustomerId === customer.id;
+
                   return (
-                    <tr
-                      key={customer.id}
-                      className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${
-                        isDarkMode ? 'text-slate-200' : 'text-slate-800'
-                      }`}
-                    >
-                      {/* Cus. Code */}
-                      <td className="p-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
-                        {customer.customerId || customer.id}
-                      </td>
+                    <React.Fragment key={customer.id}>
+                      <tr
+                        className={`hover:bg-slate-50/80 dark:hover:bg-slate-800/50 transition-colors ${
+                          isExpanded ? (isDarkMode ? 'bg-slate-800/60' : 'bg-indigo-50/30') : ''
+                        } ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}
+                      >
+                        {/* Cus. Code */}
+                        <td className="p-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                          {customer.customerId || customer.id}
+                        </td>
 
-                      {/* Customer Name & Username */}
-                      <td className="p-3.5">
-                        <div className="font-bold text-slate-900 dark:text-white">
-                          {customer.customerName}
-                        </div>
-                        <div className="text-xs text-slate-500 font-mono mt-0.5">
-                          @{customer.username}
-                        </div>
-                      </td>
-
-                      {/* Primary Mobile */}
-                      <td className="p-3.5 font-mono text-slate-900 dark:text-white whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <Phone className="h-3.5 w-3.5 text-slate-400" />
-                          <span>{customer.contactNumber}</span>
-                        </div>
-                      </td>
-
-                      {/* Branch */}
-                      <td className="p-3.5 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                          <Building2 className="h-3 w-3 text-indigo-500" />
-                          {branchObj ? `${branchObj.name} (${branchObj.code})` : customer.branchId}
-                        </span>
-                      </td>
-
-                      {/* Contact Details & Address */}
-                      <td className="p-3.5 max-w-xs">
-                        {customer.email && (
-                          <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 mb-0.5 truncate">
-                            <Mail className="h-3 w-3 text-slate-400 flex-shrink-0" />
-                            <span className="truncate">{customer.email}</span>
+                        {/* Customer Name & Username */}
+                        <td className="p-3.5">
+                          <div className="font-bold text-slate-900 dark:text-white">
+                            {customer.customerName}
                           </div>
-                        )}
-                        <div className="flex items-start gap-1 text-xs text-slate-600 dark:text-slate-300 line-clamp-1">
-                          <MapPin className="h-3 w-3 text-slate-400 mt-0.5 flex-shrink-0" />
-                          <span>{customer.address || 'N/A'}</span>
-                        </div>
-                      </td>
-
-                      {/* Credit Limit */}
-                      <td className="p-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                        रु {(customer.creditLimit || 0).toLocaleString('en-IN')}
-                      </td>
-
-                      {/* Status */}
-                      <td className="p-3.5 text-center whitespace-nowrap">
-                        {customer.status === 'ACTIVE' ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Active
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                            <XCircle className="h-3 w-3" />
-                            Inactive
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Actions */}
-                      <td className="p-3.5 text-right whitespace-nowrap">
-                        {canManageMaster ? (
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() => handleOpenEditModal(customer)}
-                              title="Edit Customer Master Record"
-                              className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => setDeletingCustomer(customer)}
-                              title="Delete Customer Master Record"
-                              className="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                          <div className="text-xs text-slate-500 font-mono mt-0.5">
+                            @{customer.username}
                           </div>
-                        ) : (
-                          <span className="text-xs text-slate-400 italic">View Only</span>
-                        )}
-                      </td>
-                    </tr>
+                        </td>
+
+                        {/* Primary Mobile */}
+                        <td className="p-3.5 font-mono text-slate-900 dark:text-white whitespace-nowrap">
+                          <div className="flex items-center gap-1.5">
+                            <Phone className="h-3.5 w-3.5 text-slate-400" />
+                            <span>{customer.contactNumber}</span>
+                          </div>
+                        </td>
+
+                        {/* Branch */}
+                        <td className="p-3.5 whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                            <Building2 className="h-3 w-3 text-indigo-500" />
+                            {branchObj ? `${branchObj.name} (${branchObj.code})` : customer.branchId}
+                          </span>
+                        </td>
+
+                        {/* Contact Details & Address */}
+                        <td className="p-3.5 max-w-xs">
+                          {customer.email && (
+                            <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 mb-0.5 truncate">
+                              <Mail className="h-3 w-3 text-slate-400 flex-shrink-0" />
+                              <span className="truncate">{customer.email}</span>
+                            </div>
+                          )}
+                          <div className="flex items-start gap-1 text-xs text-slate-600 dark:text-slate-300 line-clamp-1">
+                            <MapPin className="h-3 w-3 text-slate-400 mt-0.5 flex-shrink-0" />
+                            <span>{customer.address || 'N/A'}</span>
+                          </div>
+                        </td>
+
+                        {/* Assigned Hardware & Serials Badge */}
+                        <td className="p-3.5 text-center whitespace-nowrap">
+                          <button
+                            onClick={() => setExpandedCustomerId(isExpanded ? null : customer.id)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                              matchingDevices.length > 0
+                                ? isDarkMode
+                                  ? 'bg-indigo-950/60 border-indigo-700 text-indigo-300 hover:bg-indigo-900'
+                                  : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                                : isDarkMode
+                                ? 'bg-slate-800 border-slate-700 text-slate-400'
+                                : 'bg-slate-100 border-slate-200 text-slate-500'
+                            }`}
+                          >
+                            <Smartphone className="h-3.5 w-3.5 text-indigo-500" />
+                            <span>{matchingDevices.length} Serials</span>
+                            {isExpanded ? (
+                              <ChevronUp className="h-3.5 w-3.5 ml-1 text-indigo-500" />
+                            ) : (
+                              <ChevronDown className="h-3.5 w-3.5 ml-1 text-indigo-500" />
+                            )}
+                          </button>
+                        </td>
+
+                        {/* Credit Limit */}
+                        <td className="p-3.5 text-right font-mono font-semibold text-slate-900 dark:text-white whitespace-nowrap">
+                          रु {(customer.creditLimit || 0).toLocaleString('en-IN')}
+                        </td>
+
+                        {/* Status */}
+                        <td className="p-3.5 text-center whitespace-nowrap">
+                          {customer.status === 'ACTIVE' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Active
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                              <XCircle className="h-3 w-3" />
+                              Inactive
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Actions */}
+                        <td className="p-3.5 text-right whitespace-nowrap">
+                          {canManageMaster ? (
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleOpenEditModal(customer)}
+                                title="Edit Customer Master Record"
+                                className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors cursor-pointer"
+                              >
+                                <Edit2 className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => setDeletingCustomer(customer)}
+                                title="Delete Customer Master Record"
+                                className="p-1.5 rounded-lg hover:bg-rose-100 dark:hover:bg-rose-950/40 text-rose-600 dark:text-rose-400 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400 italic">View Only</span>
+                          )}
+                        </td>
+                      </tr>
+
+                      {/* Expandable Panel showing assigned hardware serials for this customer */}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={9} className={`p-4 border-y ${
+                            isDarkMode ? 'bg-slate-950/90 border-indigo-900/40' : 'bg-indigo-50/40 border-indigo-100'
+                          }`}>
+                            <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/50 p-4 bg-white dark:bg-slate-900 shadow-sm">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
+                                <div className="flex items-center gap-2">
+                                  <Wifi className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                                  <span className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider">
+                                    Hardware & Device Serials assigned to {customer.customerName} ({customer.customerId})
+                                  </span>
+                                </div>
+                                {onSelectTab && (
+                                  <button
+                                    onClick={() => onSelectTab('customer-devices', customer.customerName)}
+                                    className="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 transition-colors cursor-pointer"
+                                  >
+                                    <span>Filter in Customer Device Serials View</span>
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+
+                              {matchingDevices.length === 0 ? (
+                                <div className="p-6 text-center text-slate-500 text-xs">
+                                  <p className="font-semibold">No Hardware Serials Assigned</p>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">
+                                    No router, ONU, or STB devices are currently linked to this customer code in the serials directory.
+                                  </p>
+                                  {onSelectTab && (
+                                    <button
+                                      onClick={() => onSelectTab('customer-devices', customer.customerName)}
+                                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition-all cursor-pointer"
+                                    >
+                                      <Plus className="h-3.5 w-3.5" />
+                                      <span>Assign Hardware Device</span>
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-left text-xs border-collapse">
+                                    <thead>
+                                      <tr className={`border-b text-[10px] font-bold uppercase tracking-wider ${
+                                        isDarkMode ? 'bg-slate-800/90 text-slate-300' : 'bg-slate-100 text-slate-700'
+                                      }`}>
+                                        <th className="p-2.5">Hardware Model</th>
+                                        <th className="p-2.5">Device Serial #</th>
+                                        <th className="p-2.5">PON Serial #</th>
+                                        <th className="p-2.5">MAC Address</th>
+                                        <th className="p-2.5">Issued Date</th>
+                                        <th className="p-2.5 text-center">Status</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                      {matchingDevices.map((dev) => (
+                                        <tr key={dev.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                                          <td className="p-2.5 font-semibold text-slate-900 dark:text-white">
+                                            {dev.productName}
+                                          </td>
+                                          <td className="p-2.5 font-mono font-bold text-blue-600 dark:text-blue-400">
+                                            <div className="flex items-center gap-1">
+                                              <span>{dev.deviceSerial}</span>
+                                              <button
+                                                onClick={() => {
+                                                  navigator.clipboard.writeText(dev.deviceSerial);
+                                                  setCopiedText(dev.deviceSerial);
+                                                  setTimeout(() => setCopiedText(null), 2000);
+                                                }}
+                                                className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
+                                                title="Copy Device Serial"
+                                              >
+                                                {copiedText === dev.deviceSerial ? (
+                                                  <Check className="h-3 w-3 text-emerald-500" />
+                                                ) : (
+                                                  <Copy className="h-3 w-3" />
+                                                )}
+                                              </button>
+                                            </div>
+                                          </td>
+                                          <td className="p-2.5 font-mono text-slate-700 dark:text-slate-300">
+                                            {dev.ponSerial}
+                                          </td>
+                                          <td className="p-2.5 font-mono text-slate-500">
+                                            {dev.macAddress || 'N/A'}
+                                          </td>
+                                          <td className="p-2.5 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                                            {dev.issuedDateAD} ({dev.issuedDateBS || 'BS'})
+                                          </td>
+                                          <td className="p-2.5 text-center whitespace-nowrap">
+                                            <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                              dev.status === 'ACTIVE'
+                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                                                : dev.status === 'SUSPENDED'
+                                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                                : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                            }`}>
+                                              {dev.status}
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })
               )}

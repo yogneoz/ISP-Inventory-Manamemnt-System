@@ -1,0 +1,304 @@
+-- IZone Enterprise Inventory & ERP System - Full PostgreSQL Database Schema
+-- Version: 2.0 (Production-Ready Schema for Nepal Telecom & Fiber ISP Operations)
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- 1. Branches Table
+CREATE TABLE IF NOT EXISTS branches (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(20) UNIQUE NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    location VARCHAR(255) NOT NULL,
+    phone VARCHAR(50),
+    is_headquarters BOOLEAN DEFAULT FALSE,
+    active BOOLEAN DEFAULT TRUE,
+    allow_procurement BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 2. Users Table
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(50) PRIMARY KEY,
+    email VARCHAR(150) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    role VARCHAR(50) NOT NULL CHECK (role IN ('SUPER_ADMIN', 'INVENTORY_MANAGER', 'BRANCH_MANAGER', 'FRONT_DESK', 'ACCOUNTANT')),
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+    allowed_branch_ids TEXT[],
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Suppliers Table
+CREATE TABLE IF NOT EXISTS suppliers (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    contact_person VARCHAR(150),
+    phone VARCHAR(50),
+    email VARCHAR(150),
+    address TEXT,
+    pan_vat_number VARCHAR(50),
+    rating NUMERIC(3, 1) DEFAULT 5.0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. Categories Table
+CREATE TABLE IF NOT EXISTS categories (
+    id VARCHAR(50) PRIMARY KEY,
+    name VARCHAR(150) UNIQUE NOT NULL,
+    code VARCHAR(30) UNIQUE NOT NULL,
+    description TEXT
+);
+
+-- 5. Products Table
+CREATE TABLE IF NOT EXISTS products (
+    id VARCHAR(50) PRIMARY KEY,
+    sku VARCHAR(100) UNIQUE NOT NULL,
+    barcode VARCHAR(100),
+    name VARCHAR(255) NOT NULL,
+    category VARCHAR(100) NOT NULL,
+    product_group VARCHAR(50) NOT NULL CHECK (product_group IN ('Product Item', 'Fixed Asset', 'Consumable Item')),
+    unit VARCHAR(30) DEFAULT 'Pcs',
+    cost_price NUMERIC(12, 2) DEFAULT 0.00,
+    selling_price NUMERIC(12, 2) DEFAULT 0.00,
+    tax_rate NUMERIC(5, 2) DEFAULT 13.00, -- 13% Nepal VAT
+    min_reorder_level INT DEFAULT 5,
+    requires_serial_tracking BOOLEAN DEFAULT FALSE,
+    tracking_type VARCHAR(50) DEFAULT 'QUANTITY_ONLY',
+    description TEXT,
+    depreciation_method VARCHAR(50),
+    depreciation_rate NUMERIC(5, 2),
+    useful_life_years INT,
+    salvage_value_percent NUMERIC(5, 2),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 6. Inventory Stock Table
+CREATE TABLE IF NOT EXISTS inventory_stock (
+    id VARCHAR(100) PRIMARY KEY,
+    product_id VARCHAR(50) NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    branch_id VARCHAR(50) NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+    quantity_on_hand INT DEFAULT 0,
+    damaged_qty INT DEFAULT 0,
+    reserved_qty INT DEFAULT 0,
+    incoming_qty INT DEFAULT 0,
+    min_reorder_level INT DEFAULT 5,
+    last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT unique_product_branch UNIQUE (product_id, branch_id)
+);
+
+-- 7. Fixed Assets Table
+CREATE TABLE IF NOT EXISTS fixed_assets (
+    id VARCHAR(50) PRIMARY KEY,
+    tag_number VARCHAR(100) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    acquisition_date_ad DATE NOT NULL,
+    acquisition_date_bs VARCHAR(20) NOT NULL,
+    acquisition_cost NUMERIC(12, 2) NOT NULL,
+    depreciation_method VARCHAR(50) DEFAULT 'STRAIGHT_LINE',
+    depreciation_rate_percent NUMERIC(5, 2) DEFAULT 15.00,
+    accumulated_depreciation NUMERIC(12, 2) DEFAULT 0.00,
+    net_book_value NUMERIC(12, 2) NOT NULL,
+    status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'DISPOSED', 'WRITTEN_OFF', 'MAINTENANCE')),
+    supplier_name VARCHAR(200),
+    invoice_no VARCHAR(100),
+    purchase_invoice_id VARCHAR(50),
+    product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 8. Purchase Orders Table
+CREATE TABLE IF NOT EXISTS purchase_orders (
+    id VARCHAR(50) PRIMARY KEY,
+    po_number VARCHAR(100) UNIQUE NOT NULL,
+    supplier_name VARCHAR(200) NOT NULL,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    order_date_ad DATE NOT NULL,
+    order_date_bs VARCHAR(20) NOT NULL,
+    expected_delivery_date_ad DATE,
+    status VARCHAR(30) DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'APPROVED', 'SENT', 'RECEIVED', 'CANCELLED')),
+    subtotal_amount NUMERIC(14, 2) DEFAULT 0.00,
+    tax_amount NUMERIC(14, 2) DEFAULT 0.00,
+    total_amount NUMERIC(14, 2) DEFAULT 0.00,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 9. Purchase Invoices Table
+CREATE TABLE IF NOT EXISTS purchase_invoices (
+    id VARCHAR(50) PRIMARY KEY,
+    invoice_number VARCHAR(100) UNIQUE NOT NULL,
+    po_reference_id VARCHAR(50),
+    supplier_name VARCHAR(200) NOT NULL,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    invoice_date_ad DATE NOT NULL,
+    invoice_date_bs VARCHAR(20) NOT NULL,
+    due_date_ad DATE,
+    due_date_bs VARCHAR(20),
+    taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
+    vat_amount NUMERIC(14, 2) DEFAULT 0.00,
+    non_taxable_amount NUMERIC(14, 2) DEFAULT 0.00,
+    grand_total NUMERIC(14, 2) DEFAULT 0.00,
+    payment_status VARCHAR(30) DEFAULT 'UNPAID' CHECK (payment_status IN ('UNPAID', 'PARTIAL', 'PAID')),
+    amount_paid NUMERIC(14, 2) DEFAULT 0.00,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 10. Shipments Table
+CREATE TABLE IF NOT EXISTS shipments (
+    id VARCHAR(50) PRIMARY KEY,
+    tracking_code VARCHAR(100) UNIQUE NOT NULL,
+    type VARCHAR(50) DEFAULT 'INTER_BRANCH',
+    source_branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+    source_branch_name VARCHAR(150),
+    destination_branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    destination_branch_name VARCHAR(150),
+    dispatch_date_ad DATE NOT NULL,
+    dispatch_date_bs VARCHAR(20) NOT NULL,
+    estimated_arrival_ad DATE,
+    status VARCHAR(30) DEFAULT 'IN_TRANSIT' CHECK (status IN ('DISPATCHED', 'IN_TRANSIT', 'DELIVERED', 'RECEIVED', 'DISCREPANCY')),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 11. Stock Operations Table
+CREATE TABLE IF NOT EXISTS stock_operations (
+    id VARCHAR(50) PRIMARY KEY,
+    reference_number VARCHAR(100) UNIQUE NOT NULL,
+    type VARCHAR(50) NOT NULL CHECK (type IN ('PULLOUT', 'DAMAGE', 'STOCK_OUT', 'MANUAL_ADJUSTMENT', 'CONSUMABLE_ISSUE')),
+    technician_name VARCHAR(150),
+    work_order_ref VARCHAR(100),
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    branch_name VARCHAR(150),
+    destination_warehouse_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL,
+    destination_warehouse_name VARCHAR(150),
+    product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+    quantity_changed INT DEFAULT 0,
+    cost_per_unit NUMERIC(12, 2) DEFAULT 0.00,
+    total_value NUMERIC(12, 2) DEFAULT 0.00,
+    reason TEXT NOT NULL,
+    inspector_name VARCHAR(150),
+    date_ad DATE NOT NULL,
+    date_bs VARCHAR(20) NOT NULL,
+    fiscal_year VARCHAR(20) DEFAULT '2082/83',
+    status VARCHAR(30) DEFAULT 'LOGGED',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 12. Fiscal Years Table
+CREATE TABLE IF NOT EXISTS fiscal_years (
+    id VARCHAR(50) PRIMARY KEY,
+    code VARCHAR(20) UNIQUE NOT NULL,
+    start_date_ad DATE NOT NULL,
+    end_date_ad DATE NOT NULL,
+    start_date_bs VARCHAR(20) NOT NULL,
+    end_date_bs VARCHAR(20) NOT NULL,
+    is_current BOOLEAN DEFAULT FALSE,
+    is_closed BOOLEAN DEFAULT FALSE
+);
+
+-- 13. Audit Trail Table
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id VARCHAR(50) PRIMARY KEY,
+    user_email VARCHAR(150) NOT NULL,
+    user_name VARCHAR(150) NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    module VARCHAR(50) NOT NULL,
+    details TEXT,
+    timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    timestamp_bs VARCHAR(20),
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE SET NULL
+);
+
+-- 14. Transaction Logs Table
+CREATE TABLE IF NOT EXISTS transaction_logs (
+    id VARCHAR(100) PRIMARY KEY,
+    transaction_number VARCHAR(100) NOT NULL,
+    product_id VARCHAR(50) REFERENCES products(id) ON DELETE SET NULL,
+    product_sku VARCHAR(100),
+    product_name VARCHAR(255),
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    change_type VARCHAR(50) NOT NULL,
+    quantity_before INT NOT NULL,
+    quantity_changed INT NOT NULL,
+    quantity_after INT NOT NULL,
+    unit_cost NUMERIC(12, 2) DEFAULT 0.00,
+    reference_doc_id VARCHAR(100),
+    timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    timestamp_bs VARCHAR(20)
+);
+
+-- 15. Customer Records Table
+CREATE TABLE IF NOT EXISTS customer_records (
+    id VARCHAR(50) PRIMARY KEY,
+    customer_id VARCHAR(50) UNIQUE NOT NULL,
+    customer_name VARCHAR(200) NOT NULL,
+    username VARCHAR(100),
+    contact_number VARCHAR(50) NOT NULL,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    address TEXT,
+    email VARCHAR(150),
+    status VARCHAR(30) DEFAULT 'ACTIVE',
+    credit_limit NUMERIC(12, 2) DEFAULT 0.00,
+    assigned_devices_count INT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 16. Customer Device Records Table (ONUs/Routers)
+CREATE TABLE IF NOT EXISTS customer_device_records (
+    id VARCHAR(50) PRIMARY KEY,
+    customer_id VARCHAR(50),
+    customer_name VARCHAR(200) NOT NULL,
+    customer_code VARCHAR(50) NOT NULL,
+    contact_phone VARCHAR(50),
+    installation_address TEXT,
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    product_name VARCHAR(255) NOT NULL,
+    device_serial VARCHAR(100) NOT NULL,
+    pon_serial VARCHAR(100) NOT NULL,
+    mac_address VARCHAR(100),
+    status VARCHAR(30) DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'SUSPENDED', 'DISCONNECTED', 'RETURNED', 'REFUND')),
+    issued_date_ad DATE,
+    issued_date_bs VARCHAR(20),
+    purchase_bill_ref VARCHAR(100),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 17. Approval Requests Table
+CREATE TABLE IF NOT EXISTS approval_requests (
+    id VARCHAR(50) PRIMARY KEY,
+    request_number VARCHAR(100) UNIQUE NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    target_id VARCHAR(50),
+    customer_name VARCHAR(200),
+    customer_code VARCHAR(50),
+    device_serial VARCHAR(100),
+    pon_serial VARCHAR(100),
+    product_name VARCHAR(255),
+    current_status VARCHAR(30),
+    requested_status VARCHAR(30),
+    requested_by_role VARCHAR(50),
+    requested_by_email VARCHAR(150),
+    requested_by_name VARCHAR(150),
+    branch_id VARCHAR(50) REFERENCES branches(id) ON DELETE CASCADE,
+    branch_name VARCHAR(150),
+    reason TEXT NOT NULL,
+    restock_qty_on_approval BOOLEAN DEFAULT FALSE,
+    status VARCHAR(30) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+    requested_at_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    requested_at_bs VARCHAR(20),
+    processed_by_email VARCHAR(150),
+    processed_by_name VARCHAR(150),
+    processed_by_role VARCHAR(50),
+    processed_at_ad TIMESTAMP WITH TIME ZONE,
+    processed_at_bs VARCHAR(20),
+    rejection_reason TEXT
+);
+
+-- Indexes for high-performance querying
+CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
+CREATE INDEX IF NOT EXISTS idx_stock_product_branch ON inventory_stock(product_id, branch_id);
+CREATE INDEX IF NOT EXISTS idx_customer_devices_serials ON customer_device_records(device_serial, pon_serial, mac_address);
+CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status, branch_id);

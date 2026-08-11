@@ -31,8 +31,8 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [importSuccessMessage, setImportSuccessMessage] = useState<string | null>(null);
 
-  // Sample data array for Excel creation
-  const sampleExcelData = [
+  // Sample data array for CSV creation
+  const sampleCsvData = [
     {
       'Cus. Code': 'CUS-10291',
       'Customer Name': 'Aarav Sharma',
@@ -71,14 +71,20 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
     },
   ];
 
-  const parseExcelArrayBuffer = (buffer: ArrayBuffer, filename: string) => {
+  const parseCsvContent = (content: string | ArrayBuffer, filename: string) => {
     setSelectedFileName(filename);
     try {
-      const data = new Uint8Array(buffer);
-      const workbook = XLSX.read(data, { type: 'array' });
+      let workbook;
+      if (typeof content === 'string') {
+        workbook = XLSX.read(content, { type: 'string' });
+      } else {
+        const data = new Uint8Array(content);
+        workbook = XLSX.read(data, { type: 'array' });
+      }
+
       const sheetName = workbook.SheetNames[0];
       if (!sheetName) {
-        alert('No worksheet found in Excel file');
+        alert('No worksheet/data found in CSV file');
         setParsedRows([]);
         return;
       }
@@ -86,7 +92,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
       const jsonRows = XLSX.utils.sheet_to_json<any>(worksheet, { defval: '' });
 
       if (!jsonRows || jsonRows.length === 0) {
-        alert('Uploaded Excel sheet is empty');
+        alert('Uploaded CSV file is empty');
         setParsedRows([]);
         return;
       }
@@ -130,7 +136,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
 
       setParsedRows(rows);
     } catch (err: any) {
-      alert(`Excel Parse Error: ${err.message || 'Could not parse Excel spreadsheet'}`);
+      alert(`CSV Parse Error: ${err.message || 'Could not parse CSV file'}`);
       setParsedRows([]);
     }
   };
@@ -141,28 +147,32 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const buffer = event.target?.result as ArrayBuffer;
-      if (buffer) {
-        parseExcelArrayBuffer(buffer, file.name);
+      const result = event.target?.result;
+      if (result) {
+        parseCsvContent(result, file.name);
       }
     };
-    reader.readAsArrayBuffer(file);
+    reader.readAsText(file);
   };
 
   const handleLoadSample = () => {
-    // Generate buffer from sample data
-    const ws = XLSX.utils.json_to_sheet(sampleExcelData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Sample_Customers');
-    const outBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    parseExcelArrayBuffer(outBuffer, 'Sample_Customer_Master_List.xlsx');
+    const ws = XLSX.utils.json_to_sheet(sampleCsvData);
+    const csvStr = XLSX.utils.sheet_to_csv(ws);
+    parseCsvContent(csvStr, 'Sample_Customer_Master_List.csv');
   };
 
-  const handleDownloadSampleExcel = () => {
-    const ws = XLSX.utils.json_to_sheet(sampleExcelData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Customers');
-    XLSX.writeFile(wb, 'iZone_Customer_Master_Template.xlsx');
+  const handleDownloadSampleCSV = () => {
+    const ws = XLSX.utils.json_to_sheet(sampleCsvData);
+    const csvOutput = XLSX.utils.sheet_to_csv(ws);
+    const blob = new Blob([csvOutput], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'iZone_Customer_Master_Template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleProcessImport = async () => {
@@ -221,22 +231,22 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
             isDarkMode ? 'text-white' : 'text-slate-900'
           }`}>
             <UserPlus className="h-5 w-5 text-indigo-500" />
-            <span>Import Customer Database (Excel)</span>
+            <span>Import Customer Database (CSV)</span>
           </h2>
           <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Bulk import customer master records (Cus. Code, Customer Name, Username, Primary Mobile, Branch, Address) via Excel (.xlsx / .xls) spreadsheet template.
+            Bulk import customer master records (Cus. Code, Customer Name, Username, Primary Mobile, Branch, Address) via CSV (.csv) template.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={handleDownloadSampleExcel}
+            onClick={handleDownloadSampleCSV}
             className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer transition-all ${
               isDarkMode ? 'border-slate-800 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-700 hover:bg-slate-100'
             }`}
           >
             <Download className="h-4 w-4 text-emerald-600" />
-            <span>Download Excel Template (.xlsx)</span>
+            <span>Download CSV Template (.csv)</span>
           </button>
 
           <button
@@ -244,7 +254,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
             className="flex items-center gap-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 px-3 py-2 text-xs font-semibold hover:bg-indigo-100 transition-all cursor-pointer"
           >
             <Smartphone className="h-4 w-4" />
-            <span>Load Sample Excel Data</span>
+            <span>Load Sample CSV Data</span>
           </button>
         </div>
       </div>
@@ -275,9 +285,9 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
             <div className="flex items-center justify-between mb-3">
               <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                 <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
-                <span>Upload Excel File</span>
+                <span>Upload CSV File</span>
               </label>
-              <span className="text-[10px] text-emerald-600 font-mono font-bold">.xlsx, .xls</span>
+              <span className="text-[10px] text-emerald-600 font-mono font-bold">.csv, .txt</span>
             </div>
 
             <div className={`relative border-2 border-dashed rounded-2xl p-6 text-center flex flex-col items-center justify-center transition-all ${
@@ -287,7 +297,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
             }`}>
               <input
                 type="file"
-                accept=".xlsx, .xls"
+                accept=".csv, text/csv, .txt"
                 onChange={handleFileUpload}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
               />
@@ -302,13 +312,13 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
                     {selectedFileName}
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-0.5">
-                    {parsedRows.length} customer records extracted from Excel
+                    {parsedRows.length} customer records extracted from CSV
                   </span>
                 </div>
               ) : (
                 <div>
                   <span className="font-bold text-xs text-slate-800 dark:text-slate-200 block">
-                    Click to browse or drag & drop Excel (.xlsx / .xls) file
+                    Click to browse or drag & drop CSV (.csv) file
                   </span>
                   <span className="text-[11px] text-slate-400 block mt-1">
                     Columns: Cus. Code, Customer Name, Username, Primary Mobile, Branch Code, Address, Email
@@ -347,7 +357,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
           </div>
         </div>
 
-        {/* Live Excel Preview Panel */}
+        {/* Live CSV Preview Panel */}
         <div className={`lg:col-span-7 flex flex-col rounded-2xl border shadow-lg overflow-hidden ${
           isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
         }`}>
@@ -356,7 +366,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
           }`}>
             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              <span>Excel Customer Import Preview</span>
+              <span>CSV Customer Import Preview</span>
             </span>
             <span className="text-[11px] text-slate-500 font-medium">
               Valid: {parsedRows.filter((r) => r.isValid).length} / {parsedRows.length}
@@ -380,7 +390,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
                 {parsedRows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-12 text-center text-slate-500 text-xs">
-                      No Excel file loaded yet. Upload an .xlsx file or click "Load Sample Excel Data" above.
+                      No CSV file loaded yet. Upload a .csv file or click "Load Sample CSV Data" above.
                     </td>
                   </tr>
                 ) : (

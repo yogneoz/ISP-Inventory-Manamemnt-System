@@ -465,10 +465,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 : 'bg-slate-50 border-slate-200 text-slate-800'
             }`}
           >
-            <option value="ALL">All Groups</option>
-            <option value="Product Item">Product Item (Equipment/Resale)</option>
-            <option value="Consumable Item">Consumable Item (Splitters/Sleeves/Couplers)</option>
-            <option value="Fixed Asset">Fixed Asset (Capital Assets)</option>
+            <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Groups</option>
+            <option value="Product Item" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Product Item (Equipment/Resale)</option>
+            <option value="Consumable Item" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-amber-400 font-semibold">Consumable Item (Splitters/Sleeves/Couplers)</option>
+            <option value="Fixed Asset" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-indigo-400 font-semibold">Fixed Asset (Capital Assets)</option>
           </select>
 
           <span className={`text-[11px] font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Category:</span>
@@ -481,9 +481,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                 : 'bg-slate-50 border-slate-200 text-slate-800'
             }`}
           >
-            <option value="ALL">All Categories ({products.length})</option>
+            <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Categories ({products.length})</option>
             {categories.map((cat) => (
-              <option key={cat} value={cat}>
+              <option key={cat} value={cat} className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">
                 {cat}
               </option>
             ))}

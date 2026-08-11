@@ -595,7 +595,7 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
                 {!isCollapsed && (
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
+                      <thead className="bg-slate-100/90 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
                         <tr>
                           <th className="p-3.5 w-1/3">Operation & Description</th>
                           {ROLES.map((role) => {

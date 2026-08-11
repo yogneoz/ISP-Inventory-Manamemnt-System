@@ -412,7 +412,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           onClick={() => onNavigateTab('reorder-stock')}
           className={`rounded-xl p-3 border shadow-2xs transition-all cursor-pointer group ${
             isDarkMode
-              ? 'bg-[#0f1218] border-rose-950/60 hover:border-rose-800'
+              ? 'bg-[#0f1218] border-slate-800 hover:border-slate-700'
               : 'bg-white border-rose-200 hover:border-rose-300 hover:shadow-xs'
           }`}
         >
@@ -1390,12 +1390,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   onChange={(e) => setSelectedStockId(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2.5 text-slate-900 dark:text-slate-200 focus:outline-none"
                 >
-                  <option value="">-- Choose Stock Record --</option>
+                  <option value="" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">-- Choose Stock Record --</option>
                   {stock.map((st) => {
                     const prod = products.find((p) => p.id === st.productId);
                     const br = branches.find((b) => b.id === st.branchId);
                     return (
-                      <option key={st.id} value={st.id}>
+                      <option key={st.id} value={st.id} className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">
                         {prod?.name || 'Item'} [{br?.code || 'Branch'}] — Current Qty:{' '}
                         {st.quantityOnHand} {prod?.unit || 'Pcs'}
                       </option>
@@ -1414,8 +1414,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     onChange={(e) => setAdjustAction(e.target.value as any)}
                     className="w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2.5 text-slate-900 dark:text-slate-200 font-bold focus:outline-none"
                   >
-                    <option value="ADD">➕ Add Stock (+)</option>
-                    <option value="REMOVE">➖ Remove Stock (-)</option>
+                    <option value="ADD" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-emerald-400">➕ Add Stock (+)</option>
+                    <option value="REMOVE" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-rose-400">➖ Remove Stock (-)</option>
                   </select>
                 </div>
 
@@ -1443,11 +1443,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   onChange={(e) => setAdjustReason(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 p-2.5 text-slate-900 dark:text-slate-200 focus:outline-none"
                 >
-                  <option value="Physical Stock Audit">Physical Stock Audit Count</option>
-                  <option value="Internal Branch Consumption">Internal Branch Consumption</option>
-                  <option value="Damaged / Write-off">Damaged / Write-off</option>
-                  <option value="Supplier Return">Supplier Return</option>
-                  <option value="Initial Opening Stock Entry">Initial Opening Stock Entry</option>
+                  <option value="Physical Stock Audit" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Physical Stock Audit Count</option>
+                  <option value="Internal Branch Consumption" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Internal Branch Consumption</option>
+                  <option value="Damaged / Write-off" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Damaged / Write-off</option>
+                  <option value="Supplier Return" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Supplier Return</option>
+                  <option value="Initial Opening Stock Entry" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">Initial Opening Stock Entry</option>
                 </select>
               </div>
 

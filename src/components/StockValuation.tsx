@@ -142,6 +142,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     let bDamaged = 0;
     let bCostVal = 0;
     let bRetailVal = 0;
+    let bDamagedLoss = 0;
 
     products.forEach((prod) => {
       const item = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
@@ -150,11 +151,11 @@ export const StockValuation: React.FC<StockValuationProps> = ({
         bDamaged += item.damagedQty || 0;
         bCostVal += item.quantityOnHand * prod.costPrice;
         bRetailVal += item.quantityOnHand * prod.sellingPrice;
+        bDamagedLoss += (item.damagedQty || 0) * prod.costPrice;
       }
     });
 
     const bMargin = bRetailVal - bCostVal;
-    const bDamagedLoss = bDamaged * 0; // average approximate cost or per prod
 
     return {
       branch: b,

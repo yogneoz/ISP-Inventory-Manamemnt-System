@@ -1875,6 +1875,33 @@ app.post('/api/customer-devices', (req, res) => {
     ...req.body,
   };
   customerDeviceRecords.unshift(newRecord);
+
+  // Sync with Customer Master Directory: ensure customer exists and update count
+  const custCode = newRecord.customerCode || newRecord.customerId;
+  let masterCust = customerMasterRecords.find(
+    (c) => c.customerId === custCode || c.id === custCode || c.customerName.toLowerCase() === newRecord.customerName.toLowerCase()
+  );
+
+  if (masterCust) {
+    masterCust.assignedDevicesCount = customerDeviceRecords.filter(
+      (d) => d.customerCode === masterCust?.customerId || d.customerId === masterCust?.id || d.customerName.toLowerCase() === masterCust?.customerName.toLowerCase()
+    ).length;
+  } else {
+    // Auto-create customer profile in Customer Master Directory
+    const newMaster: CustomerRecord = {
+      id: custCode || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+      customerId: custCode || `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
+      customerName: newRecord.customerName,
+      username: newRecord.customerName.toLowerCase().replace(/\s+/g, '.'),
+      contactNumber: newRecord.contactPhone || '9800000000',
+      branchId: newRecord.branchId || 'WH001',
+      address: newRecord.installationAddress || 'Nepal',
+      status: 'ACTIVE',
+      assignedDevicesCount: 1,
+    };
+    customerMasterRecords.unshift(newMaster);
+  }
+
   res.status(201).json(newRecord);
 });
 
@@ -1885,12 +1912,32 @@ app.patch('/api/customer-devices/:id/status', (req, res) => {
   if (!record) return res.status(404).json({ message: 'Customer device record not found' });
 
   record.status = status;
+
+  // Sync assigned devices count in master record
+  const custCode = record.customerCode || record.customerId;
+  const masterCust = customerMasterRecords.find(
+    (c) => c.customerId === custCode || c.id === custCode || c.customerName.toLowerCase() === record.customerName.toLowerCase()
+  );
+  if (masterCust) {
+    masterCust.assignedDevicesCount = customerDeviceRecords.filter(
+      (d) => (d.customerCode === masterCust?.customerId || d.customerId === masterCust?.id || d.customerName.toLowerCase() === masterCust?.customerName.toLowerCase()) && d.status !== 'RETURNED' && d.status !== 'REFUND'
+    ).length;
+  }
+
   res.json(record);
 });
 
 // Customer Master Database Endpoints
 app.get('/api/customers', (req, res) => {
   const { branchId, query } = req.query;
+
+  // Dynamically calculate assignedDevicesCount from customerDeviceRecords
+  customerMasterRecords.forEach((c) => {
+    c.assignedDevicesCount = customerDeviceRecords.filter(
+      (d) => d.customerCode === c.customerId || d.customerId === c.id || d.customerName.toLowerCase() === c.customerName.toLowerCase()
+    ).length;
+  });
+
   let list = customerMasterRecords;
 
   if (branchId && branchId !== 'ALL') {

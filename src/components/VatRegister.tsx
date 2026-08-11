@@ -85,7 +85,9 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-serif font-bold tracking-tight flex items-center gap-2">
+          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+            isDarkMode ? 'text-white' : 'text-slate-900'
+          }`}>
             <Receipt className="h-6 w-6 text-indigo-500" />
             <span>Value Added Tax (VAT) Register</span>
           </h2>
@@ -247,7 +249,7 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
           <table className="w-full text-left text-xs">
             <thead
               className={`border-b font-bold uppercase tracking-wider text-[10px] ${
-                isDarkMode ? 'bg-slate-900/80 border-slate-800 text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-500'
+                isDarkMode ? 'bg-slate-800/90 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
               }`}
             >
               <tr>
