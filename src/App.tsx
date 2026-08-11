@@ -58,6 +58,7 @@ import { ImportStock } from './components/ImportStock';
 import { ExportStock } from './components/ExportStock';
 import { LocationsManagement } from './components/LocationsManagement';
 import { ImportCustomers } from './components/ImportCustomers';
+import { HelpDocumentation } from './components/HelpDocumentation';
 import { AiAssistantModal } from './components/AiAssistantModal';
 import { BarcodeScannerModal } from './components/BarcodeScannerModal';
 import { GlobalSearchModal } from './components/GlobalSearchModal';
@@ -267,6 +268,35 @@ export default function App() {
       }
     }
   }, [currentUser]);
+
+  // Global Keyboard Shortcuts (Alt+H for Help, Alt+B for Barcode, Alt+S/Ctrl+K for Search, Alt+D for Date Mode)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Alt + H -> In-App Help & Documentation Center
+      if (e.altKey && e.key.toLowerCase() === 'h') {
+        e.preventDefault();
+        setActiveTab('help-documentation');
+      }
+      // Alt + B -> Barcode Scanner
+      if (e.altKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        setIsBarcodeModalOpen((prev) => !prev);
+      }
+      // Alt + S or Ctrl + K -> Global Search
+      if ((e.altKey && e.key.toLowerCase() === 's') || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+        e.preventDefault();
+        setIsGlobalSearchOpen((prev) => !prev);
+      }
+      // Alt + D -> Date Mode Toggle (BS / AD)
+      if (e.altKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        setDateMode((prev) => (prev === 'BS' ? 'AD' : 'BS'));
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Handle Branch Selection with restriction for branch users
   const handleSelectBranch = (bId: string) => {
@@ -1378,6 +1408,17 @@ export default function App() {
                   suppliers={suppliers}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
+                />
+              )}
+
+              {activeTab === 'help-documentation' && (
+                <HelpDocumentation
+                  currentUser={currentUser}
+                  isDarkMode={isDarkMode}
+                  onOpenAiAssistant={() => setIsAiModalOpen(true)}
+                  onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
+                  onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
+                  onNavigateTab={(tab) => setActiveTab(tab as NavTab)}
                 />
               )}
             </>

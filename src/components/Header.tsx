@@ -24,6 +24,7 @@ import {
   ArrowLeft,
   Settings,
   CheckCircle2,
+  HelpCircle,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -332,6 +333,16 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Sparkles className="h-3.5 w-3.5 text-amber-300 animate-pulse" />
           <span className="hidden sm:inline">AI</span>
+        </button>
+
+        {/* Help Center Button */}
+        <button
+          onClick={() => onSelectTab('help-documentation')}
+          title="In-App Help Center & Manual (Alt+H)"
+          className="flex items-center gap-1 rounded-md bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/30 px-2 py-1 text-[11px] font-medium text-indigo-100 transition-all cursor-pointer"
+        >
+          <HelpCircle className="h-3.5 w-3.5 text-indigo-300" />
+          <span className="hidden md:inline">Help</span>
         </button>
 
         {/* Refresh button */}

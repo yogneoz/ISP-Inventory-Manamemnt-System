@@ -49,6 +49,7 @@ import {
   UserPlus,
   ClipboardCheck,
   CalendarDays,
+  HelpCircle,
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -96,7 +97,8 @@ export type NavTab =
   | 'fiscal-year-closing'
   | 'audit'
   | 'warranty-products'
-  | 'export-reports';
+  | 'export-reports'
+  | 'help-documentation';
 
 interface SidebarProps {
   currentUser?: User | null;
@@ -351,6 +353,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     });
   }
+
+  // 9. Help & Documentation Group (Accessible to all users)
+  groups.push({
+    id: 'help-documentation-group',
+    title: 'Help & Documentation',
+    shortLabel: 'Help',
+    icon: HelpCircle,
+    children: [
+      { id: 'help-documentation' as NavTab, label: 'Help Center & Manual', icon: BookOpen },
+    ],
+  });
 
   // Helper to find parent group of active tab
   const getParentGroupId = (tab: NavTab): string => {
