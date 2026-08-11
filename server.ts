@@ -65,6 +65,7 @@ const users = [
     role: 'SUPER_ADMIN',
     branchId: 'WH001',
     allowedBranchIds: ['WH001', 'CHU01', 'BR-KTM', 'BR-PKR', 'BR-BKT'],
+    canSwitchUser: true,
   },
   {
     id: 'usr-2',
@@ -74,6 +75,7 @@ const users = [
     role: 'INVENTORY_MANAGER',
     branchId: 'WH001',
     allowedBranchIds: ['WH001', 'CHU01', 'BR-KTM', 'BR-PKR', 'BR-BKT'],
+    canSwitchUser: true,
   },
   {
     id: 'usr-3',
@@ -83,6 +85,7 @@ const users = [
     role: 'BRANCH_MANAGER',
     branchId: 'CHU01',
     allowedBranchIds: ['CHU01', 'BR-KTM'],
+    canSwitchUser: false,
   },
   {
     id: 'usr-4',
@@ -92,6 +95,7 @@ const users = [
     role: 'FRONT_DESK',
     branchId: 'CHU01',
     allowedBranchIds: ['CHU01'],
+    canSwitchUser: false,
   },
   {
     id: 'usr-5',
@@ -101,6 +105,7 @@ const users = [
     role: 'ACCOUNTANT',
     branchId: 'WH001',
     allowedBranchIds: ['WH001'],
+    canSwitchUser: false,
   },
 ];
 
@@ -897,12 +902,6 @@ app.get('/api/auth/me', (req, res) => {
 
 // Profile Switching Endpoint
 app.post('/api/auth/switch-profile', (req, res) => {
-  if (activeUser && activeUser.role !== 'SUPER_ADMIN' && activeUser.role !== 'INVENTORY_MANAGER') {
-    return res.status(403).json({
-      message: 'Access Denied: Switch User Login is restricted to Super Admin and Inventory Manager roles.',
-    });
-  }
-
   const { targetUserId } = req.body;
   const user = users.find((u) => u.id === targetUserId || u.email === targetUserId);
   if (!user) {

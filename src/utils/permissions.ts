@@ -148,3 +148,23 @@ export const isOperationAllowed = (
 
   return opMap[roleKey] !== false;
 };
+
+/**
+ * Checks if a user or the root user who initiated the session has switch user permission.
+ */
+export const canUserSwitchProfiles = (
+  user: User | null | undefined,
+  rootUser: User | null | undefined = null
+): boolean => {
+  // Check effective user (root user takes precedence if in a switched session)
+  const effectiveUser = rootUser || user;
+  if (!effectiveUser) return false;
+
+  // Explicit flag on user profile takes top precedence
+  if (effectiveUser.canSwitchUser !== undefined) {
+    return Boolean(effectiveUser.canSwitchUser);
+  }
+
+  // Fallback to role-based permission
+  return isOperationAllowed('auth-switch-user', effectiveUser.role);
+};

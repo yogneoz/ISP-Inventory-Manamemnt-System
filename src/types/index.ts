@@ -13,6 +13,7 @@ export interface User {
   branchId?: string;
   allowedBranchIds?: string[];
   avatarUrl?: string;
+  canSwitchUser?: boolean;
 }
 
 export interface Supplier {

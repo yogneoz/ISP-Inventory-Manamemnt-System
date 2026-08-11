@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Branch, User, Product, InventoryStock, ApprovalRequest, PurchaseOrder, Shipment } from '../types';
 import { convertADToBS } from '../utils/nepaliCalendar';
-import { canUserSeeAllBranches, getAllowedBranches } from '../utils/permissions';
+import { canUserSeeAllBranches, getAllowedBranches, canUserSwitchProfiles } from '../utils/permissions';
 import { NotificationCenter } from './NotificationCenter';
 import {
   Building2,
@@ -17,10 +17,21 @@ import {
   QrCode,
   Menu,
   X,
+  ChevronDown,
+  User as UserIcon,
+  Users,
+  Lock,
+  ArrowLeft,
+  Settings,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface HeaderProps {
   currentUser: User | null;
+  rootUser?: User | null;
+  onSwitchBackToRoot?: () => void;
+  users?: User[];
+  onSwitchProfile?: (targetUserId: string) => Promise<void>;
   branches: Branch[];
   selectedBranchId: string;
   onSelectBranch: (branchId: string) => void;
@@ -53,6 +64,10 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   currentUser,
+  rootUser,
+  onSwitchBackToRoot,
+  users = [],
+  onSwitchProfile,
   branches,
   selectedBranchId,
   onSelectBranch,
@@ -83,6 +98,22 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenProfileModal = () => {},
 }) => {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
+  const [isSwitchingId, setIsSwitchingId] = useState<string | null>(null);
+
+  const profileDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target as Node)) {
+        setIsProfileDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const todayAD = new Date().toISOString().split('T')[0];
   const bsInfo = convertADToBS(todayAD);
@@ -336,27 +367,221 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* Profile Chip & Switcher Trigger */}
+        {/* Switched Profile Active Indicator */}
+        {rootUser && currentUser && rootUser.id !== currentUser.id && (
+          <div className="flex items-center gap-1.5 bg-amber-500/20 border border-amber-400/40 text-amber-200 px-2 py-1 rounded-xl text-[10px] font-bold">
+            <span className="hidden xl:inline">🔄 Switched from {rootUser.name.split(' ')[0]}</span>
+            {onSwitchBackToRoot && (
+              <button
+                onClick={onSwitchBackToRoot}
+                title={`Switch back to root account (${rootUser.name})`}
+                className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold px-1.5 py-0.5 rounded-md text-[9px] transition-colors cursor-pointer"
+              >
+                Switch Back
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Profile Chip & Switcher Dropdown Container */}
         {currentUser && (
-          <button
-            onClick={onOpenProfileModal}
-            title="View Profile & Switch User Account"
-            className={`flex items-center gap-2 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer border ml-1 ${
-              isDarkMode
-                ? 'bg-slate-800/90 text-white border-slate-700 hover:bg-slate-700 hover:border-slate-600'
-                : 'bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-xs'
-            }`}
-          >
-            <div className="h-6 w-6 rounded-lg bg-indigo-500/90 flex items-center justify-center font-extrabold text-[10px] text-white shadow-xs border border-white/20 flex-shrink-0">
-              {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
-            </div>
-            <div className="hidden lg:flex flex-col text-left">
-              <span className="text-[11px] font-bold leading-tight truncate max-w-[110px]">{currentUser.name}</span>
-              <span className="text-[9px] text-indigo-200/90 font-normal leading-none uppercase tracking-wider">
-                {currentUser.role.replace('_', ' ')}
-              </span>
-            </div>
-          </button>
+          <div className="relative ml-1" ref={profileDropdownRef}>
+            <button
+              onClick={() => setIsProfileDropdownOpen((prev) => !prev)}
+              title="Click to expand switch user menu & profile options"
+              className={`flex items-center gap-2 rounded-xl px-2.5 py-1 text-xs font-semibold transition-all cursor-pointer border ${
+                isDarkMode
+                  ? 'bg-slate-800/90 text-white border-slate-700 hover:bg-slate-700 hover:border-slate-600'
+                  : 'bg-white/20 text-white border-white/30 hover:bg-white/30 backdrop-blur-xs'
+              }`}
+            >
+              <div className="h-6 w-6 rounded-lg bg-indigo-500/90 flex items-center justify-center font-extrabold text-[10px] text-white shadow-xs border border-white/20 flex-shrink-0">
+                {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+              </div>
+              <div className="hidden lg:flex flex-col text-left">
+                <span className="text-[11px] font-bold leading-tight truncate max-w-[110px]">{currentUser.name}</span>
+                <span className="text-[9px] text-indigo-200/90 font-normal leading-none uppercase tracking-wider">
+                  {currentUser.role.replace('_', ' ')}
+                </span>
+              </div>
+              <ChevronDown className={`h-3.5 w-3.5 text-white/70 transition-transform ${isProfileDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Expand-Down Dropdown Menu */}
+            {isProfileDropdownOpen && (
+              <div className="absolute right-0 mt-2 w-80 sm:w-88 rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 p-3 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                {/* Active User Header */}
+                <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700/80 mb-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="h-9 w-9 rounded-xl bg-indigo-600 flex items-center justify-center font-extrabold text-xs text-white flex-shrink-0 shadow-xs">
+                      {currentUser.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs text-slate-900 dark:text-white truncate">{currentUser.name}</div>
+                      <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate">{currentUser.email}</div>
+                    </div>
+                  </div>
+                  <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 uppercase flex-shrink-0">
+                    {currentUser.role.replace('_', ' ')}
+                  </span>
+                </div>
+
+                {/* Switched Session Banner & Switch Back Button */}
+                {rootUser && currentUser && rootUser.id !== currentUser.id && (
+                  <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 p-2.5 border border-amber-300 dark:border-amber-800/80 mb-3 space-y-2">
+                    <div className="text-[11px] text-amber-900 dark:text-amber-200">
+                      <p className="font-bold">🔄 Switched Session Active</p>
+                      <p className="text-[10px] text-amber-800 dark:text-amber-300">
+                        Root Account: <strong>{rootUser.name}</strong>
+                      </p>
+                    </div>
+                    {onSwitchBackToRoot && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSwitchBackToRoot();
+                          setIsProfileDropdownOpen(false);
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-1.5 px-3 text-[11px] transition-colors cursor-pointer"
+                      >
+                        <ArrowLeft className="h-3.5 w-3.5" />
+                        <span>Switch Back to {rootUser.name.split(' ')[0]}</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Quick User Switcher Section */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-between px-1 mb-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800 dark:text-slate-200">
+                      <Users className="h-3.5 w-3.5 text-indigo-500" />
+                      <span>Switch User Account</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-normal">Fast 1-click</span>
+                  </div>
+
+                  {!canUserSwitchProfiles(currentUser, rootUser) ? (
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 text-center">
+                      <Lock className="h-4 w-4 text-slate-400 mx-auto mb-1" />
+                      <p className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Switching Restricted</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        User switching is restricted to authorized employees.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Search User Input */}
+                      {users.length > 3 && (
+                        <div className="relative mb-2">
+                          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                          <input
+                            type="text"
+                            value={userSearch}
+                            onChange={(e) => setUserSearch(e.target.value)}
+                            placeholder="Search team profiles..."
+                            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 pl-8 pr-2.5 py-1 text-[11px] text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      )}
+
+                      {/* Quick Scrollable User List */}
+                      <div className="space-y-1 max-h-48 overflow-y-auto pr-0.5">
+                        {users
+                          .filter(
+                            (u) =>
+                              u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
+                              u.role.toLowerCase().includes(userSearch.toLowerCase()) ||
+                              u.email.toLowerCase().includes(userSearch.toLowerCase())
+                          )
+                          .map((u) => {
+                            const isCurrent = u.id === currentUser.id;
+                            const isSwitching = isSwitchingId === u.id;
+                            const bName =
+                              branches.find((b) => b.id === u.branchId)?.name || 'HQ';
+
+                            return (
+                              <button
+                                key={u.id}
+                                disabled={isCurrent || isSwitching}
+                                onClick={async () => {
+                                  if (onSwitchProfile) {
+                                    setIsSwitchingId(u.id);
+                                    try {
+                                      await onSwitchProfile(u.id);
+                                      setIsProfileDropdownOpen(false);
+                                    } finally {
+                                      setIsSwitchingId(null);
+                                    }
+                                  }
+                                }}
+                                className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors cursor-pointer ${
+                                  isCurrent
+                                    ? 'bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-900 dark:text-indigo-200 font-semibold'
+                                    : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className="h-7 w-7 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center font-bold text-[10px] text-slate-700 dark:text-slate-200 flex-shrink-0">
+                                    {u.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-[11px] font-bold truncate leading-tight">{u.name}</div>
+                                    <div className="text-[9px] text-slate-500 dark:text-slate-400 truncate font-mono">
+                                      {u.role.replace('_', ' ')} • {bName}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {isCurrent ? (
+                                  <span className="text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950 px-2 py-0.5 rounded-md">
+                                    Active
+                                  </span>
+                                ) : isSwitching ? (
+                                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-indigo-500" />
+                                ) : (
+                                  <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline">
+                                    Switch
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* Footer Actions: Modal & Sign Out */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsProfileDropdownOpen(false);
+                      onOpenProfileModal();
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold py-1.5 px-2.5 text-[11px] transition-colors cursor-pointer"
+                  >
+                    <Settings className="h-3.5 w-3.5 text-slate-500" />
+                    <span>Account Settings</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsProfileDropdownOpen(false);
+                      onLogout();
+                    }}
+                    className="flex items-center justify-center gap-1 rounded-xl bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 font-bold py-1.5 px-2.5 text-[11px] transition-colors cursor-pointer"
+                    title="Sign Out"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    <span>Exit</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Logout */}

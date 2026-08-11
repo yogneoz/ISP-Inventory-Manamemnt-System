@@ -66,9 +66,27 @@ import { Loader2 } from 'lucide-react';
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>({
     id: 'usr-1',
-    email: 'admin@izone.net.np',
-    name: 'Shrestha Administrator',
+    email: 'superadmin@izone.net.np',
+    name: 'Nabin Shrestha',
     role: 'SUPER_ADMIN',
+    canSwitchUser: true,
+  });
+
+  const [rootUser, setRootUser] = useState<User | null>(() => {
+    try {
+      const saved = localStorage.getItem('izone_root_user');
+      return saved
+        ? JSON.parse(saved)
+        : {
+            id: 'usr-1',
+            email: 'superadmin@izone.net.np',
+            name: 'Nabin Shrestha',
+            role: 'SUPER_ADMIN',
+            canSwitchUser: true,
+          };
+    } catch {
+      return null;
+    }
   });
 
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
@@ -263,15 +281,30 @@ export default function App() {
   const handleLogin = async (e: string, p: string) => {
     const res = await api.login(e, p);
     setCurrentUser(res.user);
+    setRootUser(res.user);
+    localStorage.setItem('izone_root_user', JSON.stringify(res.user));
     refreshAllData();
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setRootUser(null);
+    localStorage.removeItem('izone_root_user');
   };
 
   const handleSwitchProfile = async (targetUserId: string) => {
+    if (!rootUser && currentUser) {
+      setRootUser(currentUser);
+      localStorage.setItem('izone_root_user', JSON.stringify(currentUser));
+    }
     const res = await api.switchProfile(targetUserId);
+    setCurrentUser(res.user);
+    await refreshAllData();
+  };
+
+  const handleSwitchBackToRoot = async () => {
+    if (!rootUser) return;
+    const res = await api.switchProfile(rootUser.id);
     setCurrentUser(res.user);
     await refreshAllData();
   };
@@ -549,6 +582,10 @@ export default function App() {
       {/* Top App Header (Fixed at top) */}
       <Header
         currentUser={currentUser}
+        rootUser={rootUser}
+        onSwitchBackToRoot={handleSwitchBackToRoot}
+        users={users}
+        onSwitchProfile={handleSwitchProfile}
         branches={branches}
         selectedBranchId={selectedBranchId}
         onSelectBranch={handleSelectBranch}
@@ -1417,6 +1454,8 @@ export default function App() {
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         currentUser={currentUser}
+        rootUser={rootUser}
+        onSwitchBackToRoot={handleSwitchBackToRoot}
         users={users}
         branches={branches}
         onSwitchProfile={handleSwitchProfile}

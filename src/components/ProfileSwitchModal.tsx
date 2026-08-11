@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { User, Branch } from '../types';
-import { isOperationAllowed } from '../utils/permissions';
+import { canUserSwitchProfiles } from '../utils/permissions';
 import {
   X,
   User as UserIcon,
@@ -17,12 +17,15 @@ import {
   Lock,
   Sparkles,
   ShieldAlert,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface ProfileSwitchModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: User | null;
+  rootUser?: User | null;
+  onSwitchBackToRoot?: () => Promise<void>;
   users: User[];
   branches: Branch[];
   onSwitchProfile: (targetUserId: string) => Promise<void>;
@@ -35,6 +38,8 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
   isOpen,
   onClose,
   currentUser,
+  rootUser,
+  onSwitchBackToRoot,
   users,
   branches,
   onSwitchProfile,
@@ -119,7 +124,7 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
   const currentBranchName =
     branches.find((b) => b.id === currentUser.branchId)?.name || 'Headquarters / All Branches';
 
-  const canSwitchUser = isOperationAllowed('auth-switch-user', currentUser.role);
+  const canSwitchUser = canUserSwitchProfiles(currentUser, rootUser);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-4 animate-in fade-in duration-200">
@@ -206,115 +211,148 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
                 </div>
               </div>
 
-              {!canSwitchUser && (
-                <div className="flex items-start gap-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 p-4 border border-amber-200 dark:border-amber-800/80">
-                  <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                  <div className="text-xs text-amber-800 dark:text-amber-200">
-                    <p className="font-bold text-xs">Switch User Login Restricted</p>
-                    <p className="mt-1 text-amber-700 dark:text-amber-300">
-                      Switching user profiles is restricted to <strong>Super Admin</strong> and <strong>Inventory Manager</strong> roles by default. Administrators can configure this in <strong>Permission Management</strong>.
-                    </p>
+              {/* Active Switched Profile Banner & Switch Back Button */}
+              {rootUser && rootUser.id !== currentUser.id && (
+                <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/40 p-4 border border-amber-300 dark:border-amber-800/80 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                    <div className="text-xs text-amber-900 dark:text-amber-200">
+                      <p className="font-bold text-xs">Active Switched Session</p>
+                      <p className="mt-0.5 text-amber-800 dark:text-amber-300">
+                        You are currently operating as <strong>{currentUser.name}</strong> ({currentUser.role.replace('_', ' ')}).
+                        Your original root login identity is <strong>{rootUser.name}</strong> ({rootUser.role.replace('_', ' ')}).
+                      </p>
+                    </div>
                   </div>
+
+                  {onSwitchBackToRoot && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await onSwitchBackToRoot();
+                        onClose();
+                      }}
+                      className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold py-2 px-4 text-xs shadow-xs transition-colors cursor-pointer"
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      <span>Switch Back to Root Account ({rootUser.name})</span>
+                    </button>
+                  )}
                 </div>
               )}
 
-              {/* Search user list */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Filter profiles by name, role, or branch..."
-                  className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 pl-9 pr-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                />
-              </div>
-
-              {/* Users List */}
-              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                {filteredUsers.map((u) => {
-                  const isCurrent = u.id === currentUser.id;
-                  const isSwitching = switchingId === u.id;
-                  const bName =
-                    branches.find((b) => b.id === u.branchId)?.name || 'HQ / All Branches';
-
-                  return (
-                    <div
-                      key={u.id}
-                      className={`group flex items-center justify-between p-3 rounded-2xl border transition-all ${
-                        isCurrent
-                          ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800 ring-1 ring-indigo-400/30'
-                          : 'bg-white dark:bg-slate-800/80 border-slate-200/80 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="h-10 w-10 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center font-bold text-slate-700 dark:text-slate-200 text-sm flex-shrink-0 group-hover:scale-105 transition-transform">
-                          {u.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                              {u.name}
-                            </span>
-                            <span
-                              className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${getRoleBadgeColor(
-                                u.role
-                              )}`}
-                            >
-                              {u.role.replace('_', ' ')}
-                            </span>
-                          </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate flex items-center gap-2 mt-0.5">
-                            <span>{u.email}</span>
-                            <span>•</span>
-                            <span className="flex items-center gap-1 font-sans">
-                              <Building2 className="h-3 w-3 text-slate-400" />
-                              {bName}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="ml-3 flex-shrink-0">
-                        {isCurrent ? (
-                          <div className="flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-100/80 dark:bg-indigo-900/60 px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            <span>Active</span>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => canSwitchUser && handleSwitch(u.id)}
-                            disabled={!canSwitchUser || isSwitching}
-                            className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all shadow-xs ${
-                              canSwitchUser
-                                ? 'bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer'
-                                : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed opacity-60'
-                            }`}
-                            title={canSwitchUser ? 'Switch to this profile' : 'Requires Super Admin or Inventory Manager role permission'}
-                          >
-                            {isSwitching ? (
-                              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <>
-                                {!canSwitchUser && <Lock className="h-3 w-3" />}
-                                <span>Switch</span>
-                              </>
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {filteredUsers.length === 0 && (
-                  <div className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
-                    No user profiles found matching "{search}".
+              {/* Check if user has permission to view other users and switch */}
+              {!canSwitchUser ? (
+                <div className="rounded-2xl bg-slate-50 dark:bg-slate-800/60 p-6 border border-slate-200 dark:border-slate-700 text-center space-y-3">
+                  <div className="mx-auto h-12 w-12 rounded-2xl bg-amber-100 dark:bg-amber-950/80 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                    <Lock className="h-6 w-6" />
                   </div>
-                )}
-              </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-white">
+                      Switch User Login Restricted
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+                      Switch user login list is only visible to Employees who have switch user login enabled. Standard user accounts cannot view other user profiles or switch identities.
+                    </p>
+                  </div>
+                  <div className="pt-2 text-[11px] text-slate-400">
+                    If you require switch user login privileges, please contact your Administrator.
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Search user list */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Filter profiles by name, role, or branch..."
+                      className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 pl-9 pr-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:border-indigo-500 focus:bg-white dark:focus:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    />
+                  </div>
+
+                  {/* Users List */}
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {filteredUsers.map((u) => {
+                      const isCurrent = u.id === currentUser.id;
+                      const isSwitching = switchingId === u.id;
+                      const bName =
+                        branches.find((b) => b.id === u.branchId)?.name || 'HQ / All Branches';
+
+                      return (
+                        <div
+                          key={u.id}
+                          className={`group flex items-center justify-between p-3 rounded-2xl border transition-all ${
+                            isCurrent
+                              ? 'bg-indigo-50/80 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800 ring-1 ring-indigo-400/30'
+                              : 'bg-white dark:bg-slate-800/80 border-slate-200/80 dark:border-slate-700 hover:border-indigo-300 dark:hover:border-indigo-600'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="h-10 w-10 rounded-xl bg-slate-100 dark:bg-slate-700 flex items-center justify-center font-bold text-slate-700 dark:text-slate-200 text-sm flex-shrink-0 group-hover:scale-105 transition-transform">
+                              {u.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                  {u.name}
+                                </span>
+                                <span
+                                  className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${getRoleBadgeColor(
+                                    u.role
+                                  )}`}
+                                >
+                                  {u.role.replace('_', ' ')}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono truncate flex items-center gap-2 mt-0.5">
+                                <span>{u.email}</span>
+                                <span>•</span>
+                                <span className="flex items-center gap-1 font-sans">
+                                  <Building2 className="h-3 w-3 text-slate-400" />
+                                  {bName}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="ml-3 flex-shrink-0">
+                            {isCurrent ? (
+                              <div className="flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-100/80 dark:bg-indigo-900/60 px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                <span>Active</span>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleSwitch(u.id)}
+                                disabled={isSwitching}
+                                className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 text-xs font-bold transition-all shadow-xs cursor-pointer"
+                                title="Switch to this profile"
+                              >
+                                {isSwitching ? (
+                                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <span>Switch</span>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {filteredUsers.length === 0 && (
+                      <div className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs">
+                        No user profiles found matching "{search}".
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
