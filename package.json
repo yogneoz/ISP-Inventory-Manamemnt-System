@@ -1,7 +1,8 @@
 {
-  "name": "react-example",
+  "name": "izone-enterprise-erp",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Enterprise Multi-Branch Inventory Management System, Device Tracking, VAT & Fiscal Closing",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
