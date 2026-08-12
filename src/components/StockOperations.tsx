@@ -51,6 +51,8 @@ import {
   Lock,
   ClipboardList,
   RotateCcw,
+  PackageCheck,
+  AlertCircle,
 } from 'lucide-react';
 import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../utils/permissions';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
@@ -75,7 +77,18 @@ interface StockOperationsProps {
   onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
   onReceiveOperation?: (id: string) => Promise<void>;
   onCreateShipment?: (sh: Partial<Shipment>) => Promise<void>;
-  onReceiveShipment?: (id: string) => Promise<void>;
+  onReceiveShipment?: (
+    id: string,
+    verificationData?: {
+      receivedItems?: {
+        itemId: string;
+        quantityReceived: number;
+        receivedSerials?: { deviceSerial: string; ponSerial?: string }[];
+        itemDiscrepancyNotes?: string;
+      }[];
+      receivedByNotes?: string;
+    }
+  ) => Promise<void>;
   onUpdateAssetStatus?: (id: string, updates: Asset['status'] | Partial<Asset>) => Promise<void>;
 }
 
@@ -101,9 +114,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   onReceiveShipment,
   onUpdateAssetStatus,
 }) => {
-  // Determine role permissions for Damage Labeling
+  // Determine role permissions for Damage Labeling & Stock Control
   const isSuperOrInventory =
-    currentUser?.role === 'SUPER_ADMIN' || (currentUser?.role as string) === 'INVENTORY_CONTROLLER';
+    currentUser?.role === 'SUPER_ADMIN' ||
+    currentUser?.role === 'INVENTORY_MANAGER' ||
+    (currentUser?.role as string) === 'INVENTORY_CONTROLLER';
 
   // Map initial tab
   const getInitialTab = (): 'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'LOGS' => {
@@ -234,6 +249,106 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [consumableWorkOrder, setConsumableWorkOrder] = useState<string>('WO-2081-SPLIT-01');
   const [consumableReason, setConsumableReason] = useState<string>('Field fiber splicing & customer drop installation material usage');
   const [consumableItems, setConsumableItems] = useState<ConsumableIssueItem[]>([]);
+
+  // 7. Receive Stock Physical Verification Modal State
+  const [receivingShipmentModal, setReceivingShipmentModal] = useState<Shipment | null>(null);
+  const [receiveItemStates, setReceiveItemStates] = useState<{
+    [itemId: string]: {
+      quantityReceived: number;
+      verifiedSerials: { deviceSerial: string; ponSerial?: string; isChecked: boolean }[];
+      notes: string;
+    };
+  }>({});
+  const [receivingByNotes, setReceivingByNotes] = useState<string>('');
+
+  const openReceiveModal = (sh: Shipment) => {
+    setReceivingShipmentModal(sh);
+    setReceivingByNotes('');
+    const initialStates: any = {};
+    sh.items?.forEach((item) => {
+      initialStates[item.id] = {
+        quantityReceived: item.quantityReceived !== undefined ? item.quantityReceived : (item.quantitySent || (item as any).quantity || 1),
+        verifiedSerials: (item.deviceSerials || []).map((s) => ({
+          deviceSerial: s.deviceSerial,
+          ponSerial: s.ponSerial || '',
+          isChecked: true,
+        })),
+        notes: item.itemDiscrepancyNotes || '',
+      };
+    });
+    setReceiveItemStates(initialStates);
+  };
+
+  const updateReceiveQty = (itemId: string, qty: number) => {
+    setReceiveItemStates((prev) => {
+      const curr = prev[itemId] || { quantityReceived: 1, verifiedSerials: [], notes: '' };
+      return {
+        ...prev,
+        [itemId]: {
+          ...curr,
+          quantityReceived: Math.max(0, qty),
+        },
+      };
+    });
+  };
+
+  const toggleSerialCheck = (itemId: string, sIdx: number) => {
+    setReceiveItemStates((prev) => {
+      const curr = prev[itemId];
+      if (!curr) return prev;
+      const updatedSerials = [...curr.verifiedSerials];
+      updatedSerials[sIdx] = {
+        ...updatedSerials[sIdx],
+        isChecked: !updatedSerials[sIdx].isChecked,
+      };
+      return {
+        ...prev,
+        [itemId]: {
+          ...curr,
+          verifiedSerials: updatedSerials,
+        },
+      };
+    });
+  };
+
+  const updateItemDiscrepancyNotes = (itemId: string, notes: string) => {
+    setReceiveItemStates((prev) => {
+      const curr = prev[itemId] || { quantityReceived: 1, verifiedSerials: [], notes: '' };
+      return {
+        ...prev,
+        [itemId]: {
+          ...curr,
+          notes,
+        },
+      };
+    });
+  };
+
+  const handleConfirmReceiveVerification = async () => {
+    if (!receivingShipmentModal || !onReceiveShipment) return;
+
+    const payloadItems = receivingShipmentModal.items.map((item) => {
+      const st = receiveItemStates[item.id];
+      const qty = st ? Number(st.quantityReceived) : (item.quantitySent || (item as any).quantity || 1);
+      const receivedSerials = st
+        ? st.verifiedSerials.filter((s) => s.isChecked).map((s) => ({ deviceSerial: s.deviceSerial, ponSerial: s.ponSerial }))
+        : item.deviceSerials || [];
+
+      return {
+        itemId: item.id,
+        quantityReceived: qty,
+        receivedSerials,
+        itemDiscrepancyNotes: st?.notes || '',
+      };
+    });
+
+    await onReceiveShipment(receivingShipmentModal.id, {
+      receivedItems: payloadItems,
+      receivedByNotes: receivingByNotes,
+    });
+
+    setReceivingShipmentModal(null);
+  };
 
   // Filtered products for pullout search
   const matchingProducts = products.filter((p) => {
@@ -668,6 +783,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       productId: string;
       productName: string;
       quantity: number;
+      condition?: string;
       deviceSerials?: { deviceSerial: string; ponSerial?: string }[];
     }[]
   ): boolean => {
@@ -677,12 +793,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       const prod = products.find((p) => p.id === item.productId);
       const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
       const srcStock = stock.find((s) => s.productId === item.productId && s.branchId === branchId);
-      const availStock = srcStock ? srcStock.quantityOnHand : 0;
 
-      // 1. Validate Branch Stock Quantity On Hand
+      const isDamagedPullout = item.condition === 'DAMAGED_STOCK';
+      const availStock = srcStock ? (isDamagedPullout ? (srcStock.damagedQty || 0) : srcStock.quantityOnHand) : 0;
+
+      // 1. Validate Branch Stock Quantity On Hand / Damaged Stock
       if (availStock < item.quantity) {
         alert(
-          `Branch Stock Error: "${branchName}" only has ${availStock} unit(s) of "${item.productName}" on hand, but ${item.quantity} unit(s) are requested.`
+          `Branch Stock Error: "${branchName}" only has ${availStock} ${isDamagedPullout ? 'damaged' : 'usable'} unit(s) of "${item.productName}", but ${item.quantity} unit(s) are requested.`
         );
         return false;
       }
@@ -771,6 +889,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
           productId: i.productId,
           productName: i.productName,
           quantity: i.quantity,
+          condition: i.condition,
           deviceSerials: i.deviceSerials,
         }))
       )
@@ -803,6 +922,22 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     const targetBranch = !isSuperOrInventory && currentUser?.branchId ? currentUser.branchId : damageBranchId;
     const prod = products.find((p) => p.id === damageProductId);
     if (!prod) return;
+
+    if (
+      !validateSourceBranchStockAndSerials(
+        targetBranch,
+        branches.find((b) => b.id === targetBranch)?.name || targetBranch,
+        [
+          {
+            productId: damageProductId,
+            productName: prod.name,
+            quantity: Number(damageQty),
+          },
+        ]
+      )
+    ) {
+      return;
+    }
 
     await onCreateOperation({
       type: 'DAMAGE',
@@ -1036,8 +1171,47 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     );
   };
 
+  // Synthesize missing stock operation entries for inventory stock items that have damagedQty > 0
+  const existingDamageOps = operations.filter((op) => op.type === 'DAMAGE' && isOpInAllowedBranch(op));
+  const synthesizedDamageOps: StockOperation[] = [];
+  stock.forEach((stk) => {
+    if (stk.damagedQty && stk.damagedQty > 0) {
+      if (isOpInAllowedBranch({ branchId: stk.branchId } as any)) {
+        const hasMatchingOp = existingDamageOps.some(
+          (op) => op.productId === stk.productId && op.branchId === stk.branchId
+        );
+        if (!hasMatchingOp) {
+          const prod = products.find((p) => p.id === stk.productId);
+          synthesizedDamageOps.push({
+            id: `syn-dmg-${stk.id}`,
+            referenceNumber: `DMG-${stk.branchId}-${stk.productId.replace('prod-', '').toUpperCase().slice(0, 8)}`,
+            type: 'DAMAGE',
+            branchId: stk.branchId,
+            productId: stk.productId,
+            productName: prod?.name || 'Damaged Stock Item',
+            quantityChanged: -stk.damagedQty,
+            costPerUnit: prod?.costPrice || 0,
+            totalValue: stk.damagedQty * (prod?.costPrice || 0),
+            reason: 'Physical branch inventory inspection & transit damage tag',
+            inspectorName: 'Branch Quality Inspector',
+            dateAD: stk.lastUpdated ? stk.lastUpdated.split('T')[0] : '2026-07-22',
+            dateBS: '2083-04-07 BS',
+            fiscalYear: '2082-83',
+          });
+        }
+      }
+    }
+  });
+
+  const damageOperations = [...existingDamageOps, ...synthesizedDamageOps];
+  const pulloutOperations = operations.filter((op) => op.type === 'PULLOUT' && isOpInAllowedBranch(op));
+  const consumableOperations = operations.filter((op) => op.type === 'CONSUMABLE_ISSUE' && isOpInAllowedBranch(op));
+  const saleOperations = operations.filter((op) => op.type === 'STOCK_OUT' && isOpInAllowedBranch(op));
+
+  const allCombinedOps = [...operations, ...synthesizedDamageOps];
+
   // Filters for Stock Operations Logs
-  const filteredOperations = operations.filter((op) => {
+  const filteredOperations = allCombinedOps.filter((op) => {
     if (!isOpInAllowedBranch(op)) return false;
 
     const matchesBranch =
@@ -1048,16 +1222,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     if (!matchesBranch) return false;
 
     if (activeTab === 'PULLOUT_BINS') return op.type === 'PULLOUT';
-    if (activeTab === 'DAMAGE_TRACKING') return op.type === 'DAMAGE';
+    if (activeTab === 'DAMAGE_TRACKING') return op.type === 'DAMAGE' || op.type === 'DISPOSAL';
     if (activeTab === 'CONSUMABLE_ISSUE') return op.type === 'CONSUMABLE_ISSUE';
     if (activeTab === 'PRODUCT_SALE') return op.type === 'STOCK_OUT';
     return true;
   });
-
-  const pulloutOperations = operations.filter((op) => op.type === 'PULLOUT' && isOpInAllowedBranch(op));
-  const damageOperations = operations.filter((op) => op.type === 'DAMAGE' && isOpInAllowedBranch(op));
-  const consumableOperations = operations.filter((op) => op.type === 'CONSUMABLE_ISSUE' && isOpInAllowedBranch(op));
-  const saleOperations = operations.filter((op) => op.type === 'STOCK_OUT' && isOpInAllowedBranch(op));
 
   // Available vs Assigned Fixed Assets
   const availableStockAssets = assets.filter(
@@ -1396,6 +1565,28 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </div>
           )}
 
+          {/* KPI Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className={`p-3.5 rounded-2xl border ${isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'}`}>
+              <div className="text-xs font-semibold text-slate-500 mb-1">Total Damaged Log Records</div>
+              <div className="text-xl font-bold font-mono text-rose-600 dark:text-rose-400">
+                {filteredOperations.length} Records
+              </div>
+            </div>
+            <div className={`p-3.5 rounded-2xl border ${isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'}`}>
+              <div className="text-xs font-semibold text-slate-500 mb-1">Total Damaged Stock Units</div>
+              <div className="text-xl font-bold font-mono text-amber-600 dark:text-amber-400">
+                {filteredOperations.reduce((sum, op) => sum + Math.abs(op.quantityChanged || 1), 0)} Pcs
+              </div>
+            </div>
+            <div className={`p-3.5 rounded-2xl border ${isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'}`}>
+              <div className="text-xs font-semibold text-slate-500 mb-1">Total Estimated Loss Valuation</div>
+              <div className="text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                रु {filteredOperations.reduce((sum, op) => sum + (op.totalValue || 0), 0).toLocaleString('en-IN')}
+              </div>
+            </div>
+          </div>
+
           <div className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
           }`}>
@@ -1420,23 +1611,42 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 }`}>
                   <tr>
                     <th className="p-2.5">Reference #</th>
+                    <th className="p-2.5">Op Type</th>
                     <th className="p-2.5">Branch</th>
                     <th className="p-2.5">Product Name</th>
-                    <th className="p-2.5">Qty Damaged</th>
-                    <th className="p-2.5">Estimated Cost</th>
-                    <th className="p-2.5">Damage Reason</th>
-                    <th className="p-2.5">Inspector</th>
+                    <th className="p-2.5">Qty</th>
+                    <th className="p-2.5">Valuation</th>
+                    <th className="p-2.5">Reason & Method</th>
+                    <th className="p-2.5">Inspector / Officer</th>
                   </tr>
                 </thead>
                 <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
                   {filteredOperations.map((op) => (
                     <tr key={op.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                       <td className="p-2.5 font-mono font-bold text-rose-600 dark:text-rose-400">{op.referenceNumber}</td>
+                      <td className="p-2.5">
+                        {op.type === 'DISPOSAL' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-rose-600 text-white shadow-xs">
+                            🔥 DISPOSAL
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                            ⚠️ DAMAGED
+                          </span>
+                        )}
+                      </td>
                       <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200">{op.branchId}</td>
                       <td className="p-2.5 font-medium text-slate-900 dark:text-white">{op.productName}</td>
                       <td className="p-2.5 font-mono font-bold text-rose-600">{Math.abs(op.quantityChanged || 1)} Pcs</td>
-                      <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">रु {op.totalValue.toLocaleString('en-IN')}</td>
-                      <td className="p-2.5 text-slate-500">{op.reason}</td>
+                      <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">
+                        <div>रु {op.totalValue.toLocaleString('en-IN')}</div>
+                        {op.netWriteOffLoss !== undefined && (
+                          <div className="text-[10px] font-normal text-rose-500">
+                            Net Loss: रु {op.netWriteOffLoss.toLocaleString('en-IN')}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-2.5 text-slate-500 text-[11px]">{op.reason}</td>
                       <td className="p-2.5 font-medium text-slate-600 dark:text-slate-400">{op.inspectorName}</td>
                     </tr>
                   ))}
@@ -1594,11 +1804,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
                       {sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED' && onReceiveShipment ? (
                         <button
-                          onClick={() => onReceiveShipment(sh.id)}
-                          className="flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-500 shadow-xs cursor-pointer"
+                          onClick={() => openReceiveModal(sh)}
+                          title="Verify physical quantities & hardware serial/MAC checklist before adding to branch stock"
+                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-500 shadow-sm cursor-pointer transition-all"
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          <span>Confirm & Receive Stock</span>
+                          <PackageCheck className="h-3.5 w-3.5" />
+                          <span>Verify & Receive Stock</span>
                         </button>
                       ) : (
                         <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
@@ -3116,6 +3327,222 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Inbound Physical Stock Verification & Security Audit Modal */}
+      {receivingShipmentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className={`w-full max-w-4xl rounded-2xl shadow-2xl border overflow-hidden my-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+          }`}>
+            <div className={`p-4 border-b flex items-center justify-between ${
+              isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
+            }`}>
+              <div className="flex items-center gap-2">
+                <PackageCheck className="h-5 w-5 text-emerald-500" />
+                <div>
+                  <h3 className="font-bold text-sm">
+                    Inbound Stock Physical Verification — {receivingShipmentModal.trackingCode}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Verify physical incoming quantities & device serial/MAC numbers before updating destination branch inventory.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReceivingShipmentModal(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Route Summary Card */}
+              <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Dispatched From</span>
+                  <span className="font-bold text-slate-900 dark:text-white text-sm">{receivingShipmentModal.sourceBranchName || 'Central Warehouse'}</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="font-mono text-[10px] text-indigo-500 font-bold">{receivingShipmentModal.dispatchDateAD}</span>
+                  <ArrowRight className="h-4 w-4 text-indigo-500 my-0.5" />
+                  <span className="text-[10px] text-emerald-600 font-bold uppercase">Receiving Inspection</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Destination Branch</span>
+                  <span className="font-bold text-slate-900 dark:text-white text-sm">{receivingShipmentModal.destinationBranchName}</span>
+                </div>
+              </div>
+
+              {/* Security Advisory */}
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block">Security Audit Requirement:</span>
+                  <span>
+                    Receiver branch must count non-serial quantities and physically scan/verify each Device Serial & PON/MAC address unpacked from shipments. Any shortage or unverified unit will be logged as an <strong>In-Transit Discrepancy</strong> for management audit.
+                  </span>
+                </div>
+              </div>
+
+              {/* Item Lines Verification Table */}
+              <div className="space-y-3">
+                {receivingShipmentModal.items.map((item, idx) => {
+                  const st = receiveItemStates[item.id] || {
+                    quantityReceived: item.quantitySent || (item as any).quantity || 1,
+                    verifiedSerials: [],
+                    notes: '',
+                  };
+                  const sentQty = item.quantitySent || (item as any).quantity || 1;
+                  const diff = st.quantityReceived - sentQty;
+                  const hasSerials = item.deviceSerials && item.deviceSerials.length > 0;
+
+                  return (
+                    <div
+                      key={item.id || idx}
+                      className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3 text-xs"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                        <div>
+                          <div className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
+                            <span>{idx + 1}. {item.productName}</span>
+                            <span className="font-mono text-xs font-semibold text-slate-500">[{item.sku}]</span>
+                          </div>
+                          <span className="text-[11px] text-slate-500">
+                            Dispatched Quantity: <strong className="text-slate-700 dark:text-slate-300 font-mono">{sentQty} {item.unit || 'Units'}</strong>
+                          </span>
+                        </div>
+
+                        {/* Received Qty Entry */}
+                        <div className="flex items-center gap-3">
+                          <label className="font-bold text-slate-700 dark:text-slate-300">
+                            Actual Received Qty:
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            max={sentQty * 2}
+                            value={st.quantityReceived}
+                            onChange={(e) => updateReceiveQty(item.id, Number(e.target.value))}
+                            className="w-20 text-center font-mono font-bold text-sm rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 p-1.5 focus:ring-2 focus:ring-indigo-500"
+                          />
+
+                          {diff === 0 ? (
+                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold text-[10px] border border-emerald-500/20">
+                              ✓ Full Match
+                            </span>
+                          ) : diff < 0 ? (
+                            <span className="px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold text-[10px] border border-amber-500/20">
+                              ⚠ Shortage ({diff} Units)
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 font-bold text-[10px] border border-blue-500/20">
+                              ℹ Surplus (+{diff} Units)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Serial Check-Off List for Hardware */}
+                      {hasSerials && (
+                        <div className="p-3 rounded-lg bg-indigo-50/50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/40 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5 text-[11px]">
+                              <Barcode className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                              <span>Device Serial & MAC/PON Check-Off Checklist ({st.verifiedSerials.filter(s => s.isChecked).length} / {item.deviceSerials?.length} Checked):</span>
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {st.verifiedSerials.map((s, sIdx) => (
+                              <label
+                                key={sIdx}
+                                className={`p-2 rounded-lg border flex items-center gap-2 cursor-pointer transition-colors ${
+                                  s.isChecked
+                                    ? 'bg-white dark:bg-slate-900 border-emerald-300 dark:border-emerald-800'
+                                    : 'bg-rose-50/60 dark:bg-rose-950/30 border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300'
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={s.isChecked}
+                                  onChange={() => toggleSerialCheck(item.id, sIdx)}
+                                  className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                                />
+                                <div className="flex-1 font-mono text-[11px] min-w-0">
+                                  <div className="font-bold text-slate-900 dark:text-slate-100 truncate">
+                                    {s.deviceSerial}
+                                  </div>
+                                  {s.ponSerial && (
+                                    <div className="text-[10px] text-blue-600 dark:text-blue-400 truncate">
+                                      PON: {s.ponSerial}
+                                    </div>
+                                  )}
+                                </div>
+                                <span className={`text-[10px] font-bold uppercase ${s.isChecked ? 'text-emerald-600' : 'text-rose-500'}`}>
+                                  {s.isChecked ? 'Verified' : 'Missing'}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Item Discrepancy Remarks */}
+                      <div>
+                        <input
+                          type="text"
+                          placeholder="Discrepancy / Damage notes for this item (if any)..."
+                          value={st.notes}
+                          onChange={(e) => updateItemDiscrepancyNotes(item.id, e.target.value)}
+                          className="w-full text-xs rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* General Receiving Officer Notes */}
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
+                  Receiving Inspection Officer Notes & Waybill Remarks
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Received by Subash Shrestha at Pokhara Branch. Seal was intact, counted & checked."
+                  value={receivingByNotes}
+                  onChange={(e) => setReceivingByNotes(e.target.value)}
+                  className="w-full text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Modal Actions Footer */}
+            <div className={`p-4 border-t flex items-center justify-between ${
+              isDarkMode ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'
+            }`}>
+              <button
+                type="button"
+                onClick={() => setReceivingShipmentModal(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmReceiveVerification}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 transition-all cursor-pointer"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Confirm Physical Receiving & Add to Branch Stock</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

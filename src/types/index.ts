@@ -145,7 +145,7 @@ export interface PurchaseOrder {
   orderDateAD: string;
   orderDateBS: string;
   expectedDeliveryDateAD: string;
-  status: 'DRAFT' | 'APPROVED' | 'SENT' | 'RECEIVED' | 'CANCELLED';
+  status: 'DRAFT' | 'APPROVED' | 'SENT' | 'IN_PROGRESS' | 'PURCHASED' | 'RECEIVED' | 'CANCELLED';
   items: POLineItem[];
   subtotalAmount: number;
   taxAmount: number;
@@ -229,6 +229,8 @@ export interface ShipmentItem {
   quantitySent: number;
   quantityReceived?: number;
   deviceSerials?: { deviceSerial: string; ponSerial?: string }[];
+  receivedSerials?: { deviceSerial: string; ponSerial?: string }[];
+  itemDiscrepancyNotes?: string;
 }
 
 export interface Shipment {
@@ -245,6 +247,10 @@ export interface Shipment {
   status: 'DISPATCHED' | 'IN_TRANSIT' | 'DELIVERED' | 'RECEIVED' | 'DISCREPANCY';
   items: ShipmentItem[];
   notes?: string;
+  receivedDateAD?: string;
+  receivedDateBS?: string;
+  receivedByNotes?: string;
+  hasDiscrepancy?: boolean;
 }
 
 export interface PulloutItem {
@@ -288,7 +294,7 @@ export interface ConsumableIssueItem {
 export interface StockOperation {
   id: string;
   referenceNumber: string;
-  type: 'PULLOUT' | 'DAMAGE' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'CONSUMABLE_ISSUE';
+  type: 'PULLOUT' | 'DAMAGE' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'CONSUMABLE_ISSUE';
   technicianName?: string;
   workOrderRef?: string;
   branchId: string;
@@ -312,6 +318,11 @@ export interface StockOperation {
   customerName?: string;
   paymentMethod?: string;
   sellingUnitPrice?: number;
+  // Disposal & Write-off fields
+  disposalMethod?: 'SCRAP_DESTRUCTION' | 'SALVAGE_EWASTE' | 'VENDOR_RMA' | 'INSURANCE_CLAIM';
+  salvageRecoveryAmount?: number;
+  netWriteOffLoss?: number;
+  glAccountCode?: string;
 }
 
 export interface FiscalYear {
@@ -344,7 +355,7 @@ export interface TransactionLog {
   productSku: string;
   productName: string;
   branchId: string;
-  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'PULLOUT' | 'DAMAGE' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'CONSUMABLE_ISSUE';
+  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'PULLOUT' | 'DAMAGE' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'CONSUMABLE_ISSUE';
   quantityBefore: number;
   quantityChanged: number;
   quantityAfter: number;

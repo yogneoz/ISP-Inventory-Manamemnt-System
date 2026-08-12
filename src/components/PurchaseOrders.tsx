@@ -24,6 +24,8 @@ import {
   RotateCcw,
   ChevronDown,
   Lock,
+  Pencil,
+  Clock,
 } from 'lucide-react';
 
 interface PurchaseOrdersProps {
@@ -43,6 +45,7 @@ interface PurchaseOrdersProps {
       'id' | 'poNumber' | 'subtotalAmount' | 'taxAmount' | 'totalAmount'
     >
   ) => Promise<void>;
+  onUpdatePO?: (poId: string, poData: Partial<PurchaseOrder>) => Promise<void>;
   onReceivePO: (poId: string) => Promise<void>;
   onUpdatePOStatus?: (poId: string, status: string) => Promise<void>;
   isDarkMode?: boolean;
@@ -68,12 +71,14 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   autoOpenModal = false,
   prepopulatedLines,
   onCreatePO,
+  onUpdatePO,
   onReceivePO,
   onUpdatePOStatus,
   isDarkMode = false,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
   const [viewingPO, setViewingPO] = useState<PurchaseOrder | null>(null);
+  const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Default known suppliers list for autocomplete if props list is empty
@@ -126,6 +131,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   }, [prepopulatedLines]);
 
   const handleResetForm = () => {
+    setEditingPO(null);
     setLines(prepopulatedLines && prepopulatedLines.length > 0 ? prepopulatedLines : []);
     setSupplierName('Apex Trade & Telecom Supplies Pvt. Ltd.');
     setIsSupplierDropdownOpen(false);
@@ -133,6 +139,44 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     setTaxationType('TAXABLE_13');
     setNotes('');
     setExpectedDeliveryDateAD(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
+  };
+
+  const handleOpenCreateModal = () => {
+    setEditingPO(null);
+    setSupplierName(availableSuppliers[0]?.name || 'Apex Trade & Telecom Supplies Pvt. Ltd.');
+    setBranchId(selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'WH001');
+    setTaxationType('TAXABLE_13');
+    setExpectedDeliveryDateAD(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
+    setBillWiseDiscount(0);
+    setNotes('');
+    setLines(prepopulatedLines && prepopulatedLines.length > 0 ? prepopulatedLines : []);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditModal = (po: PurchaseOrder) => {
+    if (po.status === 'IN_PROGRESS' || (po.status as string) === 'INPROGRESS' || po.status === 'CANCELLED' || po.status === 'RECEIVED') {
+      alert(`Cannot edit PO #${po.poNumber} because its status is ${po.status}.`);
+      return;
+    }
+    setEditingPO(po);
+    setSupplierName(po.supplierName);
+    setBranchId(po.branchId);
+    const hasTax = po.items.some((i) => i.taxAmount > 0) || (po.taxAmount ?? 0) > 0;
+    setTaxationType(hasTax ? 'TAXABLE_13' : 'TAX_EXEMPTED');
+    setExpectedDeliveryDateAD(po.expectedDeliveryDateAD);
+    setNotes(po.notes || '');
+    setBillWiseDiscount(0);
+    setLines(
+      po.items.map((i) => ({
+        productId: i.productId,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        discount: i.discount || 0,
+        isTaxExempt: i.isTaxExempt || i.taxRate === 0,
+      }))
+    );
+    setViewingPO(null);
+    setIsModalOpen(true);
   };
 
   const handleAutoPopulateLowStock = () => {
@@ -290,16 +334,29 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       };
     });
 
-    await onCreatePO({
-      supplierName,
-      branchId,
-      orderDateAD: todayAD,
-      orderDateBS: bsObj.formattedBSShort,
-      expectedDeliveryDateAD,
-      status: 'SENT',
-      items,
-      notes,
-    });
+    if (editingPO) {
+      if (onUpdatePO) {
+        await onUpdatePO(editingPO.id, {
+          supplierName,
+          branchId,
+          expectedDeliveryDateAD,
+          items,
+          notes,
+        });
+      }
+      setEditingPO(null);
+    } else {
+      await onCreatePO({
+        supplierName,
+        branchId,
+        orderDateAD: todayAD,
+        orderDateBS: bsObj.formattedBSShort,
+        expectedDeliveryDateAD,
+        status: 'SENT',
+        items,
+        notes,
+      });
+    }
 
     setIsModalOpen(false);
   };
@@ -347,7 +404,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               <button
                 type="button"
                 title="Issue new Purchase Order"
-                onClick={() => setIsModalOpen(true)}
+                onClick={handleOpenCreateModal}
                 className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/20 cursor-pointer transition-all"
               >
                 <Plus className="h-4 w-4" />
@@ -521,7 +578,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
               <div>
                 <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
                   <ShoppingCart className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                  <span>New Purchase Order Entry</span>
+                  <span>{editingPO ? `Edit Purchase Order — ${editingPO.poNumber}` : 'New Purchase Order Entry'}</span>
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   Scan barcode or search & add items, set unit rates, and apply bill-wise discount.
@@ -849,7 +906,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                     type="submit"
                     className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 cursor-pointer"
                   >
-                    Confirm & Issue Purchase Order
+                    {editingPO ? 'Update & Save Purchase Order' : 'Confirm & Issue Purchase Order'}
                   </button>
                 </div>
               </div>
@@ -982,60 +1039,116 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-bold uppercase text-slate-400 mr-1">Update Status:</span>
+                  <span className="text-[11px] font-bold uppercase text-slate-400 mr-1">Order Actions:</span>
 
+                  {/* 1. Edit PO Button */}
                   <button
                     type="button"
-                    onClick={async () => {
-                      if (onUpdatePOStatus) {
-                        await onUpdatePOStatus(viewingPO.id, 'PURCHASED');
-                      }
-                      setViewingPO({ ...viewingPO, status: 'PURCHASED' });
-                    }}
-                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
-                      viewingPO.status === 'PURCHASED'
-                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-500'
-                        : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 hover:bg-emerald-100'
+                    disabled={
+                      viewingPO.status === 'IN_PROGRESS' ||
+                      (viewingPO.status as string) === 'INPROGRESS' ||
+                      viewingPO.status === 'CANCELLED' ||
+                      viewingPO.status === 'RECEIVED'
+                    }
+                    onClick={() => handleOpenEditModal(viewingPO)}
+                    title={
+                      viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
+                        ? 'Disabled: Cannot edit PO when Order is In Progress'
+                        : viewingPO.status === 'CANCELLED'
+                        ? 'Disabled: Cannot edit a Cancelled PO'
+                        : viewingPO.status === 'RECEIVED'
+                        ? 'Disabled: Cannot edit a Received PO'
+                        : 'Edit this Purchase Order'
+                    }
+                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+                      viewingPO.status === 'IN_PROGRESS' ||
+                      (viewingPO.status as string) === 'INPROGRESS' ||
+                      viewingPO.status === 'CANCELLED' ||
+                      viewingPO.status === 'RECEIVED'
+                        ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
+                        : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 hover:bg-indigo-100 cursor-pointer shadow-xs'
                     }`}
                   >
-                    <CheckSquare className="h-4 w-4" />
-                    <span>Set Purchased</span>
+                    <Pencil className="h-4 w-4" />
+                    <span>Edit PO</span>
+                    {(viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS') && (
+                      <Lock className="h-3 w-3 ml-0.5 text-amber-500" />
+                    )}
                   </button>
 
+                  {/* 2. Set InProgress Button */}
                   <button
                     type="button"
+                    disabled={
+                      viewingPO.status === 'IN_PROGRESS' ||
+                      (viewingPO.status as string) === 'INPROGRESS' ||
+                      viewingPO.status === 'CANCELLED' ||
+                      viewingPO.status === 'RECEIVED'
+                    }
                     onClick={async () => {
                       if (onUpdatePOStatus) {
-                        await onUpdatePOStatus(viewingPO.id, 'APPROVED');
+                        await onUpdatePOStatus(viewingPO.id, 'IN_PROGRESS');
                       }
-                      setViewingPO({ ...viewingPO, status: 'APPROVED' });
+                      setViewingPO({ ...viewingPO, status: 'IN_PROGRESS' });
                     }}
-                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
-                      viewingPO.status === 'APPROVED'
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-2 ring-blue-500'
-                        : 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700 hover:bg-blue-100'
+                    title={
+                      viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
+                        ? 'Order is currently In Progress'
+                        : viewingPO.status === 'CANCELLED'
+                        ? 'Disabled: Order is Cancelled'
+                        : viewingPO.status === 'RECEIVED'
+                        ? 'Disabled: Order is Received'
+                        : 'Mark status as In Progress'
+                    }
+                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+                      viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
+                        ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30 ring-2 ring-amber-400 cursor-not-allowed opacity-90'
+                        : viewingPO.status === 'CANCELLED' || viewingPO.status === 'RECEIVED'
+                        ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
+                        : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 cursor-pointer shadow-xs'
                     }`}
                   >
-                    <CheckCircle2 className="h-4 w-4" />
-                    <span>Set Approved</span>
+                    <Clock className="h-4 w-4" />
+                    <span>
+                      {viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
+                        ? 'In Progress'
+                        : 'Set InProgress'}
+                    </span>
                   </button>
 
+                  {/* 3. Set Cancelled / Cancel Order Button */}
                   <button
                     type="button"
+                    disabled={viewingPO.status === 'CANCELLED' || viewingPO.status === 'RECEIVED'}
                     onClick={async () => {
                       if (onUpdatePOStatus) {
                         await onUpdatePOStatus(viewingPO.id, 'CANCELLED');
                       }
                       setViewingPO({ ...viewingPO, status: 'CANCELLED' });
                     }}
-                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                    title={
                       viewingPO.status === 'CANCELLED'
-                        ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 ring-2 ring-rose-500'
-                        : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700 hover:bg-rose-100'
+                        ? 'Order is already Cancelled'
+                        : viewingPO.status === 'RECEIVED'
+                        ? 'Disabled: Cannot cancel a Received PO'
+                        : 'Cancel Purchase Order'
+                    }
+                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+                      viewingPO.status === 'CANCELLED'
+                        ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 ring-2 ring-rose-500 cursor-not-allowed opacity-90'
+                        : viewingPO.status === 'RECEIVED'
+                        ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
+                        : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700 hover:bg-rose-100 cursor-pointer shadow-xs'
                     }`}
                   >
                     <XCircle className="h-4 w-4" />
-                    <span>Set Cancelled</span>
+                    <span>
+                      {viewingPO.status === 'CANCELLED'
+                        ? 'Order Cancelled'
+                        : viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
+                        ? 'Cancel Order'
+                        : 'Set Cancelled'}
+                    </span>
                   </button>
                 </div>
               </div>

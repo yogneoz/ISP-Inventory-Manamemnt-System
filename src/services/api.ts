@@ -225,6 +225,13 @@ export const api = {
     });
   },
 
+  async updatePurchaseOrder(id: string, poData: Partial<PurchaseOrder>): Promise<PurchaseOrder> {
+    return fetchJson(`/api/purchase-orders/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(poData),
+    });
+  },
+
   async updatePurchaseOrderStatus(id: string, status: string): Promise<PurchaseOrder> {
     return fetchJson(`/api/purchase-orders/${id}/status`, {
       method: 'PATCH',
@@ -271,9 +278,21 @@ export const api = {
     });
   },
 
-  async receiveShipment(id: string): Promise<Shipment> {
+  async receiveShipment(
+    id: string,
+    verificationData?: {
+      receivedItems?: {
+        itemId: string;
+        quantityReceived: number;
+        receivedSerials?: { deviceSerial: string; ponSerial?: string }[];
+        itemDiscrepancyNotes?: string;
+      }[];
+      receivedByNotes?: string;
+    }
+  ): Promise<Shipment> {
     return fetchJson(`/api/shipments/${id}/receive`, {
       method: 'POST',
+      body: JSON.stringify(verificationData || {}),
     });
   },
 
@@ -409,6 +428,34 @@ export const api = {
     return fetchJson('/api/ai/analytics', {
       method: 'POST',
       body: JSON.stringify({ prompt, context }),
+    });
+  },
+
+  // Bikram Sambat (BS) Calendar PostgreSQL API
+  async getBsCalendarYears(): Promise<{ yearBS: number; daysInMonths: number[]; startAD: string }[]> {
+    return fetchJson('/api/bs-calendar/years');
+  },
+
+  async getBsDayRecords(yearBS?: number | string, monthBS?: number | string, search?: string): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (yearBS && yearBS !== 'ALL') params.append('yearBS', String(yearBS));
+    if (monthBS && monthBS !== 'ALL') params.append('monthBS', String(monthBS));
+    if (search && search.trim()) params.append('search', search.trim());
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return fetchJson(`/api/bs-calendar/days${queryString}`);
+  },
+
+  async seedBsCalendarYear(yearBS: number, daysInMonths: number[], customStartAD?: string): Promise<{ success: boolean; message: string }> {
+    return fetchJson('/api/bs-calendar/seed', {
+      method: 'POST',
+      body: JSON.stringify({ yearBS, daysInMonths, customStartAD }),
+    });
+  },
+
+  async syncBsDayRange(dayRecords: any[]): Promise<{ success: boolean; count: number; message: string }> {
+    return fetchJson('/api/bs-calendar/sync-range', {
+      method: 'POST',
+      body: JSON.stringify({ dayRecords }),
     });
   },
 };

@@ -72,6 +72,7 @@ export const DEFAULT_PERMISSIONS_MATRIX: Record<string, Record<UserRole, boolean
   'branch-transfer-receive': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
   'branch-pullout-dispatch': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
   'branch-damage-mark': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
+  'stock-disposal-writeoff': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: false, FRONT_DESK: false, ACCOUNTANT: false },
   'branch-asset-assign': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: false, ACCOUNTANT: true },
   'stock-out': { SUPER_ADMIN: true, INVENTORY_MANAGER: true, BRANCH_MANAGER: true, FRONT_DESK: true, ACCOUNTANT: false },
 
@@ -168,3 +169,14 @@ export const canUserSwitchProfiles = (
   // Fallback to role-based permission
   return isOperationAllowed('auth-switch-user', effectiveUser.role);
 };
+
+/**
+ * Checks if user is permitted to perform damaged stock disposal & financial write-off.
+ * Only Super Admin and Inventory Manager can execute write-offs.
+ */
+export const canUserDisposeDamagedStock = (user: User | null | undefined): boolean => {
+  if (!user) return true; // Default allow in dev if unauthenticated
+  if (user.role === 'SUPER_ADMIN' || user.role === 'INVENTORY_MANAGER') return true;
+  return isOperationAllowed('stock-disposal-writeoff', user.role);
+};
+

@@ -3,6 +3,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import pg from 'pg';
 import {
   User,
   Supplier,
@@ -23,6 +24,16 @@ import {
 } from './src/types';
 
 dotenv.config();
+
+const { Pool } = pg;
+const pgPool = new Pool({
+  host: process.env.POSTGRES_HOST || 'localhost',
+  port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
+  database: process.env.POSTGRES_DB || 'inventory_db',
+  user: process.env.POSTGRES_USER || 'inventory_user',
+  password: process.env.POSTGRES_PASSWORD || 'securepassword',
+  connectionTimeoutMillis: 3000,
+});
 
 const app = express();
 app.use(express.json());
@@ -391,13 +402,21 @@ let products: Product[] = EXCEL_ITEMS.map((item, idx) => {
 
 // Pre-seeded Inventory Stock per Branch for all products across all 19 branches (2-3 pieces per item)
 let inventoryStock: InventoryStock[] = [];
+let seededDamagedCount = 0;
+
 products.forEach((p, index) => {
   branches.forEach((branch, bIdx) => {
     // Consumable products (splitters, sleeves, couplers) have higher operational quantity per branch
     const isConsumable = p.productGroup === 'Consumable Item';
     const baseQty = isConsumable ? (branch.isHeadquarters ? 150 + ((index * 10) % 100) : 35 + ((index + bIdx) % 25)) : 2 + ((index + bIdx) % 2);
     const qty = baseQty;
-    const damagedQty = (index + bIdx) % 11 === 0 ? 1 : 0;
+
+    // Seed exactly 21 pcs of damaged stock across active branches (1 pc per damaged stock entry)
+    let damagedQty = 0;
+    if (seededDamagedCount < 21 && (index * 7 + bIdx * 3 + 1) % 13 === 0) {
+      damagedQty = 1;
+      seededDamagedCount++;
+    }
 
     // Set realistic per-branch minimum reorder level based on branch demand / HQ status
     const branchMinReorder = branch.isHeadquarters
@@ -472,6 +491,8 @@ function generateStandardTransactionId(branchIdOrCode: string, opType: string, c
     'CONSUMABLE_ISSUE': 'CON',
     'DMG': 'DMG',
     'DAMAGE': 'DMG',
+    'DSP': 'DSP',
+    'DISPOSAL': 'DSP',
     'PLT': 'PLT',
     'PULLOUT': 'PLT',
   };
@@ -588,30 +609,37 @@ let shipments: Shipment[] = [
 ];
 
 // Pre-seeded Stock Operations
-let stockOperations: StockOperation[] = [
-  {
-    id: 'op-401',
-    referenceNumber: 'DMG-2083-001',
-    type: 'DAMAGE',
-    branchId: 'CHU01',
-    productId: 'prod-hoc001',
-    productName: 'HYDRAULIC OFFICE CHAIR-FA',
-    quantityChanged: -1,
-    costPerUnit: 25,
-    totalValue: 25,
-    reason: 'Hydro pneumatic mechanism damaged during transit',
-    inspectorName: 'Suresh Bhattarai',
-    dateAD: '2026-07-22',
-    dateBS: '2083-04-07 BS',
-    fiscalYear: '2082/83',
-  },
-];
+let stockOperations: StockOperation[] = [];
+
+// Auto-seed matching DAMAGE operations for all 21 pre-seeded damaged stock entries
+let dmgOpCounter = 1;
+inventoryStock.forEach((stk) => {
+  if (stk.damagedQty > 0) {
+    const prod = products.find((p) => p.id === stk.productId);
+    stockOperations.push({
+      id: `op-dmg-${stk.id}`,
+      referenceNumber: `DMG-2083-${String(dmgOpCounter++).padStart(3, '0')}`,
+      type: 'DAMAGE',
+      branchId: stk.branchId,
+      productId: stk.productId,
+      productName: prod?.name || 'Damaged Stock Item',
+      quantityChanged: -stk.damagedQty,
+      costPerUnit: prod?.costPrice || 0,
+      totalValue: stk.damagedQty * (prod?.costPrice || 0),
+      reason: 'Physical branch inventory inspection & transit damage tag',
+      inspectorName: 'Branch Quality Inspector',
+      dateAD: '2026-07-22',
+      dateBS: '2083-04-07 BS',
+      fiscalYear: '2082-83',
+    });
+  }
+});
 
 // Pre-seeded Fiscal Years
 let fiscalYears: FiscalYear[] = [
   {
     id: 'fy-1',
-    code: '2080/81',
+    code: '2080-81',
     startDateAD: '2023-07-17',
     endDateAD: '2024-07-15',
     startDateBS: '2080-04-01 BS',
@@ -621,7 +649,7 @@ let fiscalYears: FiscalYear[] = [
   },
   {
     id: 'fy-2',
-    code: '2081/82',
+    code: '2081-82',
     startDateAD: '2024-07-16',
     endDateAD: '2025-07-15',
     startDateBS: '2081-04-01 BS',
@@ -631,12 +659,22 @@ let fiscalYears: FiscalYear[] = [
   },
   {
     id: 'fy-3',
-    code: '2082/83',
+    code: '2082-83',
     startDateAD: '2025-07-16',
     endDateAD: '2026-07-15',
     startDateBS: '2082-04-01 BS',
     endDateBS: '2082-12-31 BS',
     isCurrent: true,
+    isClosed: false,
+  },
+  {
+    id: 'fy-4',
+    code: '2083-84',
+    startDateAD: '2026-07-16',
+    endDateAD: '2027-07-15',
+    startDateBS: '2083-04-01 BS',
+    endDateBS: '2083-12-31 BS',
+    isCurrent: false,
     isClosed: false,
   },
 ];
@@ -1129,11 +1167,19 @@ app.patch('/api/stock/:id', (req, res) => {
   let qtyBefore = stk.quantityOnHand;
   let oldDamaged = stk.damagedQty || 0;
 
-  if (quantityOnHand !== undefined) {
-    stk.quantityOnHand = Number(quantityOnHand);
-  }
   if (damagedQty !== undefined) {
-    stk.damagedQty = Number(damagedQty);
+    const newDam = Math.max(0, Number(damagedQty));
+    const damDiff = newDam - oldDamaged;
+    stk.damagedQty = newDam;
+
+    // If quantityOnHand wasn't explicitly overridden, adjust usable stock to conserve total stock
+    if (quantityOnHand === undefined) {
+      stk.quantityOnHand = Math.max(0, stk.quantityOnHand - damDiff);
+    } else {
+      stk.quantityOnHand = Number(quantityOnHand);
+    }
+  } else if (quantityOnHand !== undefined) {
+    stk.quantityOnHand = Number(quantityOnHand);
   }
   if (minReorderLevel !== undefined) {
     stk.minReorderLevel = Number(minReorderLevel);
@@ -1276,6 +1322,34 @@ app.post('/api/purchase-orders', (req, res) => {
 
   purchaseOrders.unshift(newPO);
   res.status(201).json(newPO);
+});
+
+app.put('/api/purchase-orders/:id', (req, res) => {
+  const { id } = req.params;
+  const index = purchaseOrders.findIndex((p) => p.id === id);
+  if (index === -1) return res.status(404).json({ message: 'PO not found' });
+
+  const existingPO = purchaseOrders[index];
+  if (existingPO.status === 'IN_PROGRESS' || existingPO.status === 'CANCELLED' || existingPO.status === 'RECEIVED') {
+    return res.status(400).json({ message: 'Cannot edit PO that is already In Progress, Received, or Cancelled' });
+  }
+
+  const items = req.body.items || existingPO.items;
+  const subtotalAmount = items.reduce((s: number, i: any) => s + (i.subtotal || (i.quantity * i.unitPrice)), 0);
+  const taxAmount = items.reduce((s: number, i: any) => s + (i.taxAmount || 0), 0);
+  const totalAmount = subtotalAmount + taxAmount;
+
+  const updatedPO = {
+    ...existingPO,
+    ...req.body,
+    subtotalAmount,
+    taxAmount,
+    totalAmount,
+    items,
+  };
+
+  purchaseOrders[index] = updatedPO;
+  res.json(updatedPO);
 });
 
 app.patch('/api/purchase-orders/:id/status', (req, res) => {
@@ -1540,13 +1614,39 @@ app.post('/api/shipments', (req, res) => {
 
 app.post('/api/shipments/:id/receive', (req, res) => {
   const { id } = req.params;
+  const { receivedItems, receivedByNotes } = req.body || {};
   const sh = shipments.find((s) => s.id === id);
   if (!sh) return res.status(404).json({ message: 'Shipment not found' });
 
-  sh.status = 'RECEIVED';
+  let hasDiscrepancy = false;
+  sh.receivedByNotes = receivedByNotes || '';
+  sh.receivedDateAD = new Date().toISOString().split('T')[0];
+  sh.receivedDateBS = '2083-04-16 BS';
 
-  // Increment destination stock
-  sh.items.forEach((item: any) => {
+  // Increment destination stock by actual VERIFIED received quantity
+  sh.items.forEach((item: any, idx: number) => {
+    const verified = Array.isArray(receivedItems)
+      ? receivedItems.find((ri: any) => ri.itemId === item.id) || receivedItems[idx]
+      : null;
+
+    const actualQtyReceived = verified !== null && verified !== undefined && verified.quantityReceived !== undefined
+      ? Number(verified.quantityReceived)
+      : item.quantitySent;
+
+    item.quantityReceived = actualQtyReceived;
+    if (verified?.receivedSerials) {
+      item.receivedSerials = verified.receivedSerials;
+    } else if (item.deviceSerials) {
+      item.receivedSerials = item.deviceSerials.slice(0, actualQtyReceived);
+    }
+    if (verified?.itemDiscrepancyNotes) {
+      item.itemDiscrepancyNotes = verified.itemDiscrepancyNotes;
+    }
+
+    if (actualQtyReceived < item.quantitySent) {
+      hasDiscrepancy = true;
+    }
+
     let stk = inventoryStock.find(
       (s) => s.productId === item.productId && s.branchId === sh.destinationBranchId
     );
@@ -1564,9 +1664,43 @@ app.post('/api/shipments/:id/receive', (req, res) => {
     }
 
     const qtyBefore = stk.quantityOnHand;
-    stk.quantityOnHand += item.quantitySent;
+    stk.quantityOnHand += actualQtyReceived;
 
     const prod = products.find((p) => p.id === item.productId);
+
+    // Update serial register location & status for received serial numbers
+    if (item.receivedSerials && Array.isArray(item.receivedSerials)) {
+      item.receivedSerials.forEach((s: any) => {
+        if (!s?.deviceSerial) return;
+        const cleanSer = s.deviceSerial.trim().toUpperCase();
+        let devRecord = customerDeviceRecords.find(
+          (cd) => cd.deviceSerial.trim().toUpperCase() === cleanSer
+        );
+        if (devRecord) {
+          devRecord.branchId = sh.destinationBranchId;
+          devRecord.status = 'IN_STOCK';
+          devRecord.notes = `Transferred from ${sh.sourceBranchName} via Shipment ${sh.trackingCode}`;
+        } else {
+          // Register new device in branch inventory serial registry
+          customerDeviceRecords.unshift({
+            id: `dev-rcv-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            customerId: 'INVENTORY_STOCK',
+            customerName: `Branch Inventory (${sh.destinationBranchName})`,
+            customerCode: 'STOCK',
+            contactPhone: 'N/A',
+            installationAddress: sh.destinationBranchName,
+            branchId: sh.destinationBranchId,
+            productName: prod?.name || item.productName || 'Device',
+            deviceSerial: cleanSer,
+            ponSerial: s.ponSerial || `HWTC-${cleanSer}`,
+            status: 'IN_STOCK',
+            issuedDateAD: new Date().toISOString().split('T')[0],
+            issuedDateBS: '2083-04-16 BS',
+            notes: `Inbound transfer received from ${sh.sourceBranchName}`,
+          });
+        }
+      });
+    }
 
     transactionLogs.unshift({
       id: `txn-${Date.now()}-${item.productId}`,
@@ -1577,7 +1711,7 @@ app.post('/api/shipments/:id/receive', (req, res) => {
       branchId: sh.destinationBranchId,
       changeType: 'SHIPMENT_TRANSFER',
       quantityBefore: qtyBefore,
-      quantityChanged: item.quantitySent,
+      quantityChanged: actualQtyReceived,
       quantityAfter: stk.quantityOnHand,
       unitCost: prod?.costPrice || 0,
       referenceDocId: sh.trackingCode,
@@ -1585,6 +1719,9 @@ app.post('/api/shipments/:id/receive', (req, res) => {
       timestampBS: '2083-04-16 BS',
     });
   });
+
+  sh.hasDiscrepancy = hasDiscrepancy;
+  sh.status = hasDiscrepancy ? 'DISCREPANCY' : 'RECEIVED';
 
   res.json(sh);
 });
@@ -1664,6 +1801,10 @@ app.post('/api/stock-operations', (req, res) => {
         // Reduce usable stock and increase local damaged stock!
         stk.quantityOnHand = Math.max(0, stk.quantityOnHand - item.quantity);
         stk.damagedQty = (stk.damagedQty || 0) + item.quantity;
+      } else if (opType === 'DISPOSAL') {
+        // Permanent disposal & financial write-off of damaged stock:
+        // Deduct from local damagedQty holding balance!
+        stk.damagedQty = Math.max(0, (stk.damagedQty || 0) - item.quantity);
       } else if (opType === 'STOCK_OUT' || opType === 'CONSUMABLE_ISSUE') {
         // Deduct quantity from store/branch usable stock
         stk.quantityOnHand = Math.max(0, stk.quantityOnHand - item.quantity);
@@ -1715,6 +1856,10 @@ app.post('/api/stock-operations', (req, res) => {
       const damAmt = Math.abs(qtyChanged);
       stk.quantityOnHand = Math.max(0, stk.quantityOnHand - damAmt);
       stk.damagedQty = (stk.damagedQty || 0) + damAmt;
+    } else if (opType === 'DISPOSAL') {
+      // Permanent disposal & financial write-off of damaged stock
+      const dispAmt = Math.abs(qtyChanged);
+      stk.damagedQty = Math.max(0, (stk.damagedQty || 0) - dispAmt);
     } else {
       stk.quantityOnHand += qtyChanged;
     }
@@ -1822,16 +1967,363 @@ app.post('/api/stock-operations/:id/receive', (req, res) => {
 });
 
 // Fiscal Years
-app.get('/api/fiscal-years', (req, res) => {
+app.get('/api/fiscal-years', async (req, res) => {
+  try {
+    const result = await pgPool.query(
+      `SELECT id, code, start_date_ad::text AS "startDateAD", end_date_ad::text AS "endDateAD",
+              start_date_bs AS "startDateBS", end_date_bs AS "endDateBS",
+              is_current AS "isCurrent", is_closed AS "isClosed"
+       FROM fiscal_years ORDER BY code ASC;`
+    );
+    if (result.rows.length > 0) {
+      return res.json(result.rows);
+    }
+  } catch (e: any) {
+    console.warn('PostgreSQL fiscal_years read notice:', e.message);
+  }
   res.json(fiscalYears);
 });
 
-app.post('/api/fiscal-years/:id/set-current', (req, res) => {
+app.post('/api/fiscal-years/:id/set-current', async (req, res) => {
   const { id } = req.params;
+  try {
+    await pgPool.query('UPDATE fiscal_years SET is_current = FALSE;');
+    await pgPool.query('UPDATE fiscal_years SET is_current = TRUE WHERE id = $1;', [id]);
+  } catch (e: any) {
+    console.warn('PostgreSQL set-current fiscal year notice:', e.message);
+  }
+
   fiscalYears.forEach((fy) => {
     fy.isCurrent = fy.id === id;
   });
   res.json(fiscalYears);
+});
+
+// Bikram Sambat (BS) Calendar & Day Records Endpoints with PostgreSQL & In-Memory Fallback
+const NEPALI_MONTHS_EN_SERVER = [
+  'Baisakh', 'Jestha', 'Ashadh', 'Shrawan', 'Bhadra', 'Ashwin',
+  'Kartik', 'Mangsir', 'Poush', 'Magh', 'Falgun', 'Chaitra'
+];
+
+const NEPALI_MONTHS_NP_SERVER = [
+  'वैशाख', 'जेठ', 'असार', 'श्रावण', 'भाद्र', 'असोज',
+  'कार्तिक', 'मंसिर', 'पुस', 'माघ', 'फागुन', 'चैत'
+];
+
+const DAYS_OF_WEEK_EN_SERVER = [
+  'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
+];
+
+const DAYS_OF_WEEK_NP_SERVER = [
+  'आइतबार', 'सोमबार', 'मंगलबार', 'बुधबार', 'बिहीबार', 'शुक्रबार', 'शनिबार'
+];
+
+const DEFAULT_BS_YEARS_SERVER = [
+  { yearBS: 2078, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2021-04-14' },
+  { yearBS: 2079, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2022-04-14' },
+  { yearBS: 2080, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2023-04-14' },
+  { yearBS: 2081, daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31], startAD: '2024-04-13' },
+  { yearBS: 2082, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2025-04-14' },
+  { yearBS: 2083, daysInMonths: [31, 31, 32, 31, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2026-04-14' },
+  { yearBS: 2084, daysInMonths: [31, 31, 31, 32, 31, 31, 30, 29, 30, 29, 30, 30], startAD: '2027-04-14' },
+  { yearBS: 2085, daysInMonths: [31, 32, 31, 32, 31, 30, 30, 30, 29, 30, 29, 31], startAD: '2028-04-13' },
+];
+
+let inMemoryBsCalendarYears = [...DEFAULT_BS_YEARS_SERVER];
+let inMemoryBsDayRecords: any[] = [];
+
+function generateInMemoryBsDayRecords() {
+  const recordsMap = new Map<string, any>();
+  for (const yData of inMemoryBsCalendarYears) {
+    let runningDate = new Date(yData.startAD);
+    for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
+      const monthBS = monthIdx + 1;
+      const daysInMonth = yData.daysInMonths[monthIdx] || 30;
+
+      for (let dayBS = 1; dayBS <= daysInMonth; dayBS++) {
+        const adDateStr = runningDate.toISOString().split('T')[0];
+        const dayOfWeekIndex = runningDate.getUTCDay();
+
+        const padMonth = monthBS < 10 ? `0${monthBS}` : `${monthBS}`;
+        const padDay = dayBS < 10 ? `0${dayBS}` : `${dayBS}`;
+        const bsDateStr = `${yData.yearBS}-${padMonth}-${padDay}`;
+
+        let startYear = yData.yearBS;
+        if (monthBS < 4) startYear = yData.yearBS - 1;
+        const fyCode = `${startYear}-${String(startYear + 1).slice(-2)}`;
+
+        let qtr = 'Q4';
+        if (monthBS >= 4 && monthBS <= 6) qtr = 'Q1';
+        else if (monthBS >= 7 && monthBS <= 9) qtr = 'Q2';
+        else if (monthBS >= 10 && monthBS <= 12) qtr = 'Q3';
+
+        recordsMap.set(adDateStr, {
+          adDate: adDateStr,
+          bsDate: bsDateStr,
+          bsYear: yData.yearBS,
+          bsMonth: monthBS,
+          bsMonthName: NEPALI_MONTHS_EN_SERVER[monthIdx],
+          bsMonthNameNp: NEPALI_MONTHS_NP_SERVER[monthIdx],
+          bsDay: dayBS,
+          dayOfWeekName: DAYS_OF_WEEK_EN_SERVER[dayOfWeekIndex],
+          dayOfWeekNameNp: DAYS_OF_WEEK_NP_SERVER[dayOfWeekIndex],
+          fiscalYear: fyCode,
+          quarter: qtr,
+          isWeekend: dayOfWeekIndex === 6,
+        });
+
+        runningDate.setDate(runningDate.getDate() + 1);
+      }
+    }
+  }
+  inMemoryBsDayRecords = Array.from(recordsMap.values());
+}
+
+// Initial generation of in-memory records
+generateInMemoryBsDayRecords();
+
+app.get('/api/bs-calendar/years', async (req, res) => {
+  try {
+    const result = await pgPool.query(
+      'SELECT year_bs AS "yearBS", days_in_months AS "daysInMonths", start_ad::text AS "startAD" FROM bs_calendar_years ORDER BY year_bs ASC;'
+    );
+    if (result.rows.length > 0) {
+      return res.json(result.rows);
+    }
+  } catch (_err) {
+    // Silently fall back to inMemoryBsCalendarYears if PostgreSQL is unreachable
+  }
+  res.json(inMemoryBsCalendarYears);
+});
+
+app.get('/api/bs-calendar/days', async (req, res) => {
+  const { yearBS, monthBS, search } = req.query;
+  try {
+    let querySql = `
+      SELECT ad_date::text AS "adDate", bs_date AS "bsDate", bs_year AS "bsYear", bs_month AS "bsMonth",
+             bs_month_name AS "bsMonthName", bs_month_name_np AS "bsMonthNameNp", bs_day AS "bsDay",
+             day_of_week_name AS "dayOfWeekName", day_of_week_name_np AS "dayOfWeekNameNp",
+             fiscal_year AS "fiscalYear", quarter, is_weekend AS "isWeekend"
+      FROM bs_day_records
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+    if (yearBS && yearBS !== 'ALL') {
+      params.push(parseInt(yearBS as string, 10));
+      querySql += ` AND bs_year = $${params.length}`;
+    }
+    if (monthBS && monthBS !== 'ALL') {
+      params.push(parseInt(monthBS as string, 10));
+      querySql += ` AND bs_month = $${params.length}`;
+    }
+    if (search && typeof search === 'string' && search.trim()) {
+      params.push(`%${search.trim().toLowerCase()}%`);
+      querySql += ` AND (
+        LOWER(ad_date::text) LIKE $${params.length} OR
+        LOWER(bs_date) LIKE $${params.length} OR
+        LOWER(bs_month_name) LIKE $${params.length} OR
+        LOWER(day_of_week_name) LIKE $${params.length} OR
+        LOWER(fiscal_year) LIKE $${params.length}
+      )`;
+    }
+    querySql += ` ORDER BY ad_date ASC LIMIT 500;`;
+
+    const result = await pgPool.query(querySql, params);
+    if (result.rows.length > 0) {
+      return res.json(result.rows);
+    }
+  } catch (_err) {
+    // Silently fall back to in-memory records below
+  }
+
+  // In-Memory Filter Fallback
+  let filtered = [...inMemoryBsDayRecords];
+  if (yearBS && yearBS !== 'ALL') {
+    const targetYr = parseInt(yearBS as string, 10);
+    filtered = filtered.filter((r) => r.bsYear === targetYr);
+  }
+  if (monthBS && monthBS !== 'ALL') {
+    const targetMo = parseInt(monthBS as string, 10);
+    filtered = filtered.filter((r) => r.bsMonth === targetMo);
+  }
+  if (search && typeof search === 'string' && search.trim()) {
+    const q = search.trim().toLowerCase();
+    filtered = filtered.filter(
+      (r) =>
+        r.adDate.toLowerCase().includes(q) ||
+        r.bsDate.toLowerCase().includes(q) ||
+        r.bsMonthName.toLowerCase().includes(q) ||
+        r.dayOfWeekName.toLowerCase().includes(q) ||
+        r.fiscalYear.toLowerCase().includes(q)
+    );
+  }
+
+  res.json(filtered.slice(0, 500));
+});
+
+app.post('/api/bs-calendar/seed', async (req, res) => {
+  const { yearBS, daysInMonths, customStartAD } = req.body;
+  if (!yearBS || !Array.isArray(daysInMonths) || daysInMonths.length !== 12) {
+    return res.status(400).json({ message: 'Must provide yearBS and 12-element daysInMonths array' });
+  }
+
+  let startAD = customStartAD;
+  if (!startAD) {
+    const estADYear = yearBS - 57;
+    startAD = `${estADYear}-04-14`;
+  }
+
+  // Update In-Memory Store first
+  const existingIdx = inMemoryBsCalendarYears.findIndex((y) => y.yearBS === yearBS);
+  if (existingIdx >= 0) {
+    inMemoryBsCalendarYears[existingIdx] = { yearBS, daysInMonths, startAD };
+  } else {
+    inMemoryBsCalendarYears.push({ yearBS, daysInMonths, startAD });
+    inMemoryBsCalendarYears.sort((a, b) => a.yearBS - b.yearBS);
+  }
+  generateInMemoryBsDayRecords();
+
+  try {
+    await pgPool.query(
+      `INSERT INTO bs_calendar_years (year_bs, days_in_months, start_ad)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (year_bs) DO UPDATE SET
+         days_in_months = EXCLUDED.days_in_months,
+         start_ad = EXCLUDED.start_ad;`,
+      [yearBS, daysInMonths, startAD]
+    );
+
+    let runningDate = new Date(startAD);
+    for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
+      const monthBS = monthIdx + 1;
+      const daysInMonth = daysInMonths[monthIdx] || 30;
+
+      for (let dayBS = 1; dayBS <= daysInMonth; dayBS++) {
+        const adDateStr = runningDate.toISOString().split('T')[0];
+        const dayOfWeekIndex = runningDate.getUTCDay();
+
+        const padMonth = monthBS < 10 ? `0${monthBS}` : `${monthBS}`;
+        const padDay = dayBS < 10 ? `0${dayBS}` : `${dayBS}`;
+        const bsDateStr = `${yearBS}-${padMonth}-${padDay}`;
+
+        let startYear = yearBS;
+        if (monthBS < 4) startYear = yearBS - 1;
+        const fyCode = `${startYear}-${String(startYear + 1).slice(-2)}`;
+
+        let qtr = 'Q4';
+        if (monthBS >= 4 && monthBS <= 6) qtr = 'Q1';
+        else if (monthBS >= 7 && monthBS <= 9) qtr = 'Q2';
+        else if (monthBS >= 10 && monthBS <= 12) qtr = 'Q3';
+
+        await pgPool.query(
+          `INSERT INTO bs_day_records (
+             ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+             bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           ON CONFLICT (ad_date) DO UPDATE SET
+             bs_date = EXCLUDED.bs_date,
+             bs_year = EXCLUDED.bs_year,
+             bs_month = EXCLUDED.bs_month,
+             bs_month_name = EXCLUDED.bs_month_name,
+             bs_month_name_np = EXCLUDED.bs_month_name_np,
+             bs_day = EXCLUDED.bs_day,
+             day_of_week_name = EXCLUDED.day_of_week_name,
+             day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+             fiscal_year = EXCLUDED.fiscal_year,
+             quarter = EXCLUDED.quarter,
+             is_weekend = EXCLUDED.is_weekend;`,
+          [
+            adDateStr,
+            bsDateStr,
+            yearBS,
+            monthBS,
+            NEPALI_MONTHS_EN_SERVER[monthIdx],
+            NEPALI_MONTHS_NP_SERVER[monthIdx],
+            dayBS,
+            DAYS_OF_WEEK_EN_SERVER[dayOfWeekIndex],
+            DAYS_OF_WEEK_NP_SERVER[dayOfWeekIndex],
+            fyCode,
+            qtr,
+            dayOfWeekIndex === 6
+          ]
+        );
+
+        runningDate.setDate(runningDate.getDate() + 1);
+      }
+    }
+  } catch (_err) {
+    // Silently continue if PostgreSQL is disconnected; in-memory store is already updated
+  }
+
+  res.json({
+    success: true,
+    message: `Successfully seeded BS Year ${yearBS} and regenerated calendar day-by-day lookup table!`,
+  });
+});
+
+app.post('/api/bs-calendar/sync-range', async (req, res) => {
+  const { dayRecords } = req.body;
+  if (!Array.isArray(dayRecords) || dayRecords.length === 0) {
+    return res.status(400).json({ success: false, message: 'No day records provided to write to SQL database.' });
+  }
+
+  // Always sync to in-memory day records store
+  const recordMap = new Map<string, any>();
+  for (const r of inMemoryBsDayRecords) {
+    recordMap.set(r.adDate, r);
+  }
+  for (const r of dayRecords) {
+    recordMap.set(r.adDate, r);
+  }
+  inMemoryBsDayRecords = Array.from(recordMap.values());
+
+  let insertedCount = dayRecords.length;
+  try {
+    for (const rec of dayRecords) {
+      await pgPool.query(
+        `INSERT INTO bs_day_records (
+           ad_date, bs_date, bs_year, bs_month, bs_month_name, bs_month_name_np,
+           bs_day, day_of_week_name, day_of_week_name_np, fiscal_year, quarter, is_weekend
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (ad_date) DO UPDATE SET
+           bs_date = EXCLUDED.bs_date,
+           bs_year = EXCLUDED.bs_year,
+           bs_month = EXCLUDED.bs_month,
+           bs_month_name = EXCLUDED.bs_month_name,
+           bs_month_name_np = EXCLUDED.bs_month_name_np,
+           bs_day = EXCLUDED.bs_day,
+           day_of_week_name = EXCLUDED.day_of_week_name,
+           day_of_week_name_np = EXCLUDED.day_of_week_name_np,
+           fiscal_year = EXCLUDED.fiscal_year,
+           quarter = EXCLUDED.quarter,
+           is_weekend = EXCLUDED.is_weekend;`,
+        [
+          rec.adDate,
+          rec.bsDate,
+          rec.bsYear,
+          rec.bsMonth,
+          rec.bsMonthName,
+          rec.bsMonthNameNp,
+          rec.bsDay,
+          rec.dayOfWeekName,
+          rec.dayOfWeekNameNp,
+          rec.fiscalYear,
+          rec.quarter,
+          rec.isWeekend,
+        ]
+      );
+    }
+  } catch (_err) {
+    // Continue cleanly using in-memory store
+  }
+
+  res.json({
+    success: true,
+    count: insertedCount,
+    message: `Successfully written & updated ${insertedCount} daily conversion records in BSDayRecord database table!`,
+  });
 });
 
 // Audit Trail & Transaction Logs

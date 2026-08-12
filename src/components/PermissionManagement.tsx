@@ -151,6 +151,12 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
         permissions: DEFAULT_PERMISSIONS_MATRIX['branch-damage-mark'],
       },
       {
+        id: 'stock-disposal-writeoff',
+        operationName: 'Stock Disposal & Financial Write-Off',
+        description: 'Approve and execute permanent inventory scrap disposal, salvage recovery, and balance sheet write-off entries',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['stock-disposal-writeoff'],
+      },
+      {
         id: 'branch-asset-assign',
         operationName: 'Assign Fixed Assets to Branch Staff',
         description: 'Allocate branch equipment, devices, and tools to specific personnel',

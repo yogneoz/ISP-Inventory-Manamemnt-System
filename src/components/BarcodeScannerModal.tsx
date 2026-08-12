@@ -18,14 +18,14 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [activeTab, setActiveTab] = useState<'SCANNER' | 'GENERATOR'>('SCANNER');
   const [scannedInput, setScannedInput] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(products[0] || null);
-  const [serialNumber, setSerialNumber] = useState('SUB-ONU-2081-8842');
+  const [serialNumber, setSerialNumber] = useState('IZ-ONU-2081-8842');
   const [ponSerial, setPonSerial] = useState('ZTEG8A41B22F');
   const [macAddress, setMacAddress] = useState('00:1A:2B:3C:4D:5E');
   const [copied, setCopied] = useState(false);
   const [scanHistory, setScanHistory] = useState<
     { code: string; type: string; timestamp: string }[]
   >([
-    { code: 'SUB-ONU-2081-8842', type: 'ONU Router Serial', timestamp: new Date().toLocaleTimeString() },
+    { code: 'IZ-ONU-2081-8842', type: 'ONU Router Serial', timestamp: new Date().toLocaleTimeString() },
     { code: '8997011234567', type: 'Product SKU Barcode', timestamp: new Date().toLocaleTimeString() },
   ]);
 
@@ -60,7 +60,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
               <QrCode className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Subisu Serial & Barcode Scanner / Labeler</h3>
+              <h3 className="text-base font-bold text-white">IZone Serial & Barcode Scanner / Labeler</h3>
               <p className="text-xs text-slate-400">Scan router ONUs, STB serials, MAC addresses & print asset tags</p>
             </div>
           </div>
@@ -142,7 +142,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 <div className="mt-4 flex flex-wrap justify-center gap-2 pt-2 border-t border-slate-800/80">
                   <span className="text-[11px] text-slate-400 self-center mr-1">Quick Test Scans:</span>
                   {[
-                    'SUB-ONU-DualBand-9941',
+                    'IZ-ONU-DualBand-9941',
                     'STB-4K-NEP-2081-3310',
                     'PON-ZTEG9988A11B',
                     'FIBER-REEL-200M-A1',
@@ -258,10 +258,10 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 <div className="flex items-center justify-between border-b border-slate-300 pb-3 mb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-black tracking-wider text-rose-700 uppercase">
-                      Subisu Cable Net Ltd.
+                      IZone Digital Network Pvt. Ltd.
                     </span>
                     <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold text-slate-700">
-                      PROPERTY OF SUBISU
+                      PROPERTY OF IZONE
                     </span>
                   </div>
                   <span className="text-[10px] text-slate-500 font-medium">NEPAL TELECOM COMPLIANT</span>
@@ -273,7 +273,7 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                       {selectedProduct?.name || 'Dual Band ONU Router (Fiber)'}
                     </div>
                     <div className="text-[10px] text-slate-600 font-mono">
-                      SKU: {selectedProduct?.sku || 'SUB-ONT-DB01'} | Barcode: {selectedProduct?.barcode || '8997011234567'}
+                      SKU: {selectedProduct?.sku || 'IZ-ONT-DB01'} | Barcode: {selectedProduct?.barcode || '8997011234567'}
                     </div>
                     <div className="text-xs font-bold font-mono text-indigo-950 pt-1">
                       S/N: <span className="bg-amber-100 px-1 rounded border border-amber-300">{serialNumber}</span>

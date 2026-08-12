@@ -1076,24 +1076,36 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                 </div>
               )}
 
-              <div className="flex justify-between items-end border-t border-slate-200 pt-4">
+              <div className="flex justify-between items-center border-t border-slate-200 pt-4">
                 <div className="text-xs text-slate-500 space-y-1">
                   <div>Transaction Mode: <span className="font-bold text-amber-700">CREDIT MODE</span></div>
                   <div>Status: <span className="font-bold text-amber-600">UNPAID (Pending Accounting App Settlement)</span></div>
                 </div>
 
-                <div className="w-64 space-y-1.5 text-xs font-mono text-right">
-                  <div className="flex justify-between text-slate-600">
-                    <span>Taxable Base:</span>
-                    <span>{viewingInvoice.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="flex justify-between text-blue-600 font-semibold">
-                    <span>13% VAT:</span>
-                    <span>{viewingInvoice.vatAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-2 border-t border-slate-200">
-                    <span>Grand Total:</span>
-                    <span>{viewingInvoice.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition-all cursor-pointer"
+                    title="Print Vendor Bill or Save as PDF"
+                  >
+                    <Printer className="h-4 w-4 text-slate-600" />
+                    <span>Print Bill (PDF)</span>
+                  </button>
+
+                  <div className="w-56 space-y-1.5 text-xs font-mono text-right">
+                    <div className="flex justify-between text-slate-600">
+                      <span>Taxable Base:</span>
+                      <span>{viewingInvoice.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-blue-600 font-semibold">
+                      <span>13% VAT:</span>
+                      <span>{viewingInvoice.vatAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-2 border-t border-slate-200">
+                      <span>Grand Total:</span>
+                      <span>{viewingInvoice.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
                   </div>
                 </div>
               </div>

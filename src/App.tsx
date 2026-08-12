@@ -464,6 +464,11 @@ export default function App() {
     refreshAllData();
   };
 
+  const handleUpdatePO = async (poId: string, poData: Partial<PurchaseOrder>) => {
+    await api.updatePurchaseOrder(poId, poData);
+    refreshAllData();
+  };
+
   const handleReceivePO = async (poId: string) => {
     await api.receivePurchaseOrder(poId);
     refreshAllData();
@@ -515,8 +520,19 @@ export default function App() {
   };
 
   // Shipment Actions
-  const handleReceiveShipment = async (id: string) => {
-    await api.receiveShipment(id);
+  const handleReceiveShipment = async (
+    id: string,
+    verificationData?: {
+      receivedItems?: {
+        itemId: string;
+        quantityReceived: number;
+        receivedSerials?: { deviceSerial: string; ponSerial?: string }[];
+        itemDiscrepancyNotes?: string;
+      }[];
+      receivedByNotes?: string;
+    }
+  ) => {
+    await api.receiveShipment(id, verificationData);
     refreshAllData();
   };
 
@@ -832,6 +848,7 @@ export default function App() {
                   stock={stock}
                   selectedBranchId={selectedBranchId}
                   onUpdateStockLevel={handleUpdateStockLevel}
+                  onCreateOperation={handleCreateOperation}
                   onNavigateTab={setActiveTab}
                   isDarkMode={isDarkMode}
                 />
@@ -968,6 +985,7 @@ export default function App() {
                   autoOpenModal={true}
                   prepopulatedLines={prepopulatedPOLines}
                   onCreatePO={handleCreatePO}
+                  onUpdatePO={handleUpdatePO}
                   onReceivePO={handleReceivePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
                   isDarkMode={isDarkMode}
@@ -985,6 +1003,7 @@ export default function App() {
                   autoOpenModal={false}
                   prepopulatedLines={prepopulatedPOLines}
                   onCreatePO={handleCreatePO}
+                  onUpdatePO={handleUpdatePO}
                   onReceivePO={handleReceivePO}
                   onUpdatePOStatus={handleUpdatePOStatus}
                   isDarkMode={isDarkMode}
@@ -1395,6 +1414,7 @@ export default function App() {
                   fiscalYears={fiscalYears}
                   onSetCurrentFiscalYear={handleSetCurrentFiscalYear}
                   dateMode={dateMode}
+                  isDarkMode={isDarkMode}
                 />
               )}
 

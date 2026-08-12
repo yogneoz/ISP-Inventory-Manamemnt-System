@@ -297,8 +297,36 @@ CREATE TABLE IF NOT EXISTS approval_requests (
     rejection_reason TEXT
 );
 
+-- 18. BS Calendar Years Table
+CREATE TABLE IF NOT EXISTS bs_calendar_years (
+    year_bs INT PRIMARY KEY,
+    days_in_months INT[] NOT NULL,
+    start_ad DATE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 19. BS Day Records Table
+CREATE TABLE IF NOT EXISTS bs_day_records (
+    ad_date DATE PRIMARY KEY,
+    bs_date VARCHAR(20) NOT NULL,
+    bs_year INT NOT NULL,
+    bs_month INT NOT NULL,
+    bs_month_name VARCHAR(50) NOT NULL,
+    bs_month_name_np VARCHAR(50) NOT NULL,
+    bs_day INT NOT NULL,
+    day_of_week_name VARCHAR(30) NOT NULL,
+    day_of_week_name_np VARCHAR(30) NOT NULL,
+    fiscal_year VARCHAR(20) NOT NULL,
+    quarter VARCHAR(10) NOT NULL,
+    is_weekend BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for high-performance querying
 CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
 CREATE INDEX IF NOT EXISTS idx_stock_product_branch ON inventory_stock(product_id, branch_id);
 CREATE INDEX IF NOT EXISTS idx_customer_devices_serials ON customer_device_records(device_serial, pon_serial, mac_address);
 CREATE INDEX IF NOT EXISTS idx_approval_requests_status ON approval_requests(status, branch_id);
+CREATE INDEX IF NOT EXISTS idx_bs_day_records_bs_date ON bs_day_records(bs_date);
+CREATE INDEX IF NOT EXISTS idx_bs_day_records_bs_year_month ON bs_day_records(bs_year, bs_month);
+CREATE INDEX IF NOT EXISTS idx_bs_day_records_fiscal_year ON bs_day_records(fiscal_year);
