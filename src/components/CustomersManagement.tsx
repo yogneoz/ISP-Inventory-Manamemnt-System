@@ -43,9 +43,12 @@ interface CustomersManagementProps {
   autoOpenModal?: boolean;
   currentUser?: User | null;
   isDarkMode?: boolean;
+  approvalRequests?: ApprovalRequest[];
   onCreateCustomerDevice: (record: Omit<CustomerDeviceRecord, 'id'>) => Promise<void>;
   onUpdateStatus: (id: string, status: CustomerDeviceRecord['status']) => Promise<void>;
+  onExchangeSuccess?: () => Promise<void>;
   onRequestApproval?: (request: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'>) => Promise<void>;
+  onCancelApproval?: (id: string) => Promise<void>;
   onNavigateToMaster?: () => void;
 }
 
@@ -59,9 +62,12 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   autoOpenModal = false,
   currentUser,
   isDarkMode = false,
+  approvalRequests = [],
   onCreateCustomerDevice,
   onUpdateStatus,
+  onExchangeSuccess,
   onRequestApproval,
+  onCancelApproval,
   onNavigateToMaster,
 }) => {
   const canManageCustomers = isOperationAllowed('customers-manage', currentUser?.role);
@@ -81,29 +87,133 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Cancellation State
+  const [cancellingRequestId, setCancellingRequestId] = useState<string | null>(null);
+  const [confirmCancelTarget, setConfirmCancelTarget] = useState<{
+    request: ApprovalRequest;
+    record: CustomerDeviceRecord;
+  } | null>(null);
+
+  // Lookup helper for pending disconnect approval requests
+  const getPendingDisconnectRequest = (rec: CustomerDeviceRecord): ApprovalRequest | undefined => {
+    return (approvalRequests || []).find(
+      (req) =>
+        req.status === 'PENDING' &&
+        (req.targetId === rec.id || req.deviceSerial === rec.deviceSerial) &&
+        (req.requestedStatus === 'DISCONNECTED' || req.requestedStatus === 'ROUTER_COLLECTED')
+    );
+  };
+
+  const handleCancelDisconnectRequest = (request: ApprovalRequest, record: CustomerDeviceRecord) => {
+    setConfirmCancelTarget({ request, record });
+  };
+
+  const handleConfirmCancelApproval = async () => {
+    if (!confirmCancelTarget) return;
+    const { request, record } = confirmCancelTarget;
+    setCancellingRequestId(request.id);
+    try {
+      if (onCancelApproval) {
+        await onCancelApproval(request.id);
+      } else {
+        await api.cancelApprovalRequest(request.id, currentUser);
+      }
+      setToastMessage(`✓ Disconnect request #${request.requestNumber} for ${record.customerName} has been cancelled.`);
+      setConfirmCancelTarget(null);
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to cancel approval request.');
+    } finally {
+      setCancellingRequestId(null);
+    }
+  };
+
+  // Device Exchange Modal State
+  const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false);
+  const [selectedDeviceForExchange, setSelectedDeviceForExchange] = useState<CustomerDeviceRecord | null>(null);
+  const [exchangeReason, setExchangeReason] = useState<string>('Defective / Hardware Fault (No Power / Optical Loss)');
+  const [oldDeviceAction, setOldDeviceAction] = useState<'DAMAGE' | 'RESTOCK' | 'DISPOSED'>('DAMAGE');
+  const [exchangeProductName, setExchangeProductName] = useState<string>('');
+  const [exchangeNewSerial, setExchangeNewSerial] = useState<string>('');
+  const [exchangeNewPon, setExchangeNewPon] = useState<string>('');
+  const [exchangeNewMac, setExchangeNewMac] = useState<string>('');
+  const [exchangeNotes, setExchangeNotes] = useState<string>('');
+  const [isSubmittingExchange, setIsSubmittingExchange] = useState<boolean>(false);
+
+  const handleOpenExchangeModal = (record: CustomerDeviceRecord) => {
+    setSelectedDeviceForExchange(record);
+    setExchangeProductName(record.productName);
+    setExchangeNewSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
+    setExchangeNewPon(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
+    setExchangeNewMac('00:1A:2B:3C:4D:5E');
+    setExchangeReason('Defective / Hardware Fault (No Power / Optical Loss)');
+    setOldDeviceAction('DAMAGE');
+    setExchangeNotes('');
+    setIsExchangeModalOpen(true);
+  };
+
+  const handlePerformExchange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDeviceForExchange) return;
+    if (!exchangeNewSerial.trim() || !exchangeNewPon.trim()) {
+      alert('Please fill new device serial number and PON serial number.');
+      return;
+    }
+
+    setIsSubmittingExchange(true);
+    try {
+      await api.exchangeCustomerDevice({
+        oldDeviceId: selectedDeviceForExchange.id,
+        exchangeReason,
+        oldDeviceAction,
+        newProductName: exchangeProductName || selectedDeviceForExchange.productName,
+        newDeviceSerial: exchangeNewSerial.trim(),
+        newPonSerial: exchangeNewPon.trim(),
+        newMacAddress: exchangeNewMac.trim() || undefined,
+        notes: exchangeNotes.trim() || undefined,
+        branchId: selectedDeviceForExchange.branchId,
+      });
+
+      const customerName = selectedDeviceForExchange.customerName;
+      const serial = exchangeNewSerial;
+      setIsExchangeModalOpen(false);
+      setSelectedDeviceForExchange(null);
+
+      if (onExchangeSuccess) {
+        await onExchangeSuccess();
+      }
+      setToastMessage(`✓ Device successfully exchanged for ${customerName}! New Serial: ${serial}`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err: any) {
+      alert(err?.message || 'Failed to perform device exchange.');
+    } finally {
+      setIsSubmittingExchange(false);
+    }
+  };
+
   const handleStatusChangeAttempt = async (
     rec: CustomerDeviceRecord,
     newSt: CustomerDeviceRecord['status']
   ) => {
     if (rec.status === newSt) return;
 
-    const requiresApproval = ['SUSPENDED', 'DISCONNECTED', 'REFUND', 'RETURNED', 'IN_STOCK'].includes(
+    const isDisconnect = newSt === 'DISCONNECTED' || newSt === 'ROUTER_COLLECTED';
+    const targetSt = isDisconnect ? 'ROUTER_COLLECTED' : newSt;
+
+    const requiresApproval = ['DISCONNECTED', 'ROUTER_COLLECTED', 'REFUND', 'RETURNED', 'IN_STOCK'].includes(
       newSt
     );
     const isBranchStaff =
       currentUser?.role === 'BRANCH_MANAGER' || currentUser?.role === 'FRONT_DESK';
 
-    if (requiresApproval && isBranchStaff) {
-      setApprovalTarget({ record: rec, targetStatus: newSt });
+    // Disconnect requests MUST always go through approval workflow to be set to Router Collected
+    if (isDisconnect || (requiresApproval && isBranchStaff)) {
+      setApprovalTarget({ record: rec, targetStatus: targetSt });
       setApprovalReason('');
-      setApprovalRestock(newSt === 'REFUND' || newSt === 'RETURNED' || newSt === 'IN_STOCK');
+      setApprovalRestock(isDisconnect || newSt === 'REFUND' || newSt === 'RETURNED' || newSt === 'IN_STOCK');
     } else {
       await onUpdateStatus(rec.id, newSt);
-      if (newSt === 'IN_STOCK' || newSt === 'RETURNED' || newSt === 'REFUND') {
-        setToastMessage(`Status updated to ${newSt}! +1 unit synchronized back to branch inventory stock.`);
-      } else {
-        setToastMessage(`Device status updated to ${newSt}.`);
-      }
+      setToastMessage(`Device status updated to ${newSt}.`);
       setTimeout(() => setToastMessage(null), 4000);
     }
   };
@@ -131,7 +241,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         currentStatus: approvalTarget.record.status,
         requestedStatus: approvalTarget.targetStatus,
         requestedByRole: currentUser?.role || 'FRONT_DESK',
-        requestedByEmail: currentUser?.email || 'staff@subisu.com.np',
+        requestedByEmail: currentUser?.email || 'staff@izone.com.np',
         requestedByName: currentUser?.name || 'Branch Staff',
         branchId: approvalTarget.record.branchId,
         branchName,
@@ -158,6 +268,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   };
 
   // Modal Form State
+  const [assignType, setAssignType] = useState<'RENTAL' | 'SOLD'>('RENTAL');
   const [customerName, setCustomerName] = useState('');
   const [customerCode, setCustomerCode] = useState(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
   const [contactPhone, setContactPhone] = useState('+977-98');
@@ -177,7 +288,14 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
 
   const filteredRecords = customerDevices.filter((rec) => {
     const matchesBranch = selectedBranchId === 'ALL' || rec.branchId === selectedBranchId;
-    const matchesStatus = selectedStatus === 'ALL' || rec.status === selectedStatus;
+    let matchesStatus = selectedStatus === 'ALL';
+    if (selectedStatus === 'RENTAL') {
+      matchesStatus = rec.status === 'RENTAL' || rec.status === 'ACTIVE';
+    } else if (selectedStatus === 'ROUTER_COLLECTED') {
+      matchesStatus = rec.status === 'ROUTER_COLLECTED' || rec.status === 'DISCONNECTED';
+    } else if (selectedStatus !== 'ALL') {
+      matchesStatus = rec.status === selectedStatus;
+    }
     
     if (!searchQuery.trim()) return matchesBranch && matchesStatus;
 
@@ -196,9 +314,9 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
   });
 
   // Metrics
-  const activeCount = customerDevices.filter((c) => c.status === 'ACTIVE').length;
-  const suspendedCount = customerDevices.filter((c) => c.status === 'SUSPENDED').length;
-  const inStockCount = customerDevices.filter((c) => c.status === 'IN_STOCK').length;
+  const rentalCount = customerDevices.filter((c) => c.status === 'RENTAL' || c.status === 'ACTIVE').length;
+  const soldCount = customerDevices.filter((c) => c.status === 'SOLD').length;
+  const routerCollectedCount = customerDevices.filter((c) => c.status === 'ROUTER_COLLECTED' || c.status === 'DISCONNECTED').length;
 
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -226,7 +344,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
       deviceSerial,
       ponSerial,
       macAddress: macAddress.trim() || undefined,
-      status: 'ACTIVE',
+      status: assignType,
       issuedDateAD,
       issuedDateBS: dateBSObj.formattedBSShort,
       purchaseBillRef: purchaseBillRef.trim() || undefined,
@@ -257,6 +375,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         {canManageCustomers && (
           <button
             onClick={() => {
+              setAssignType('RENTAL');
               setCustomerCode(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
               setDeviceSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
               setPonSerial(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
@@ -282,35 +401,35 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
         </div>
 
         <div className={`rounded-2xl p-4 border shadow-xs transition-colors ${
-          isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-emerald-50/20 border-emerald-200'
-        }`}>
-          <div className={`text-xs font-semibold ${isDarkMode ? 'text-emerald-400' : 'text-emerald-800'}`}>
-            Active Deployed Routers
-          </div>
-          <div className={`text-xl font-mono font-extrabold mt-1 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
-            {activeCount} Active
-          </div>
-        </div>
-
-        <div className={`rounded-2xl p-4 border shadow-xs transition-colors ${
-          isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-amber-50/20 border-amber-200'
-        }`}>
-          <div className={`text-xs font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-800'}`}>
-            Suspended Connections
-          </div>
-          <div className={`text-xl font-mono font-extrabold mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>
-            {suspendedCount} Suspended
-          </div>
-        </div>
-
-        <div className={`rounded-2xl p-4 border shadow-xs transition-colors ${
           isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-blue-50/20 border-blue-200'
         }`}>
           <div className={`text-xs font-semibold ${isDarkMode ? 'text-blue-400' : 'text-blue-800'}`}>
-            Available / In-Stock
+            Rental Products (CPE)
           </div>
-          <div className={`text-xl font-mono font-extrabold mt-1 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>
-            {inStockCount} In Stock
+          <div className={`text-xl font-mono font-extrabold mt-1 ${isDarkMode ? 'text-blue-400' : 'text-blue-700'}`}>
+            {rentalCount} Rental
+          </div>
+        </div>
+
+        <div className={`rounded-2xl p-4 border shadow-xs transition-colors ${
+          isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-purple-50/20 border-purple-200'
+        }`}>
+          <div className={`text-xs font-semibold ${isDarkMode ? 'text-purple-400' : 'text-purple-800'}`}>
+            Sold Products (Customer)
+          </div>
+          <div className={`text-xl font-mono font-extrabold mt-1 ${isDarkMode ? 'text-purple-400' : 'text-purple-700'}`}>
+            {soldCount} Sold
+          </div>
+        </div>
+
+        <div className={`rounded-2xl p-4 border shadow-xs transition-colors ${
+          isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-rose-50/20 border-rose-200'
+        }`}>
+          <div className={`text-xs font-semibold ${isDarkMode ? 'text-rose-400' : 'text-rose-800'}`}>
+            Router Collected (Restocked)
+          </div>
+          <div className={`text-xl font-mono font-extrabold mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-700'}`}>
+            {routerCollectedCount} Collected
           </div>
         </div>
       </div>
@@ -348,11 +467,10 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
             }`}
           >
             <option value="ALL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-100">All Statuses</option>
-            <option value="ACTIVE" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-emerald-400">ACTIVE</option>
-            <option value="SUSPENDED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-amber-400">SUSPENDED</option>
-            <option value="DISCONNECTED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-rose-400">DISCONNECTED</option>
-            <option value="IN_STOCK" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-blue-400">IN_STOCK</option>
-            <option value="RETURNED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-purple-400">RETURNED</option>
+            <option value="RENTAL" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-blue-400">RENTAL (Rental Product)</option>
+            <option value="SOLD" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-purple-400">SOLD (Sold Product)</option>
+            <option value="ROUTER_COLLECTED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-rose-400">ROUTER COLLECTED (Disconnected)</option>
+            <option value="EXCHANGED" className="bg-white text-slate-900 dark:bg-slate-800 dark:text-slate-400">EXCHANGED</option>
           </select>
         </div>
       </div>
@@ -389,6 +507,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 filteredRecords.map((rec) => {
                   const branch = branches.find((b) => b.id === rec.branchId);
                   const wInfo = getWarrantyInfo(rec.issuedDateAD, rec.warrantyMonths || 12);
+                  const pendingDisconnect = getPendingDisconnectRequest(rec);
                   return (
                     <tr key={rec.id} className={`transition-colors ${
                       isDarkMode ? 'hover:bg-slate-800/50 text-slate-200' : 'hover:bg-blue-50/40 text-slate-800'
@@ -507,56 +626,104 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                         </div>
                       </td>
 
-                      {/* Device Status & Action Button to Set Status */}
+                      {/* Device Status & Disconnect Date */}
                       <td className="p-3.5 text-center">
                         <div className="flex flex-col items-center gap-1">
-                          <select
-                            value={rec.status}
-                            onChange={(e) => {
-                              const newSt = e.target.value as any;
-                              handleStatusChangeAttempt(rec, newSt);
-                            }}
-                            className={`rounded-xl px-2.5 py-1.5 text-[10px] font-extrabold uppercase cursor-pointer border shadow-2xs transition-all ${
-                              rec.status === 'ACTIVE'
-                                ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-200'
-                                : rec.status === 'RENTAL'
-                                ? 'bg-indigo-100 dark:bg-indigo-950/80 text-indigo-800 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800 hover:bg-indigo-200'
-                                : rec.status === 'SUSPENDED'
-                                ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 hover:bg-amber-200'
-                                : rec.status === 'IN_STOCK'
-                                ? 'bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800 hover:bg-blue-200'
-                                : rec.status === 'REFUND'
-                                ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-800 hover:bg-purple-200'
-                                : 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800 hover:bg-rose-200'
+                          <span
+                            className={`px-2.5 py-1 text-[10px] font-extrabold uppercase rounded-xl border shadow-2xs ${
+                              rec.status === 'ACTIVE' || rec.status === 'RENTAL'
+                                ? 'bg-blue-100 dark:bg-blue-950/80 text-blue-800 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                                : rec.status === 'SOLD'
+                                ? 'bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300 border-purple-300 dark:border-purple-800'
+                                : rec.status === 'ROUTER_COLLECTED' || rec.status === 'DISCONNECTED'
+                                ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
                             }`}
                           >
-                            <option value="ACTIVE" className="bg-white text-slate-900 dark:bg-slate-900 dark:text-emerald-400 font-semibold">🟢 ACTIVE (Deployed)</option>
-                            <option value="RENTAL" className="bg-white text-slate-900 dark:bg-slate-900 dark:text-indigo-400 font-semibold">🔵 RENTAL (ISP Rental)</option>
-                            <option value="SUSPENDED" className="bg-white text-slate-900 dark:bg-slate-900 dark:text-amber-400 font-semibold">🟡 SUSPENDED (Approval Req.)</option>
-                            <option value="DISCONNECTED" className="bg-white text-slate-900 dark:bg-slate-900 dark:text-rose-400 font-semibold">🔴 DISCONNECTED (Approval Req.)</option>
-                            <option value="IN_STOCK" className="bg-white text-slate-900 dark:bg-slate-900 dark:text-blue-400 font-semibold">📦 IN_STOCK (Approval Req.)</option>
-                            <option value="REFUND" className="bg-white text-slate-900 dark:bg-slate-900 dark:text-purple-400 font-semibold">💸 REFUND & RESTOCK (Approval Req.)</option>
-                          </select>
-                          {(currentUser?.role === 'BRANCH_MANAGER' || currentUser?.role === 'FRONT_DESK') && (
-                            <span className="text-[9px] text-slate-400 font-semibold flex items-center gap-0.5">
-                              <Lock className="h-2.5 w-2.5 text-amber-500" />
-                              <span>Approval required</span>
-                            </span>
+                            {rec.status === 'ACTIVE' || rec.status === 'RENTAL' 
+                              ? '🔵 Rental (CPE Asset)' 
+                              : rec.status === 'SOLD' 
+                              ? '🛍️ Sold (Customer Owned)' 
+                              : rec.status === 'ROUTER_COLLECTED' || rec.status === 'DISCONNECTED'
+                              ? '📦 Router Collected' 
+                              : rec.status === 'EXCHANGED' 
+                              ? '🔄 Exchanged' 
+                              : rec.status}
+                          </span>
+
+                          {pendingDisconnect && (
+                            <div className="inline-flex flex-col items-center gap-0.5">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-100 dark:bg-amber-950/90 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 animate-pulse">
+                                <Clock className="h-2.5 w-2.5 shrink-0" />
+                                <span>Disconnect Pending</span>
+                              </span>
+                              <span className="text-[9px] font-mono font-bold text-amber-600 dark:text-amber-400">
+                                {pendingDisconnect.requestNumber}
+                              </span>
+                            </div>
+                          )}
+
+                          {(rec.status === 'ROUTER_COLLECTED' || rec.status === 'DISCONNECTED') && (
+                            <div className="text-[10px] font-mono text-rose-700 dark:text-rose-400 font-semibold mt-0.5 whitespace-nowrap">
+                              Disc: {rec.disconnectedDateAD || 'Collected'} {rec.disconnectedDateBS ? `(${rec.disconnectedDateBS})` : ''}
+                            </div>
                           )}
                         </div>
                       </td>
 
                       <td className="p-3.5 text-center">
-                        <button
-                          onClick={() => setViewingRecord(rec)}
-                          className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border cursor-pointer ${
-                            isDarkMode
-                              ? 'text-blue-400 border-blue-800 hover:bg-blue-950/50'
-                              : 'text-blue-600 border-blue-200 hover:bg-blue-100'
-                          }`}
-                        >
-                          Details
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap min-w-[140px]">
+                          <button
+                            onClick={() => setViewingRecord(rec)}
+                            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border cursor-pointer ${
+                              isDarkMode
+                                ? 'text-blue-400 border-blue-800 hover:bg-blue-950/50'
+                                : 'text-blue-600 border-blue-200 hover:bg-blue-100'
+                            }`}
+                          >
+                            Details
+                          </button>
+
+                          {(rec.status === 'ACTIVE' || rec.status === 'RENTAL' || rec.status === 'SOLD') && (
+                            <button
+                              onClick={() => handleOpenExchangeModal(rec)}
+                              title="Perform Hardware Warranty Exchange for this device"
+                              className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs cursor-pointer flex items-center gap-1"
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                              <span>Exchange</span>
+                            </button>
+                          )}
+
+                          {(rec.status === 'ACTIVE' || rec.status === 'RENTAL') && (
+                            pendingDisconnect ? (
+                              <button
+                                onClick={() => handleCancelDisconnectRequest(pendingDisconnect, rec)}
+                                disabled={cancellingRequestId === pendingDisconnect.id}
+                                title={`Cancel pending disconnect approval request #${pendingDisconnect.requestNumber}`}
+                                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white shadow-xs border border-amber-600/30 cursor-pointer disabled:opacity-50 transition-all"
+                              >
+                                <XCircle className="h-3.5 w-3.5 shrink-0" />
+                                <span>{cancellingRequestId === pendingDisconnect.id ? 'Cancelling...' : 'Cancel Request'}</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleStatusChangeAttempt(rec, 'ROUTER_COLLECTED')}
+                                title="Request Disconnect: Send for approval to set status to Router Collected and add stock to branch inventory"
+                                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-rose-600 hover:bg-rose-500 text-white shadow-xs cursor-pointer"
+                              >
+                                <Lock className="h-3 w-3" />
+                                <span>Disconnect Request</span>
+                              </button>
+                            )
+                          )}
+
+                          {(rec.status === 'ROUTER_COLLECTED' || rec.status === 'DISCONNECTED') && (
+                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800">
+                              ✓ Collected & Restocked
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -606,13 +773,54 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 </div>
 
                 <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${
-                  viewingRecord.status === 'ACTIVE'
-                    ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300'
-                    : 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
+                  viewingRecord.status === 'ACTIVE' || viewingRecord.status === 'RENTAL'
+                    ? 'bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300'
+                    : viewingRecord.status === 'SOLD'
+                    ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300'
+                    : viewingRecord.status === 'ROUTER_COLLECTED' || viewingRecord.status === 'DISCONNECTED'
+                    ? 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-300'
                 }`}>
-                  {viewingRecord.status}
+                  {viewingRecord.status === 'ACTIVE' || viewingRecord.status === 'RENTAL' ? 'Rental (CPE Asset)' : viewingRecord.status === 'SOLD' ? 'Sold (Customer Owned)' : viewingRecord.status === 'ROUTER_COLLECTED' || viewingRecord.status === 'DISCONNECTED' ? 'Router Collected (Disconnected)' : viewingRecord.status}
                 </span>
               </div>
+
+              {/* Pending Disconnect Approval Notice if applicable */}
+              {(() => {
+                const viewingPending = getPendingDisconnectRequest(viewingRecord);
+                if (!viewingPending) return null;
+                return (
+                  <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 flex items-center justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200 shrink-0 mt-0.5">
+                        <Clock className="h-4 w-4 animate-spin" />
+                      </div>
+                      <div>
+                        <div className="font-extrabold text-amber-900 dark:text-amber-200 text-xs">
+                          Disconnect Approval Request Pending ({viewingPending.requestNumber})
+                        </div>
+                        <div className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
+                          <strong>Requested by:</strong> {viewingPending.requestedByName} ({viewingPending.requestedByRole})<br />
+                          <strong>Reason:</strong> {viewingPending.reason}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const req = viewingPending;
+                        const rec = viewingRecord;
+                        setViewingRecord(null);
+                        handleCancelDisconnectRequest(req, rec);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1 shadow-xs cursor-pointer shrink-0"
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      <span>Cancel Request</span>
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Serials Card */}
               <div className="grid grid-cols-2 gap-3">
@@ -670,6 +878,14 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   <span>Issued Date:</span>
                   <span className="font-mono font-bold">{viewingRecord.issuedDateAD} ({viewingRecord.issuedDateBS})</span>
                 </div>
+                {(viewingRecord.status === 'ROUTER_COLLECTED' || viewingRecord.status === 'DISCONNECTED' || viewingRecord.disconnectedDateAD) && (
+                  <div className="flex justify-between text-rose-600 dark:text-rose-400 font-semibold p-2 rounded-lg bg-rose-50/80 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800">
+                    <span>Disconnected Date:</span>
+                    <span className="font-mono font-extrabold text-rose-700 dark:text-rose-300">
+                      {viewingRecord.disconnectedDateAD || 'Collected'} {viewingRecord.disconnectedDateBS ? `(${viewingRecord.disconnectedDateBS})` : ''}
+                    </span>
+                  </div>
+                )}
                 {viewingRecord.purchaseBillRef && (
                   <div className="flex justify-between text-slate-500 dark:text-slate-400">
                     <span>Origin Purchase Bill #:</span>
@@ -687,7 +903,21 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 </div>
               )}
 
-              <div className="pt-2 flex justify-end">
+              <div className="pt-2 flex justify-end gap-2">
+                {(viewingRecord.status === 'ACTIVE' || viewingRecord.status === 'RENTAL' || viewingRecord.status === 'SOLD') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rec = viewingRecord;
+                      setViewingRecord(null);
+                      handleOpenExchangeModal(rec);
+                    }}
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    <span>Exchange Device</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setViewingRecord(null)}
@@ -723,6 +953,68 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
             </div>
 
             <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
+              {/* Product Classification / Ownership Selection */}
+              <div>
+                <label className={`block text-[11px] font-bold uppercase tracking-wider mb-1.5 ${
+                  isDarkMode ? 'text-slate-300' : 'text-slate-700'
+                }`}>
+                  Device Assignment Type & Ownership *
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setAssignType('RENTAL')}
+                    className={`p-2.5 rounded-xl border text-left flex items-start gap-2 cursor-pointer transition-all ${
+                      assignType === 'RENTAL'
+                        ? 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/60 ring-2 ring-blue-500/20'
+                        : isDarkMode
+                        ? 'border-slate-700 bg-slate-800/60 text-slate-400'
+                        : 'border-slate-200 bg-slate-50 text-slate-600'
+                    }`}
+                  >
+                    <div className={`mt-0.5 h-3.5 w-3.5 rounded-full border flex items-center justify-center ${
+                      assignType === 'RENTAL' ? 'border-blue-600 bg-blue-600' : 'border-slate-400'
+                    }`}>
+                      {assignType === 'RENTAL' && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                    </div>
+                    <div>
+                      <div className={`font-bold text-xs ${assignType === 'RENTAL' ? 'text-blue-900 dark:text-blue-200' : 'text-slate-700 dark:text-slate-300'}`}>
+                        Rental Product (CPE Asset)
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 leading-tight">
+                        Company-owned asset. Subject to disconnect approval & router return.
+                      </div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAssignType('SOLD')}
+                    className={`p-2.5 rounded-xl border text-left flex items-start gap-2 cursor-pointer transition-all ${
+                      assignType === 'SOLD'
+                        ? 'border-purple-500 bg-purple-50/80 dark:bg-purple-950/60 ring-2 ring-purple-500/20'
+                        : isDarkMode
+                        ? 'border-slate-700 bg-slate-800/60 text-slate-400'
+                        : 'border-slate-200 bg-slate-50 text-slate-600'
+                    }`}
+                  >
+                    <div className={`mt-0.5 h-3.5 w-3.5 rounded-full border flex items-center justify-center ${
+                      assignType === 'SOLD' ? 'border-purple-600 bg-purple-600' : 'border-slate-400'
+                    }`}>
+                      {assignType === 'SOLD' && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                    </div>
+                    <div>
+                      <div className={`font-bold text-xs ${assignType === 'SOLD' ? 'text-purple-900 dark:text-purple-200' : 'text-slate-700 dark:text-slate-300'}`}>
+                        Sold Product (Customer Owned)
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 leading-tight">
+                        Customer owns device. No return required upon service disconnection.
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
               {/* Optional Auto-fill from Customer Master Directory */}
               {customers.length > 0 && (
                 <div className={`p-3 rounded-xl border ${
@@ -1048,10 +1340,26 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
             </div>
 
             <form onSubmit={handleConfirmSubmitApproval} className="p-6 space-y-4">
-              <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-amber-900 text-xs flex items-start gap-2.5">
-                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className={`p-3.5 rounded-2xl border text-xs flex items-start gap-2.5 ${
+                approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'DISCONNECTED'
+                  ? 'bg-rose-50/90 border-rose-200 text-rose-950 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-200'
+                  : 'bg-amber-50/80 border-amber-200 text-amber-900 dark:bg-amber-950/40 dark:border-amber-800 dark:text-amber-200'
+              }`}>
+                <AlertTriangle className={`h-4 w-4 shrink-0 mt-0.5 ${
+                  approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'DISCONNECTED'
+                    ? 'text-rose-600 dark:text-rose-400'
+                    : 'text-amber-600 dark:text-amber-400'
+                }`} />
                 <div>
-                  <strong>Role Restriction Notice:</strong> As a <strong>{currentUser?.role || 'Staff Member'}</strong>, changing status to <strong>{approvalTarget.targetStatus}</strong> requires formal approval. Upon authorization, the record will update automatically.
+                  {approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'DISCONNECTED' ? (
+                    <span>
+                      <strong>Disconnect & Collection Workflow:</strong> Disconnecting a customer router will not immediately disconnect the device. A formal request is sent to an authorized person (Inventory Manager / Admin). Once approved, <strong>+1 unit will be added to inventory of the related branch</strong> and status will be updated to <strong>Router Collected</strong>.
+                    </span>
+                  ) : (
+                    <span>
+                      <strong>Role Restriction Notice:</strong> As a <strong>{currentUser?.role || 'Staff Member'}</strong>, changing status to <strong>{approvalTarget.targetStatus}</strong> requires formal approval. Upon authorization, the record will update automatically.
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -1075,8 +1383,8 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                       {approvalTarget.record.status}
                     </span>
                     <span>➔</span>
-                    <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 uppercase">
-                      {approvalTarget.targetStatus}
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 dark:bg-rose-950/80 dark:text-rose-300 uppercase">
+                      {approvalTarget.targetStatus === 'DISCONNECTED' || approvalTarget.targetStatus === 'ROUTER_COLLECTED' ? 'ROUTER COLLECTED' : approvalTarget.targetStatus}
                     </span>
                   </div>
                 </div>
@@ -1092,13 +1400,17 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                   rows={3}
                   value={approvalReason}
                   onChange={(e) => setApprovalReason(e.target.value)}
-                  placeholder="e.g. Customer returned ONU router in good condition. Requested deposit refund NPR 3,500..."
+                  placeholder={
+                    approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'DISCONNECTED'
+                      ? "e.g. Customer requested service disconnect; ONU router and adapter inspected and collected in working condition..."
+                      : "e.g. Customer returned ONU router in good condition. Requested deposit refund NPR 3,500..."
+                  }
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-amber-500"
                 />
               </div>
 
               {/* Restock Toggle */}
-              {(approvalTarget.targetStatus === 'REFUND' || approvalTarget.targetStatus === 'RETURNED' || approvalTarget.targetStatus === 'IN_STOCK') && (
+              {(approvalTarget.targetStatus === 'ROUTER_COLLECTED' || approvalTarget.targetStatus === 'DISCONNECTED' || approvalTarget.targetStatus === 'REFUND' || approvalTarget.targetStatus === 'RETURNED' || approvalTarget.targetStatus === 'IN_STOCK') && (
                 <div className="flex items-center gap-2.5 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900">
                   <input
                     type="checkbox"
@@ -1108,7 +1420,7 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                     className="h-4 w-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                   />
                   <label htmlFor="restockCheck" className="text-xs font-bold text-blue-900 dark:text-blue-200 cursor-pointer">
-                    Synchronize Inventory: Restock +1 unit back to branch stock upon approval
+                    Synchronize Inventory: Restock +1 unit back to related branch stock upon approval
                   </label>
                 </div>
               )}
@@ -1131,6 +1443,320 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Hardware Warranty Device Exchange Modal */}
+      {isExchangeModalOpen && selectedDeviceForExchange && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-2xl rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/80 dark:bg-slate-800/60">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                  <RefreshCw className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-sm">
+                    Device Warranty Exchange Form
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Replace customer ONU router & record return disposition
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsExchangeModalOpen(false);
+                  setSelectedDeviceForExchange(null);
+                }}
+                className="h-8 w-8 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 flex items-center justify-center text-slate-500 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Modal Body / Form */}
+            <form onSubmit={handlePerformExchange} className="p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+              {/* Existing Customer & Device Summary */}
+              <div className="p-3.5 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-900 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-indigo-900 dark:text-indigo-300 uppercase tracking-wider">
+                    Current Assigned Device (To Be Replaced)
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-200 dark:bg-indigo-900 text-indigo-900 dark:text-indigo-200">
+                    {selectedDeviceForExchange.status}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Customer Name</span>
+                    <strong className="text-slate-800 dark:text-slate-200 font-bold">{selectedDeviceForExchange.customerName}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Customer Code</span>
+                    <strong className="text-slate-800 dark:text-slate-200 font-mono">{selectedDeviceForExchange.customerCode || 'N/A'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Branch</span>
+                    <strong className="text-slate-800 dark:text-slate-200 font-bold">
+                      {branches.find(b => b.id === selectedDeviceForExchange.branchId)?.name || selectedDeviceForExchange.branchId}
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Current Model</span>
+                    <strong className="text-slate-800 dark:text-slate-200 font-bold">{selectedDeviceForExchange.productName}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Current Serial #</span>
+                    <strong className="text-indigo-700 dark:text-indigo-300 font-mono">{selectedDeviceForExchange.deviceSerial}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block">Current PON Serial</span>
+                    <strong className="text-indigo-700 dark:text-indigo-300 font-mono">{selectedDeviceForExchange.ponSerial}</strong>
+                  </div>
+                </div>
+              </div>
+
+              {/* Exchange Reason & Return Disposition */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Exchange Reason / Fault Diagnosis *
+                  </label>
+                  <select
+                    value={exchangeReason}
+                    onChange={(e) => setExchangeReason(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="Defective / Hardware Fault (No Power / Optical Loss)">Defective / Hardware Fault (No Power / Optical Loss)</option>
+                    <option value="Frequent Reboot / Thermal Degradation">Frequent Reboot / Thermal Degradation</option>
+                    <option value="Ethernet LAN Port / WAN Failure">Ethernet LAN Port / WAN Failure</option>
+                    <option value="Customer Plan Upgrade (Dual Band 5G Migration)">Customer Plan Upgrade (Dual Band 5G Migration)</option>
+                    <option value="Surge / Lightning Damage (RMA)">Surge / Lightning Damage (RMA)</option>
+                    <option value="Physical Enclosure Damage / Burnt Power Adapter">Physical Enclosure Damage / Burnt Adapter</option>
+                    <option value="Other Technical Replacement">Other Technical Replacement</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Returned Old Device Action *
+                  </label>
+                  <select
+                    value={oldDeviceAction}
+                    onChange={(e) => setOldDeviceAction(e.target.value as any)}
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="DAMAGE">Flag as Defective / Quarantined RMA Stock</option>
+                    <option value="RESTOCK">Tested Working - Restock to Branch (+1 Stock)</option>
+                    <option value="DISPOSED">Beyond Repair - Disposed / E-Waste Scrap</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Replacement Device Details */}
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <Wifi className="h-3.5 w-3.5 text-indigo-600" />
+                    <span>New Replacement Device Allocation</span>
+                  </span>
+                </div>
+
+                {/* Replacement Product Model */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    Replacement Model / Product
+                  </label>
+                  {products.length > 0 ? (
+                    <select
+                      value={exchangeProductName}
+                      onChange={(e) => setExchangeProductName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                    >
+                      {products.map((p) => (
+                        <option key={p.id} value={p.name}>
+                          {p.name} ({p.sku || p.category})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={exchangeProductName}
+                      onChange={(e) => setExchangeProductName(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                    />
+                  )}
+                </div>
+
+                {/* New Serials */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                        New Device Serial # *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setExchangeNewSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`)}
+                        className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer font-bold"
+                      >
+                        🎲 Auto-Gen
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={exchangeNewSerial}
+                      onChange={(e) => setExchangeNewSerial(e.target.value)}
+                      placeholder="e.g. SN-ONU24G-902188"
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 font-mono text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 uppercase"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                        New PON Serial # *
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setExchangeNewPon(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`)}
+                        className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer font-bold"
+                      >
+                        🎲 Auto-Gen
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={exchangeNewPon}
+                      onChange={(e) => setExchangeNewPon(e.target.value)}
+                      placeholder="e.g. HWTC-6789ABCD"
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 font-mono text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 uppercase"
+                    />
+                  </div>
+                </div>
+
+                {/* New MAC Address */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+                    New MAC Address (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={exchangeNewMac}
+                    onChange={(e) => setExchangeNewMac(e.target.value)}
+                    placeholder="e.g. 00:1A:2B:3C:4D:5E"
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 font-mono text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 uppercase"
+                  />
+                </div>
+              </div>
+
+              {/* Technician Notes */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Exchange Remarks / Technician Notes
+                </label>
+                <textarea
+                  rows={2}
+                  value={exchangeNotes}
+                  onChange={(e) => setExchangeNotes(e.target.value)}
+                  placeholder="e.g. Replaced defective 2.4G router on-site. Verified optical Rx power -19 dBm, tested internet connectivity..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsExchangeModalOpen(false);
+                    setSelectedDeviceForExchange(null);
+                  }}
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingExchange}
+                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isSubmittingExchange ? 'animate-spin' : ''}`} />
+                  <span>{isSubmittingExchange ? 'Processing Exchange...' : 'Confirm & Execute Exchange'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Cancelling Disconnect Request */}
+      {confirmCancelTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in">
+          <div className={`w-full max-w-md rounded-3xl shadow-2xl border overflow-hidden p-6 space-y-4 ${
+            isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-800'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className="h-11 w-11 rounded-2xl bg-amber-100 dark:bg-amber-950/80 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-base text-slate-900 dark:text-white">
+                  Cancel Disconnect Request?
+                </h3>
+                <p className="text-xs text-slate-500 font-mono">
+                  {confirmCancelTarget.request.requestNumber}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-xs space-y-2">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Customer:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">{confirmCancelTarget.record.customerName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Device Serial:</span>
+                <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{confirmCancelTarget.record.deviceSerial}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Requested Status:</span>
+                <span className="font-bold text-rose-600 dark:text-rose-400">{confirmCancelTarget.request.requestedStatus}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Requested By:</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-300">{confirmCancelTarget.request.requestedByName}</span>
+              </div>
+              <p className="text-[11px] text-slate-600 dark:text-slate-300 pt-2 border-t border-slate-200 dark:border-slate-700">
+                Cancelling will set the approval request status to <strong>CANCELLED</strong> in the Workflow Authorization Center. The customer device will remain in active <strong>Rental</strong> status.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmCancelTarget(null)}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Keep Request
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCancelApproval}
+                disabled={cancellingRequestId === confirmCancelTarget.request.id}
+                className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-amber-600/20 cursor-pointer disabled:opacity-50"
+              >
+                <XCircle className={`h-4 w-4 ${cancellingRequestId ? 'animate-spin' : ''}`} />
+                <span>{cancellingRequestId ? 'Cancelling...' : 'Confirm & Cancel Request'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

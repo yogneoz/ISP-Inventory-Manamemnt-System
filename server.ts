@@ -606,6 +606,61 @@ let shipments: Shipment[] = [
     ],
     notes: 'Inter-branch drop cable stock transfer to Chulachuli branch.',
   },
+  {
+    id: 'sh-302',
+    trackingCode: 'TRF-2083-0088',
+    type: 'INTER_BRANCH',
+    sourceBranchId: 'WH001',
+    sourceBranchName: 'Head Office (Urlabari)',
+    destinationBranchId: 'CHU01',
+    destinationBranchName: 'Chulachuli Branch',
+    dispatchDateAD: '2026-07-25',
+    dispatchDateBS: '2083-04-10 BS',
+    estimatedArrivalAD: '2026-07-27',
+    status: 'RECEIVED',
+    items: [
+      {
+        id: 'shi-2',
+        productId: 'prod-onu001',
+        productName: 'ONU ROUTER 2.4G',
+        sku: 'ONU001',
+        quantitySent: 5,
+        quantityReceived: 5,
+        deviceSerials: [
+          { deviceSerial: 'SN-ONU24G-880121', ponSerial: 'HWTC-A101B201' },
+          { deviceSerial: 'SN-ONU24G-880122', ponSerial: 'HWTC-A101B202' },
+          { deviceSerial: 'SN-ONU24G-880123', ponSerial: 'HWTC-A101B203' },
+          { deviceSerial: 'SN-ONU24G-880124', ponSerial: 'HWTC-A101B204' },
+          { deviceSerial: 'SN-ONU24G-880125', ponSerial: 'HWTC-A101B205' },
+        ],
+      },
+    ],
+    notes: 'Urgent ONU router replenish transfer for subscriber onboarding.',
+  },
+  {
+    id: 'sh-303',
+    trackingCode: 'TRF-2083-0085',
+    type: 'INTER_BRANCH',
+    sourceBranchId: 'WH001',
+    sourceBranchName: 'Head Office (Urlabari)',
+    destinationBranchId: 'BTM01',
+    destinationBranchName: 'Birtamode Branch',
+    dispatchDateAD: '2026-07-22',
+    dispatchDateBS: '2083-04-07 BS',
+    estimatedArrivalAD: '2026-07-24',
+    status: 'RECEIVED',
+    items: [
+      {
+        id: 'shi-3',
+        productId: 'prod-pat001',
+        productName: 'PATCH CORD 3 MTR',
+        sku: 'PAT001',
+        quantitySent: 2,
+        quantityReceived: 2,
+      },
+    ],
+    notes: 'Patch cord batch dispatch to Birtamode Branch.',
+  },
 ];
 
 // Pre-seeded Stock Operations
@@ -783,7 +838,7 @@ let customerDeviceRecords: CustomerDeviceRecord[] = [
     deviceSerial: 'SN-ONU24G-881923',
     ponSerial: 'HWTC-90A812C4',
     macAddress: '70:A8:E3:4B:91:10',
-    status: 'ACTIVE',
+    status: 'RENTAL',
     issuedDateAD: '2026-05-10',
     issuedDateBS: '2083-01-27 BS',
     purchaseBillRef: 'BILL-9021',
@@ -801,7 +856,7 @@ let customerDeviceRecords: CustomerDeviceRecord[] = [
     deviceSerial: 'SN-ONU5G-774019',
     ponSerial: 'ZTE-4481A290',
     macAddress: 'CC:12:34:56:78:9A',
-    status: 'ACTIVE',
+    status: 'RENTAL',
     issuedDateAD: '2026-06-18',
     issuedDateBS: '2083-03-04 BS',
     purchaseBillRef: 'BILL-4410',
@@ -819,11 +874,11 @@ let customerDeviceRecords: CustomerDeviceRecord[] = [
     deviceSerial: 'SN-ONU24G-990182',
     ponSerial: 'HWTC-8812B001',
     macAddress: '88:E2:00:11:22:33',
-    status: 'SUSPENDED',
+    status: 'RENTAL',
     issuedDateAD: '2026-04-02',
     issuedDateBS: '2082-12-20 BS',
     purchaseBillRef: 'BILL-9021',
-    notes: 'Billing temporarily on hold due to seasonal relocation.',
+    notes: 'Rental CPE ONU Router assigned at Chulachuli.',
   },
 ];
 
@@ -839,14 +894,14 @@ let approvalRequests: ApprovalRequest[] = [
     deviceSerial: 'SN-ONU24G-990182',
     ponSerial: 'HWTC-8812B001',
     productName: 'ONU ROUTER 2.4G',
-    currentStatus: 'SUSPENDED',
-    requestedStatus: 'REFUND',
+    currentStatus: 'RENTAL',
+    requestedStatus: 'ROUTER_COLLECTED',
     requestedByRole: 'FRONT_DESK',
-    requestedByEmail: 'frontdesk.urlabari@subisu.com.np',
+    requestedByEmail: 'frontdesk.urlabari@izone.com.np',
     requestedByName: 'Sabin Shrestha (Frontdesk)',
     branchId: 'CHU01',
     branchName: 'Chulachuli Branch Office',
-    reason: 'Customer requested account termination & ONU deposit refund of NPR 3,500. Device inspected and working in good condition.',
+    reason: 'Customer requested account termination & disconnection. Router inspected in working condition. Requesting approval to collect router and restock inventory.',
     restockQtyOnApproval: true,
     status: 'PENDING',
     requestedAtAD: '2026-08-05T14:20:00Z',
@@ -862,15 +917,15 @@ let approvalRequests: ApprovalRequest[] = [
     deviceSerial: 'SN-ONU5G-774019',
     ponSerial: 'ZTE-4481A290',
     productName: 'ONU ROUTER 5G',
-    currentStatus: 'ACTIVE',
-    requestedStatus: 'SUSPENDED',
+    currentStatus: 'RENTAL',
+    requestedStatus: 'ROUTER_COLLECTED',
     requestedByRole: 'BRANCH_MANAGER',
-    requestedByEmail: 'bm.itahari@subisu.com.np',
+    requestedByEmail: 'bm.itahari@izone.com.np',
     requestedByName: 'Ramesh Karki (Branch Manager)',
     branchId: 'ITH01',
     branchName: 'Itahari Branch Office',
-    reason: 'Non-payment of monthly ISP service bill for 2 consecutive months despite automated SMS notifications.',
-    restockQtyOnApproval: false,
+    reason: 'Service disconnection requested due to customer relocation. ONU router and power adapter collected and verified.',
+    restockQtyOnApproval: true,
     status: 'APPROVED',
     requestedAtAD: '2026-08-01T09:15:00Z',
     requestedAtBS: '2083-04-17 BS',
@@ -893,7 +948,7 @@ let approvalRequests: ApprovalRequest[] = [
     currentStatus: 'ACTIVE',
     requestedStatus: 'DISCONNECTED',
     requestedByRole: 'FRONT_DESK',
-    requestedByEmail: 'frontdesk.urlabari@subisu.com.np',
+    requestedByEmail: 'frontdesk.urlabari@izone.com.np',
     requestedByName: 'Sabin Shrestha (Frontdesk)',
     branchId: 'URL01',
     branchName: 'Urlabari Branch Office',
@@ -908,6 +963,35 @@ let approvalRequests: ApprovalRequest[] = [
     processedAtAD: '2026-07-28T12:00:00Z',
     processedAtBS: '2083-04-13 BS',
     rejectionReason: 'Rejected: Customer must return physical ONU equipment to the branch office before disconnection can be authorized.',
+  },
+  {
+    id: 'apr-104',
+    requestNumber: 'APR-2083-004',
+    type: 'CANCEL_RECEIVE_TRANSFER',
+    targetId: 'sh-303',
+    customerName: 'TRF-2083-0085',
+    customerCode: 'TRF-BTM01',
+    deviceSerial: 'TRF-2083-0085',
+    productName: 'PATCH CORD 3 MTR (2 pcs)',
+    currentStatus: 'RECEIVED',
+    requestedStatus: 'IN_TRANSIT',
+    requestedByRole: 'BRANCH_MANAGER',
+    requestedByEmail: 'manager.birtamode@izone.com.np',
+    requestedByName: 'Rajan Shrestha (Branch Manager)',
+    branchId: 'BTM01',
+    branchName: 'Birtamode Branch Office',
+    reason: 'Wrong transfer marked as received in system by store clerk. Consignment is still on transport vehicle. Requesting approval to revert received stock and set status back to IN_TRANSIT.',
+    status: 'PENDING',
+    requestedAtAD: '2026-08-10T11:45:00Z',
+    requestedAtBS: '2083-04-26 BS',
+    shipmentData: {
+      shipmentId: 'sh-303',
+      trackingCode: 'TRF-2083-0085',
+      sourceBranchName: 'Head Office (Urlabari)',
+      destinationBranchName: 'Birtamode Branch',
+      itemSummary: 'PATCH CORD 3 MTR (2 pcs)',
+      totalQuantity: 2,
+    },
   },
 ];
 
@@ -1252,6 +1336,87 @@ app.post('/api/stock/bulk-reorder-levels', (req, res) => {
     });
   }
   res.json({ success: true, count: updates?.length || 0 });
+});
+
+// Physical Stock Audit Direct Reconciliation
+app.post('/api/stock/reconcile-audit', (req, res) => {
+  const { branchId, auditRefNumber, varianceItems, auditorName, userEmail, notes } = req.body;
+  if (!branchId || !Array.isArray(varianceItems)) {
+    return res.status(400).json({ message: 'Invalid stock reconciliation payload' });
+  }
+
+  let totalAdjusted = 0;
+  let netFinancialImpact = 0;
+
+  varianceItems.forEach((item: any) => {
+    let stk = inventoryStock.find(
+      (s) => s.productId === item.productId && s.branchId === branchId
+    );
+
+    if (!stk) {
+      stk = {
+        id: `stk-${branchId.toLowerCase()}-${item.productId}`,
+        productId: item.productId,
+        branchId: branchId,
+        quantityOnHand: 0,
+        damagedQty: 0,
+        reservedQty: 0,
+        incomingQty: 0,
+        lastUpdated: new Date().toISOString(),
+      };
+      inventoryStock.push(stk);
+    }
+
+    const qtyBefore = stk.quantityOnHand;
+    const targetCounted = Number(item.countedQty) || 0;
+    const delta = targetCounted - qtyBefore;
+    const unitCost = item.unitCost || 0;
+
+    stk.quantityOnHand = targetCounted;
+    stk.lastUpdated = new Date().toISOString();
+    totalAdjusted += 1;
+    netFinancialImpact += delta * unitCost;
+
+    const prod = products.find((p) => p.id === item.productId);
+
+    transactionLogs.unshift({
+      id: `txn-${Date.now()}-${item.productId}-aud`,
+      transactionNumber: `TXN-AUD-${Math.floor(10000 + Math.random() * 90000)}`,
+      productId: item.productId,
+      productSku: prod?.sku || item.sku || '',
+      productName: prod?.name || item.productName || '',
+      branchId: branchId,
+      changeType: delta > 0 ? 'PHYSICAL_AUDIT_EXCESS' : 'PHYSICAL_AUDIT_SHORTAGE',
+      quantityBefore: qtyBefore,
+      quantityChanged: delta,
+      quantityAfter: stk.quantityOnHand,
+      unitCost: unitCost || prod?.costPrice || 0,
+      referenceDocId: auditRefNumber || `AUDIT-${Date.now()}`,
+      timestampAD: new Date().toISOString(),
+      timestampBS: '2083-04-22 BS',
+    });
+  });
+
+  const branch = branches.find((b) => b.id === branchId);
+
+  auditTrail.unshift({
+    id: `audit-${Date.now()}`,
+    userEmail: userEmail || 'admin@system.com.np',
+    userName: auditorName || 'Stock Manager / Super Admin',
+    action: 'STOCK_AUDIT_RECONCILED',
+    module: 'INVENTORY_AUDIT',
+    details: `Directly Authorized & Reconciled Physical Stock Audit #${auditRefNumber || 'DIRECT'} for ${branch?.name || branchId}. Adjusted ${totalAdjusted} variance items to physical count. Net Financial Impact: NPR ${netFinancialImpact.toLocaleString()}. Notes: ${notes || 'Direct Stock Reconcile'}`,
+    timestampAD: new Date().toISOString(),
+    timestampBS: '2083-04-22 BS',
+    branchId: branchId,
+  });
+
+  res.json({
+    success: true,
+    totalAdjusted,
+    netFinancialImpact,
+    message: `Physical stock reconciled successfully for ${branch?.name || branchId}`,
+  });
 });
 
 // Fixed Assets
@@ -1726,6 +1891,127 @@ app.post('/api/shipments/:id/receive', (req, res) => {
   res.json(sh);
 });
 
+// Cancel In-Transit Stock Transfer (Refunds sent stock back to Source Branch)
+app.post('/api/shipments/:id/cancel', (req, res) => {
+  const { id } = req.params;
+  const { user, reason } = req.body || {};
+
+  const sh = shipments.find((s) => s.id === id || s.trackingCode === id);
+  if (!sh) return res.status(404).json({ message: 'Shipment / transfer not found' });
+
+  if (sh.status === 'RECEIVED' || sh.status === 'DELIVERED') {
+    return res.status(400).json({
+      message: `Transfers that have already been received cannot be cancelled. Only in-transit transfers can be cancelled.`,
+    });
+  }
+
+  if (sh.status === 'CANCELLED') {
+    return res.status(400).json({
+      message: `Transfer ${sh.trackingCode} is already cancelled.`,
+    });
+  }
+
+  // Restore sent stock back to source branch inventory and deduct incoming from destination
+  sh.items.forEach((item: any) => {
+    const qtySent = Number(item.quantitySent) || 0;
+
+    if (qtySent > 0 && sh.sourceBranchId) {
+      let sourceStk = inventoryStock.find(
+        (s) => s.productId === item.productId && s.branchId === sh.sourceBranchId
+      );
+
+      if (!sourceStk) {
+        sourceStk = {
+          id: `stk-${sh.sourceBranchId.toLowerCase()}-${item.productId}`,
+          productId: item.productId,
+          branchId: sh.sourceBranchId,
+          quantityOnHand: 0,
+          damagedQty: 0,
+          reservedQty: 0,
+          incomingQty: 0,
+          lastUpdated: new Date().toISOString(),
+        };
+        inventoryStock.push(sourceStk);
+      }
+
+      const qtyBefore = sourceStk.quantityOnHand;
+      sourceStk.quantityOnHand += qtySent;
+      sourceStk.lastUpdated = new Date().toISOString();
+
+      const prod = products.find((p) => p.id === item.productId);
+
+      transactionLogs.unshift({
+        id: `txn-${Date.now()}-${item.productId}-cnl`,
+        transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+        productId: item.productId,
+        productSku: prod?.sku || item.sku || '',
+        productName: prod?.name || item.productName || '',
+        branchId: sh.sourceBranchId,
+        changeType: 'TRANSFER_CANCELLED',
+        quantityBefore: qtyBefore,
+        quantityChanged: qtySent,
+        quantityAfter: sourceStk.quantityOnHand,
+        unitCost: prod?.costPrice || 0,
+        referenceDocId: sh.trackingCode,
+        timestampAD: new Date().toISOString(),
+        timestampBS: '2083-04-22 BS',
+      });
+    }
+
+    // Decrement incomingQty from destination branch
+    if (qtySent > 0 && sh.destinationBranchId) {
+      const destStk = inventoryStock.find(
+        (s) => s.productId === item.productId && s.branchId === sh.destinationBranchId
+      );
+      if (destStk) {
+        destStk.incomingQty = Math.max(0, (destStk.incomingQty || 0) - qtySent);
+        destStk.lastUpdated = new Date().toISOString();
+      }
+    }
+
+    // Maintain device serials at source branch as IN_STOCK
+    if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+      item.deviceSerials.forEach((s: any) => {
+        if (!s?.deviceSerial) return;
+        const cleanSer = s.deviceSerial.trim().toUpperCase();
+        let devRecord = customerDeviceRecords.find(
+          (cd) => cd.deviceSerial.trim().toUpperCase() === cleanSer
+        );
+        if (devRecord) {
+          devRecord.branchId = sh.sourceBranchId;
+          devRecord.status = 'IN_STOCK';
+          devRecord.notes = `Transfer ${sh.trackingCode} cancelled. Stock restored to source branch ${sh.sourceBranchName || sh.sourceBranchId}.`;
+        }
+      });
+    }
+  });
+
+  sh.status = 'CANCELLED';
+  sh.notes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled on ${new Date().toISOString().split('T')[0]} by ${user?.name || 'Admin'} (${user?.role || 'SUPER_ADMIN'})${reason ? ': ' + reason : ''}. Stock refunded to source branch.`;
+
+  // Log in Audit Trail
+  auditTrail.unshift({
+    id: `audit-${Date.now()}`,
+    userEmail: user?.email || 'admin@system.com.np',
+    userName: user?.name || 'Super Admin',
+    action: 'CANCEL_TRANSFER',
+    module: 'BRANCH_OPERATIONS',
+    details: `Cancelled in-transit transfer ${sh.trackingCode} (${sh.sourceBranchName || sh.sourceBranchId} -> ${sh.destinationBranchName || sh.destinationBranchId}). Returned ${sh.items.reduce((s: number, i: any) => s + (i.quantitySent || 0), 0)} items back to ${sh.sourceBranchName || sh.sourceBranchId} stock.${reason ? ' Reason: ' + reason : ''}`,
+    timestampAD: new Date().toISOString(),
+    timestampBS: '2083-04-22 BS',
+    branchId: sh.sourceBranchId,
+  });
+
+  res.json({ shipment: sh, message: `Transfer ${sh.trackingCode} cancelled successfully. Items refunded to source branch stock.` });
+});
+
+// Deprecated alias for backwards compatibility
+app.post('/api/shipments/:id/cancel-receive', (req, res) => {
+  return res.status(400).json({
+    message: 'Received transfers cannot be cancelled. Only In-Transit transfers can be cancelled.',
+  });
+});
+
 // Stock Operations (Pullout Bins, Damage Tagging & Adjustments)
 app.get('/api/stock-operations', (req, res) => {
   const { branchId } = req.query;
@@ -1882,6 +2168,68 @@ app.post('/api/stock-operations', (req, res) => {
       referenceDocId: newOp.referenceNumber,
       timestampAD: new Date().toISOString(),
       timestampBS: '2083-04-16 BS',
+    });
+  }
+
+  // If Product Sale (STOCK_OUT) to customer, register sold devices in Customer Device Directory tagged as "SOLD"
+  if (opType === 'STOCK_OUT' && (req.body.customerId || req.body.customerName)) {
+    const custObj = customerMasterRecords.find((c) => c.id === req.body.customerId || c.customerId === req.body.customerId);
+    const custName = custObj ? custObj.customerName : (req.body.customerName || 'Customer');
+    const custCode = custObj ? custObj.customerId : (req.body.customerId || 'CUST');
+    const custPhone = custObj ? custObj.contactNumber : '';
+    const custAddr = custObj ? custObj.address : '';
+
+    items.forEach((item: any) => {
+      const prod = products.find((p) => p.id === item.productId);
+      const prodName = item.productName || prod?.name || 'Device';
+
+      if (item.deviceSerials && Array.isArray(item.deviceSerials) && item.deviceSerials.length > 0) {
+        item.deviceSerials.forEach((s: any, idx: number) => {
+          const devSn = s.deviceSerial || s.serialNumber || `SN-SOLD-${Date.now()}-${idx + 1}`;
+          const ponSn = s.ponSerial || `PON-SOLD-${Date.now()}-${idx + 1}`;
+          const mac = s.macAddress || '';
+
+          customerDeviceRecords.unshift({
+            id: `dev-sold-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+            customerId: req.body.customerId || 'CUST-GENERIC',
+            customerName: custName,
+            customerCode: custCode,
+            contactPhone: custPhone,
+            installationAddress: custAddr,
+            branchId: req.body.branchId || 'WH001',
+            productName: prodName,
+            deviceSerial: devSn,
+            ponSerial: ponSn,
+            macAddress: mac,
+            status: 'SOLD',
+            issuedDateAD: new Date().toISOString().split('T')[0],
+            issuedDateBS: '2083-04-16 BS',
+            purchaseBillRef: newOp.referenceNumber,
+            notes: `Product Sale to Customer (${req.body.reason || 'Sold Item'}) - Customer Owned`,
+          });
+        });
+      } else {
+        const qty = item.quantity || 1;
+        for (let i = 0; i < qty; i++) {
+          customerDeviceRecords.unshift({
+            id: `dev-sold-${Date.now()}-${i}-${Math.floor(Math.random() * 1000)}`,
+            customerId: req.body.customerId || 'CUST-GENERIC',
+            customerName: custName,
+            customerCode: custCode,
+            contactPhone: custPhone,
+            installationAddress: custAddr,
+            branchId: req.body.branchId || 'WH001',
+            productName: prodName,
+            deviceSerial: `SN-${prodName.toUpperCase().replace(/[^A-Z0-9]/g, '')}-${Math.floor(100000 + Math.random() * 900000)}`,
+            ponSerial: `PON-${Math.floor(100000 + Math.random() * 900000)}`,
+            status: 'SOLD',
+            issuedDateAD: new Date().toISOString().split('T')[0],
+            issuedDateBS: '2083-04-16 BS',
+            purchaseBillRef: newOp.referenceNumber,
+            notes: `Product Sale to Customer (${req.body.reason || 'Sold Item'}) - Customer Owned`,
+          });
+        }
+      }
     });
   }
 
@@ -2402,7 +2750,58 @@ app.patch('/api/customer-devices/:id/status', (req, res) => {
   const record = customerDeviceRecords.find((c) => c.id === id);
   if (!record) return res.status(404).json({ message: 'Customer device record not found' });
 
-  record.status = status;
+  const oldStatus = record.status;
+
+  if ((status === 'DISCONNECTED' || status === 'ROUTER_COLLECTED') && oldStatus !== 'RENTAL' && oldStatus !== 'ACTIVE') {
+    return res.status(400).json({ message: 'Disconnect is only permitted for Rental CPE products. Sold devices belong to the customer.' });
+  }
+
+  const isDisconn = status === 'DISCONNECTED' || status === 'ROUTER_COLLECTED';
+  record.status = isDisconn ? 'ROUTER_COLLECTED' : status;
+  if (isDisconn) {
+    record.disconnectedDateAD = new Date().toISOString().split('T')[0];
+    record.disconnectedDateBS = '2083-04-28 BS';
+  }
+
+  // Restock inventory (+1) when a Rental Product is Disconnected/Collected, Returned, or Refunded
+  if ((status === 'DISCONNECTED' || status === 'ROUTER_COLLECTED' || status === 'RETURNED' || status === 'REFUND' || status === 'IN_STOCK') && (oldStatus === 'RENTAL' || oldStatus === 'ACTIVE')) {
+    const prod = products.find((p) => p.name.toLowerCase() === record.productName.toLowerCase()) || products[0];
+    const targetBranch = record.branchId || 'WH001';
+    let stk = inventoryStock.find((s) => s.productId === prod.id && s.branchId === targetBranch);
+    if (!stk) {
+      stk = {
+        id: `stk-${targetBranch.toLowerCase()}-${prod.id}`,
+        productId: prod.id,
+        branchId: targetBranch,
+        quantityOnHand: 0,
+        damagedQty: 0,
+        reservedQty: 0,
+        incomingQty: 0,
+        lastUpdated: new Date().toISOString(),
+      };
+      inventoryStock.push(stk);
+    }
+    const qtyBefore = stk.quantityOnHand;
+    stk.quantityOnHand += 1;
+    stk.lastUpdated = new Date().toISOString();
+
+    transactionLogs.unshift({
+      id: `txn-${Date.now()}`,
+      transactionNumber: `TXN-DISC-${Math.floor(10000 + Math.random() * 90000)}`,
+      productId: prod.id,
+      productSku: prod.sku || '',
+      productName: prod.name,
+      branchId: targetBranch,
+      changeType: 'PULLOUT',
+      quantityBefore: qtyBefore,
+      quantityChanged: 1,
+      quantityAfter: stk.quantityOnHand,
+      unitCost: prod.costPrice,
+      referenceDocId: `DISCONNECT-RESTOCK-${record.deviceSerial}`,
+      timestampAD: new Date().toISOString(),
+      timestampBS: '2083-04-28 BS',
+    });
+  }
 
   // Sync assigned devices count in master record
   const custCode = record.customerCode || record.customerId;
@@ -2411,11 +2810,108 @@ app.patch('/api/customer-devices/:id/status', (req, res) => {
   );
   if (masterCust) {
     masterCust.assignedDevicesCount = customerDeviceRecords.filter(
-      (d) => (d.customerCode === masterCust?.customerId || d.customerId === masterCust?.id || d.customerName.toLowerCase() === masterCust?.customerName.toLowerCase()) && d.status !== 'RETURNED' && d.status !== 'REFUND'
+      (d) => (d.customerCode === masterCust?.customerId || d.customerId === masterCust?.id || d.customerName.toLowerCase() === masterCust?.customerName.toLowerCase()) && d.status !== 'RETURNED' && d.status !== 'REFUND' && d.status !== 'DISCONNECTED'
     ).length;
   }
 
   res.json(record);
+});
+
+// Device Exchange & Replacement Handler
+app.post('/api/customer-devices/exchange', (req, res) => {
+  const {
+    oldDeviceId,
+    exchangeReason,
+    oldDeviceAction, // 'DAMAGE' | 'RESTOCK' | 'DISPOSED'
+    newProductName,
+    newDeviceSerial,
+    newPonSerial,
+    newMacAddress,
+    notes,
+    branchId,
+  } = req.body;
+
+  const oldRecord = customerDeviceRecords.find((c) => c.id === oldDeviceId);
+  if (!oldRecord) return res.status(404).json({ message: 'Old customer device record not found' });
+
+  const dateStrAD = new Date().toISOString().split('T')[0];
+
+  // 1. Archive old record status to EXCHANGED
+  oldRecord.status = 'EXCHANGED';
+  oldRecord.notes = `[EXCHANGED on ${dateStrAD}] Reason: ${exchangeReason || 'Defective / Replacement'}. Old device disposition: ${oldDeviceAction}. Replacement SN: ${newDeviceSerial}. ${oldRecord.notes || ''}`;
+
+  // 2. Process Old Device Inventory Disposition
+  if (oldDeviceAction === 'DAMAGE') {
+    const prod = products.find((p) => p.name.toLowerCase() === oldRecord.productName.toLowerCase()) || products[0];
+    const targetBranch = branchId || oldRecord.branchId || 'WH001';
+    let stk = inventoryStock.find((s) => s.productId === prod.id && s.branchId === targetBranch);
+    if (stk) {
+      stk.damagedQty = (stk.damagedQty || 0) + 1;
+      stk.lastUpdated = new Date().toISOString();
+    }
+    stockOperations.unshift({
+      id: `op-${Date.now()}`,
+      referenceNumber: `OP-DMG-${Math.floor(1000 + Math.random() * 9000)}`,
+      type: 'DAMAGE',
+      branchId: targetBranch,
+      productId: prod.id,
+      productName: prod.name,
+      quantityChanged: 1,
+      costPerUnit: prod.costPrice,
+      totalValue: prod.costPrice,
+      reason: `Customer Device Replacement Pullout: Defective ${oldRecord.deviceSerial} (${exchangeReason || 'Faulty Hardware'})`,
+      inspectorName: activeUser?.name || 'Field Technician',
+      dateAD: dateStrAD,
+      dateBS: '2083-04-28 BS',
+      fiscalYear: '2082/83',
+      status: 'LOGGED',
+    });
+  } else if (oldDeviceAction === 'RESTOCK') {
+    const prod = products.find((p) => p.name.toLowerCase() === oldRecord.productName.toLowerCase()) || products[0];
+    const targetBranch = branchId || oldRecord.branchId || 'WH001';
+    let stk = inventoryStock.find((s) => s.productId === prod.id && s.branchId === targetBranch);
+    if (stk) {
+      stk.quantityOnHand += 1;
+      stk.lastUpdated = new Date().toISOString();
+    }
+  }
+
+  // 3. Issue New Device to Customer
+  const newRecord: CustomerDeviceRecord = {
+    id: `cust-${Date.now()}`,
+    customerId: oldRecord.customerId,
+    customerName: oldRecord.customerName,
+    customerCode: oldRecord.customerCode,
+    contactPhone: oldRecord.contactPhone,
+    installationAddress: oldRecord.installationAddress,
+    branchId: branchId || oldRecord.branchId,
+    productName: newProductName || oldRecord.productName,
+    deviceSerial: newDeviceSerial,
+    ponSerial: newPonSerial,
+    macAddress: newMacAddress || undefined,
+    status: 'RENTAL',
+    issuedDateAD: dateStrAD,
+    issuedDateBS: '2083-04-28 BS',
+    purchaseBillRef: oldRecord.purchaseBillRef,
+    notes: `[REPLACEMENT DEVICE] Replaced previous SN ${oldRecord.deviceSerial} on ${dateStrAD}. ${notes || ''}`,
+  };
+
+  customerDeviceRecords.unshift(newRecord);
+
+  // 4. Audit Log Entry
+  auditTrail.unshift({
+    id: `aud-${Date.now()}`,
+    userEmail: activeUser?.email || 'admin@izone.com.np',
+    userName: activeUser?.name || 'System Admin',
+    action: 'DEVICE_EXCHANGE',
+    module: 'OPERATIONS',
+    details: `Exchanged customer device for ${oldRecord.customerName} (${oldRecord.customerCode}). Replaced SN ${oldRecord.deviceSerial} -> New SN ${newDeviceSerial}. Reason: ${exchangeReason}`,
+    timestampAD: new Date().toISOString(),
+    timestampBS: '2083-04-28 BS',
+    branchId: oldRecord.branchId,
+  });
+
+  res.status(201).json({ oldRecord, newRecord, message: 'Customer device successfully exchanged and inventory synchronized.' });
 });
 
 // Customer Master Database Endpoints
@@ -2560,13 +3056,26 @@ app.post('/api/approval-requests', (req, res) => {
   approvalRequests.unshift(newRequest);
 
   // Log in Audit Trail
+  const isTransferCancel = newRequest.type === 'CANCEL_TRANSFER' || newRequest.type === 'CANCEL_IN_TRANSIT_TRANSFER' || newRequest.type === 'CANCEL_RECEIVE_TRANSFER';
+  const isStockAudit = newRequest.type === 'STOCK_AUDIT_RECONCILIATION';
+  let logModule: AuditLog['module'] = 'OPERATIONS';
+  let logDetails = `Submitted approval request #${newRequest.requestNumber} for ${newRequest.customerName} (${newRequest.deviceSerial}) status change to ${newRequest.requestedStatus}`;
+
+  if (isTransferCancel) {
+    logModule = 'BRANCH_OPERATIONS';
+    logDetails = `Submitted approval request #${newRequest.requestNumber} to cancel in-transit transfer ${newRequest.customerName} (${newRequest.deviceSerial}) at ${newRequest.branchName || newRequest.branchId}. Reason: ${newRequest.reason}`;
+  } else if (isStockAudit) {
+    logModule = 'INVENTORY_AUDIT';
+    logDetails = `Submitted Physical Stock Count Audit authorization request #${newRequest.requestNumber} for ${newRequest.branchName || newRequest.branchId} (${newRequest.auditData?.discrepancyCount || 0} variance items, Net Impact: NPR ${(newRequest.auditData?.netValueVariance || 0).toLocaleString()}). Reason: ${newRequest.reason}`;
+  }
+
   auditTrail.unshift({
     id: `audit-${Date.now()}`,
     userEmail: newRequest.requestedByEmail || 'user@system.com.np',
     userName: newRequest.requestedByName || 'Branch Staff',
     action: `APPROVAL_REQUEST_SUBMITTED`,
-    module: 'OPERATIONS',
-    details: `Submitted approval request #${newRequest.requestNumber} for ${newRequest.customerName} (${newRequest.deviceSerial}) status change to ${newRequest.requestedStatus}`,
+    module: logModule,
+    details: logDetails,
     timestampAD: new Date().toISOString(),
     timestampBS: '2083-04-22 BS',
     branchId: newRequest.branchId,
@@ -2610,12 +3119,17 @@ app.post('/api/approval-requests/:id/process', (req, res) => {
   // IF APPROVED: execute the requested status change on customer device record
   if (request.type === 'CUSTOMER_DEVICE_STATUS') {
     const devRecord = customerDeviceRecords.find((c) => c.id === request.targetId || c.deviceSerial === request.deviceSerial);
+    const isDisconnectReq = request.requestedStatus === 'DISCONNECTED' || request.requestedStatus === 'ROUTER_COLLECTED';
     if (devRecord) {
-      devRecord.status = request.requestedStatus;
+      devRecord.status = (isDisconnectReq ? 'ROUTER_COLLECTED' : request.requestedStatus) as CustomerDeviceRecord['status'];
+      if (isDisconnectReq) {
+        devRecord.disconnectedDateAD = new Date().toISOString().split('T')[0];
+        devRecord.disconnectedDateBS = request.processedAtBS || '2083-04-28 BS';
+      }
     }
 
-    // Restock Inventory if requested
-    if (request.restockQtyOnApproval) {
+    // Restock Inventory if requested or if disconnect/router collected
+    if (request.restockQtyOnApproval || isDisconnectReq) {
       const prod = products.find((p) => p.name.toLowerCase() === request.productName.toLowerCase()) || products[0];
       let stk = inventoryStock.find((s) => s.productId === prod.id && s.branchId === request.branchId);
       
@@ -2668,7 +3182,202 @@ app.post('/api/approval-requests/:id/process', (req, res) => {
     });
   }
 
+  // IF APPROVED: Cancel In-Transit Transfer (Restores items back to Source Branch stock)
+  if (request.type === 'CANCEL_TRANSFER' || request.type === 'CANCEL_IN_TRANSIT_TRANSFER' || request.type === 'CANCEL_RECEIVE_TRANSFER') {
+    const sh = shipments.find((s) => s.id === request.targetId || s.trackingCode === request.deviceSerial || s.trackingCode === request.customerName);
+    if (sh && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED') {
+      sh.items.forEach((item: any) => {
+        const qtySent = Number(item.quantitySent) || 0;
+
+        if (qtySent > 0 && sh.sourceBranchId) {
+          let sourceStk = inventoryStock.find(
+            (s) => s.productId === item.productId && s.branchId === sh.sourceBranchId
+          );
+
+          if (!sourceStk) {
+            sourceStk = {
+              id: `stk-${sh.sourceBranchId.toLowerCase()}-${item.productId}`,
+              productId: item.productId,
+              branchId: sh.sourceBranchId,
+              quantityOnHand: 0,
+              damagedQty: 0,
+              reservedQty: 0,
+              incomingQty: 0,
+              lastUpdated: new Date().toISOString(),
+            };
+            inventoryStock.push(sourceStk);
+          }
+
+          const qtyBefore = sourceStk.quantityOnHand;
+          sourceStk.quantityOnHand += qtySent;
+          sourceStk.lastUpdated = new Date().toISOString();
+
+          const prod = products.find((p) => p.id === item.productId);
+
+          transactionLogs.unshift({
+            id: `txn-${Date.now()}-${item.productId}-apr-cnl`,
+            transactionNumber: `TXN-${Math.floor(10000 + Math.random() * 90000)}`,
+            productId: item.productId,
+            productSku: prod?.sku || item.sku || '',
+            productName: prod?.name || item.productName || '',
+            branchId: sh.sourceBranchId,
+            changeType: 'TRANSFER_CANCELLED',
+            quantityBefore: qtyBefore,
+            quantityChanged: qtySent,
+            quantityAfter: sourceStk.quantityOnHand,
+            unitCost: prod?.costPrice || 0,
+            referenceDocId: sh.trackingCode,
+            timestampAD: new Date().toISOString(),
+            timestampBS: '2083-04-22 BS',
+          });
+        }
+
+        // Decrement destination incomingQty
+        if (qtySent > 0 && sh.destinationBranchId) {
+          const destStk = inventoryStock.find(
+            (s) => s.productId === item.productId && s.branchId === sh.destinationBranchId
+          );
+          if (destStk) {
+            destStk.incomingQty = Math.max(0, (destStk.incomingQty || 0) - qtySent);
+            destStk.lastUpdated = new Date().toISOString();
+          }
+        }
+
+        // Revert serial records back to source branch
+        if (item.deviceSerials && Array.isArray(item.deviceSerials)) {
+          item.deviceSerials.forEach((s: any) => {
+            if (!s?.deviceSerial) return;
+            const cleanSer = s.deviceSerial.trim().toUpperCase();
+            let devRecord = customerDeviceRecords.find(
+              (cd) => cd.deviceSerial.trim().toUpperCase() === cleanSer
+            );
+            if (devRecord) {
+              devRecord.branchId = sh.sourceBranchId;
+              devRecord.status = 'IN_STOCK';
+              devRecord.notes = `Transfer ${sh.trackingCode} cancelled via Approval #${request.requestNumber}. Restored to source branch.`;
+            }
+          });
+        }
+      });
+
+      sh.status = 'CANCELLED';
+      sh.notes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled via Approval #${request.requestNumber} on ${new Date().toISOString().split('T')[0]} by ${request.processedByName} (${request.processedByRole}). Stock restored to source branch.`;
+
+      auditTrail.unshift({
+        id: `audit-${Date.now()}`,
+        userEmail: request.processedByEmail,
+        userName: request.processedByName,
+        action: `APPROVAL_REQUEST_APPROVED`,
+        module: 'BRANCH_OPERATIONS',
+        details: `Approved transfer cancellation for ${sh.trackingCode} (${sh.sourceBranchName || sh.sourceBranchId} -> ${sh.destinationBranchName || sh.destinationBranchId}). Refunded stock back to ${sh.sourceBranchName || sh.sourceBranchId}.`,
+        timestampAD: new Date().toISOString(),
+        timestampBS: '2083-04-22 BS',
+        branchId: sh.sourceBranchId,
+      });
+    }
+  }
+
+  // IF APPROVED: Physical Stock Audit Reconciliation (Adjusts branch stock on hand for each discrepancy)
+  if (request.type === 'STOCK_AUDIT_RECONCILIATION' && request.auditData) {
+    const auditData = request.auditData;
+    const targetBranchId = request.branchId || auditData.branchId;
+
+    if (auditData.varianceItems && Array.isArray(auditData.varianceItems)) {
+      auditData.varianceItems.forEach((item: any) => {
+        let stk = inventoryStock.find(
+          (s) => s.productId === item.productId && s.branchId === targetBranchId
+        );
+
+        if (!stk) {
+          stk = {
+            id: `stk-${targetBranchId.toLowerCase()}-${item.productId}`,
+            productId: item.productId,
+            branchId: targetBranchId,
+            quantityOnHand: 0,
+            damagedQty: 0,
+            reservedQty: 0,
+            incomingQty: 0,
+            lastUpdated: new Date().toISOString(),
+          };
+          inventoryStock.push(stk);
+        }
+
+        const qtyBefore = stk.quantityOnHand;
+        const targetCounted = Number(item.countedQty) || 0;
+        const delta = targetCounted - qtyBefore;
+
+        stk.quantityOnHand = targetCounted;
+        stk.lastUpdated = new Date().toISOString();
+
+        const prod = products.find((p) => p.id === item.productId);
+
+        transactionLogs.unshift({
+          id: `txn-${Date.now()}-${item.productId}-aud`,
+          transactionNumber: `TXN-AUD-${Math.floor(10000 + Math.random() * 90000)}`,
+          productId: item.productId,
+          productSku: prod?.sku || item.sku || '',
+          productName: prod?.name || item.productName || '',
+          branchId: targetBranchId,
+          changeType: delta > 0 ? 'PHYSICAL_AUDIT_EXCESS' : 'PHYSICAL_AUDIT_SHORTAGE',
+          quantityBefore: qtyBefore,
+          quantityChanged: delta,
+          quantityAfter: stk.quantityOnHand,
+          unitCost: item.unitCost || prod?.costPrice || 0,
+          referenceDocId: `${auditData.auditRefNumber} / ${request.requestNumber}`,
+          timestampAD: new Date().toISOString(),
+          timestampBS: '2083-04-22 BS',
+        });
+      });
+    }
+
+    auditTrail.unshift({
+      id: `audit-${Date.now()}`,
+      userEmail: request.processedByEmail,
+      userName: request.processedByName,
+      action: `STOCK_AUDIT_RECONCILED`,
+      module: 'INVENTORY_AUDIT',
+      details: `Approved & Reconciled Physical Stock Audit #${auditData.auditRefNumber} (Approval #${request.requestNumber}) for ${auditData.branchName || targetBranchId}. Adjusted ${auditData.discrepancyCount || auditData.varianceItems?.length || 0} variance items to physical count. Net Financial Impact: NPR ${(auditData.netValueVariance || 0).toLocaleString()}.`,
+      timestampAD: new Date().toISOString(),
+      timestampBS: '2083-04-22 BS',
+      branchId: targetBranchId,
+    });
+  }
+
   res.json({ request, message: 'Approval request authorized and executed successfully' });
+});
+
+app.post('/api/approval-requests/:id/cancel', (req, res) => {
+  const { id } = req.params;
+  const { user, reason } = req.body;
+
+  const request = approvalRequests.find((r) => r.id === id);
+  if (!request) return res.status(404).json({ message: 'Approval request not found' });
+
+  if (request.status !== 'PENDING') {
+    return res.status(400).json({ message: `Cannot cancel a request that is already ${request.status}` });
+  }
+
+  request.status = 'CANCELLED';
+  request.processedByEmail = user?.email || request.requestedByEmail;
+  request.processedByName = user?.name || request.requestedByName;
+  request.processedByRole = user?.role || request.requestedByRole;
+  request.processedAtAD = new Date().toISOString();
+  request.processedAtBS = '2083-04-22 BS';
+  request.rejectionReason = reason?.trim() || 'Request cancelled by user';
+
+  auditTrail.unshift({
+    id: `audit-${Date.now()}`,
+    userEmail: request.processedByEmail,
+    userName: request.processedByName,
+    action: `APPROVAL_REQUEST_CANCELLED`,
+    module: 'OPERATIONS',
+    details: `Cancelled approval request #${request.requestNumber} for ${request.customerName} (${request.deviceSerial}). Reason: ${request.rejectionReason}`,
+    timestampAD: new Date().toISOString(),
+    timestampBS: '2083-04-22 BS',
+    branchId: request.branchId,
+  });
+
+  res.json({ request, message: 'Approval request cancelled successfully' });
 });
 
 // Financial Reports Summary

@@ -279,6 +279,18 @@ const DEFAULT_GROUPS: PermissionGroup[] = [
         permissions: DEFAULT_PERMISSIONS_MATRIX['auth-switch-user'],
       },
       {
+        id: 'workflow-approval',
+        operationName: 'Process Workflow Approvals (Authorize/Reject)',
+        description: 'Review, approve, or reject customer device status transitions and transfer cancellations',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['workflow-approval'],
+      },
+      {
+        id: 'workflow-approval-cancel',
+        operationName: 'Cancel Workflow Approval Requests',
+        description: 'Cancel or withdraw pending workflow approval requests (restricted from Branch Managers & Front Desk)',
+        permissions: DEFAULT_PERMISSIONS_MATRIX['workflow-approval-cancel'],
+      },
+      {
         id: 'admin-users',
         operationName: 'User Management & Role Assignment',
         description: 'Create user accounts, set role permissions, and assign branch affiliations',

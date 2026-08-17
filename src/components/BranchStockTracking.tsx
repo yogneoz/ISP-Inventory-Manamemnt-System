@@ -6,7 +6,6 @@ import {
   Building2,
   AlertTriangle,
   ArrowLeftRight,
-  Edit,
   CheckCircle2,
   Plus,
   RefreshCw,
@@ -21,7 +20,7 @@ interface BranchStockTrackingProps {
   branches: Branch[];
   stock: InventoryStock[];
   selectedBranchId: string;
-  onUpdateStockLevel: (stockId: string, newQty: number, reason: string) => Promise<void>;
+  onUpdateStockLevel?: (stockId: string, newQty: number, reason: string) => Promise<void>;
   onCreateStockTransfer: (
     sourceBranchId: string,
     destBranchId: string,
@@ -37,19 +36,9 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
   branches,
   stock,
   selectedBranchId,
-  onUpdateStockLevel,
   onCreateStockTransfer,
   isDarkMode = false,
 }) => {
-  const [editingStock, setEditingStock] = useState<{
-    stockItem: InventoryStock;
-    product: Product;
-    branch: Branch;
-  } | null>(null);
-
-  const [newQty, setNewQty] = useState<number>(0);
-  const [reason, setReason] = useState<string>('Physical Stock Count Adjustment');
-
   // Transfer state
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [transferSource, setTransferSource] = useState(
@@ -99,19 +88,6 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
     .map(({ prod }) => prod);
 
   const hiddenZeroStockCount = productsWithStock.filter(({ totalQty }) => totalQty === 0).length;
-
-  const openStockEdit = (s: InventoryStock, p: Product, b: Branch) => {
-    setEditingStock({ stockItem: s, product: p, branch: b });
-    setNewQty(s.quantityOnHand);
-    setReason('Physical Stock Count Adjustment');
-  };
-
-  const handleStockSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingStock) return;
-    await onUpdateStockLevel(editingStock.stockItem.id, Number(newQty), reason);
-    setEditingStock(null);
-  };
 
   const handleTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -349,38 +325,25 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
                             isLow ? (isDarkMode ? 'bg-rose-950/20' : 'bg-rose-50/60') : ''
                           }`}
                         >
-                          <div className="flex items-center justify-between gap-1">
-                            <div className="flex flex-col items-start">
-                              <span
-                                className={`font-mono font-bold text-xs ${
-                                  isLow
-                                    ? 'text-rose-600 dark:text-rose-400'
-                                    : isDarkMode ? 'text-slate-200' : 'text-slate-800'
-                                }`}
-                              >
-                                {s.quantityOnHand} <span className="text-[10px] text-slate-400 font-normal">{prod.unit} usable</span>
-                              </span>
-                              {(s.damagedQty || 0) > 0 && (
-                                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800/50 mt-0.5">
-                                  <AlertTriangle className="h-2.5 w-2.5" />
-                                  <span>{s.damagedQty} damaged</span>
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              onClick={() => openStockEdit(s, prod, b)}
-                              title="Adjust stock balance"
-                              className={`p-1 rounded transition-colors cursor-pointer ${
-                                isDarkMode
-                                  ? 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800'
-                                  : 'text-slate-400 hover:text-indigo-600 hover:bg-slate-100'
+                          <div className="flex flex-col items-center justify-center">
+                            <span
+                              className={`font-mono font-bold text-xs ${
+                                isLow
+                                  ? 'text-rose-600 dark:text-rose-400'
+                                  : isDarkMode ? 'text-slate-200' : 'text-slate-800'
                               }`}
                             >
-                              <Edit className="h-3 w-3" />
-                            </button>
+                              {s.quantityOnHand} <span className="text-[10px] text-slate-400 font-normal">{prod.unit} usable</span>
+                            </span>
+                            {(s.damagedQty || 0) > 0 && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800/50 mt-0.5">
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                <span>{s.damagedQty} damaged</span>
+                              </span>
+                            )}
                           </div>
                           {isLow && (
-                            <div className="flex items-center gap-1 text-[9px] text-rose-600 dark:text-rose-400 font-semibold mt-0.5">
+                            <div className="flex items-center justify-center gap-1 text-[9px] text-rose-600 dark:text-rose-400 font-semibold mt-0.5">
                               <AlertTriangle className="h-2.5 w-2.5" />
                               <span>Low Stock</span>
                             </div>
@@ -396,90 +359,6 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
           </table>
         </div>
       </div>
-
-      {/* Quick Adjust Modal */}
-      {editingStock && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
-          }`}>
-            <div className={`flex items-center justify-between border-b p-4 ${
-              isDarkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-200 bg-slate-50'
-            }`}>
-              <h3 className={`font-bold text-sm ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                Stock Count Adjustment
-              </h3>
-              <button
-                onClick={() => setEditingStock(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleStockSave} className="p-4 space-y-3">
-              <div className="bg-indigo-50 dark:bg-indigo-950/40 rounded-xl p-3 border border-indigo-200 dark:border-indigo-500/20 text-xs">
-                <div className="font-bold text-indigo-950 dark:text-white">{editingStock.product.name}</div>
-                <div className="text-indigo-700 dark:text-indigo-300 text-[11px] mt-0.5">
-                  Branch: <span className="font-semibold">{editingStock.branch.name}</span> • SKU: {editingStock.product.sku}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold opacity-80 mb-1">
-                  New Quantity On Hand ({editingStock.product.unit})
-                </label>
-                <input
-                  type="number"
-                  required
-                  min={0}
-                  value={newQty}
-                  onChange={(e) => setNewQty(Number(e.target.value))}
-                  className={`w-full rounded-lg border px-3 py-2 text-sm font-mono font-bold focus:outline-none focus:border-indigo-500 ${
-                    isDarkMode ? 'border-slate-700 bg-slate-900 text-white' : 'border-slate-300 bg-slate-50 text-slate-900'
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold opacity-80 mb-1">
-                  Adjustment Reason / Audit Note
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="e.g. Physical inventory discrepancy, stock return"
-                  className={`w-full rounded-lg border px-3 py-1.5 text-xs focus:outline-none focus:border-indigo-500 ${
-                    isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
-                  }`}
-                />
-              </div>
-
-              <div className={`pt-3 border-t flex items-center justify-end gap-2 ${
-                isDarkMode ? 'border-slate-800' : 'border-slate-200'
-              }`}>
-                <button
-                  type="button"
-                  onClick={() => setEditingStock(null)}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
-                    isDarkMode ? 'border-slate-700 text-slate-400 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 shadow-md cursor-pointer"
-                >
-                  Update Balance
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Inter-Branch Transfer Modal */}
       {isTransferModalOpen && (

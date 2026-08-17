@@ -101,7 +101,7 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
   const selectedBranchObj = branches.find((b) => b.id === selectedAssetDetail?.branchId);
 
   const handleExportCSV = () => {
-    exportToCSV('Subisu_Fixed_Asset_Register', filteredAssets, [
+    exportToCSV('IZone_Fixed_Asset_Register', filteredAssets, [
       { key: 'tagNumber', label: 'Tag Number' },
       { key: 'name', label: 'Asset Title' },
       { key: 'category', label: 'Category' },

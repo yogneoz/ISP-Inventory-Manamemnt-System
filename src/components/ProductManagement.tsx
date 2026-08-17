@@ -211,7 +211,13 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     return matchesCat && matchesGroup && matchesSearch && matchesStockFilter;
   });
 
+  const canEditProduct = isOperationAllowed('prod-edit', currentUser?.role);
+
   const openCreateModal = () => {
+    if (!canEditProduct) {
+      alert('Permission Denied: Only Super Admin and Inventory Manager can create new products.');
+      return;
+    }
     setEditingProduct(null);
     const newSku = `ADP${Math.floor(100 + Math.random() * 900)}`;
     setSku(newSku);
@@ -234,6 +240,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   };
 
   const openEditModal = (p: Product) => {
+    if (!canEditProduct) {
+      alert('Permission Denied: Only Super Admin and Inventory Manager can edit product master records.');
+      return;
+    }
     setEditingProduct(p);
     setSku(p.sku);
     setBarcode(p.barcode || p.sku);
@@ -691,20 +701,24 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                           >
                             <Printer className="h-3.5 w-3.5" />
                           </button>
-                          <button
-                            onClick={() => openEditModal(p)}
-                            title="Edit Product"
-                            className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => onDeleteProduct(p.id)}
-                            title="Delete Product"
-                            className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          {canEditProduct && (
+                            <>
+                              <button
+                                onClick={() => openEditModal(p)}
+                                title="Edit Product Specification"
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-colors cursor-pointer"
+                              >
+                                <Edit2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => onDeleteProduct(p.id)}
+                                title="Delete Product"
+                                className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -865,38 +879,86 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             <form onSubmit={handleSubmit} className="p-4 space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-semibold mb-1 opacity-80">
-                    Product Code (SKU)
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-semibold opacity-80">
+                      Product Code (SKU)
+                    </label>
+                    {editingProduct && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                        <Lock className="h-3 w-3" />
+                        <span>Locked</span>
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     required
+                    readOnly={!!editingProduct}
+                    disabled={!!editingProduct}
                     value={sku}
                     onChange={(e) => {
+                      if (editingProduct) return;
                       const val = e.target.value;
                       setSku(val);
                       setBarcode(val);
                     }}
                     placeholder="e.g. ADP001"
+                    title={editingProduct ? 'Product SKU code is immutable once created' : 'Enter unique product SKU'}
                     className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${
-                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
+                      editingProduct
+                        ? isDarkMode
+                          ? 'border-slate-800 bg-slate-950 text-slate-400 cursor-not-allowed opacity-80'
+                          : 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80'
+                        : isDarkMode
+                        ? 'border-slate-700 bg-slate-900 text-slate-200'
+                        : 'border-slate-300 bg-slate-50 text-slate-900'
                     }`}
                   />
+                  {editingProduct && (
+                    <p className="text-[9px] text-slate-400 mt-0.5">
+                      SKU Code is permanent and cannot be modified.
+                    </p>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold mb-1 opacity-80">
-                    Barcode
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-semibold opacity-80">
+                      Barcode
+                    </label>
+                    {editingProduct && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                        <Lock className="h-3 w-3" />
+                        <span>Locked</span>
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     required
+                    readOnly={!!editingProduct}
+                    disabled={!!editingProduct}
                     value={barcode}
-                    onChange={(e) => setBarcode(e.target.value)}
+                    onChange={(e) => {
+                      if (editingProduct) return;
+                      setBarcode(e.target.value);
+                    }}
                     placeholder="e.g. ADP001"
+                    title={editingProduct ? 'Barcode is linked to SKU and cannot be altered' : 'Enter barcode'}
                     className={`w-full rounded-lg border px-2.5 py-1.5 font-mono text-xs focus:outline-none focus:border-indigo-500 ${
-                      isDarkMode ? 'border-slate-700 bg-slate-900 text-slate-200' : 'border-slate-300 bg-slate-50 text-slate-900'
+                      editingProduct
+                        ? isDarkMode
+                          ? 'border-slate-800 bg-slate-950 text-slate-400 cursor-not-allowed opacity-80'
+                          : 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed opacity-80'
+                        : isDarkMode
+                        ? 'border-slate-700 bg-slate-900 text-slate-200'
+                        : 'border-slate-300 bg-slate-50 text-slate-900'
                     }`}
                   />
+                  {editingProduct && (
+                    <p className="text-[9px] text-slate-400 mt-0.5">
+                      Barcode matches product SKU identifier.
+                    </p>
+                  )}
                 </div>
               </div>
 

@@ -50,6 +50,7 @@ import {
   ClipboardCheck,
   CalendarDays,
   HelpCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { User } from '../types';
 
@@ -79,12 +80,14 @@ export type NavTab =
   | 'create-shipment'
   | 'create-transfer'
   | 'receive-shipment'
+  | 'receive-branch-transfer'
   | 'shipment-list'
   | 'pullout'
   | 'damage'
   | 'stock-out'
   | 'assign-asset'
   | 'consumable-issue'
+  | 'device-exchange'
   | 'branches'
   | 'suppliers'
   | 'users'
@@ -280,7 +283,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'pullout' as NavTab, label: 'Dispatch Stock Pullout to HQ', icon: ArrowUpRight },
     { id: 'damage' as NavTab, label: 'Label Damaged Stock', icon: HeartOff },
     {
-      id: 'receive-shipment' as NavTab,
+      id: 'receive-branch-transfer' as NavTab,
       label: 'Receive Branch Stock Transfer',
       icon: Inbox,
       badge: inTransitShipmentCount,
@@ -290,6 +293,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ...(!isRestrictedRole && !isAccountant ? [{ id: 'assign-asset' as NavTab, label: 'Assign Fixed Asset', icon: Wrench }] : []),
     { id: 'consumable-issue' as NavTab, label: 'Issue Consumables', icon: Wrench },
     { id: 'stock-out' as NavTab, label: 'Product Sale to Customer', icon: PackageMinus },
+    { id: 'device-exchange' as NavTab, label: 'Device Exchange & Replacement', icon: RefreshCw },
     { id: 'warranty-products' as NavTab, label: 'View Warranty Products', icon: ShieldCheck },
   ];
   groups.push({
@@ -315,16 +319,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }
 
   // 7. Inventory Setup Group
+  const isStockMasterAdmin = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
   const inventorySetupChildren = [
     { id: 'customers' as NavTab, label: 'Customer Master Directory', icon: Users },
     { id: 'locations' as NavTab, label: 'Location Management (POP/GPS)', icon: MapPin },
     { id: 'product-master' as NavTab, label: 'Product Master Catalog', icon: Package },
-    { id: 'category-management' as NavTab, label: 'Category Management', icon: Grid },
-    { id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler },
-    ...(!isRestrictedRole ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }] : []),
-    ...(!isRestrictedRole ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users }] : []),
-    { id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud },
-    { id: 'export-stock' as NavTab, label: 'Export Stock Data', icon: DownloadCloud },
+    ...(isStockMasterAdmin ? [{ id: 'category-management' as NavTab, label: 'Category Management', icon: Grid }] : []),
+    ...(isStockMasterAdmin ? [{ id: 'uom-management' as NavTab, label: 'UoM Management', icon: Ruler }] : []),
+    ...(isStockMasterAdmin ? [{ id: 'branches' as NavTab, label: 'Branch Management', icon: Building2 }] : []),
+    ...(isStockMasterAdmin ? [{ id: 'suppliers' as NavTab, label: 'Suppliers Directory', icon: Users }] : []),
+    ...(isStockMasterAdmin ? [{ id: 'import-stock' as NavTab, label: 'Import Stock Data', icon: UploadCloud }] : []),
+    ...(isStockMasterAdmin ? [{ id: 'export-stock' as NavTab, label: 'Export Stock Data', icon: DownloadCloud }] : []),
   ];
   groups.push({
     id: 'inventory-setup',

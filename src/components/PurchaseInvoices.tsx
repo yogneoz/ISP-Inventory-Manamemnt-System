@@ -50,7 +50,7 @@ const DB_SUPPLIERS = [
   'Himalayan Tech Distributors Pvt. Ltd.',
   'Nepal Optical & Fiber Optics Importers',
   'Apex Networking Hardware Traders',
-  'Subisu & Hardware Supplies Pvt. Ltd.',
+  'IZone & Hardware Supplies Pvt. Ltd.',
   'WorldLink Telecom Equipment Corp',
 ];
 
@@ -347,7 +347,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   };
 
   const handleExportCSV = () => {
-    exportToCSV('Subisu_Purchase_Invoices', filteredInvoices, [
+    exportToCSV('IZone_Purchase_Invoices', filteredInvoices, [
       { key: 'invoiceNumber', label: 'Invoice Ref #' },
       { key: 'vendorBillNumber', label: 'Vendor Bill #' },
       { key: 'supplierName', label: 'Supplier / Vendor' },

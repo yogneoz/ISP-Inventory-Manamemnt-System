@@ -55,9 +55,23 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   onSelectTab,
   isDarkMode = false,
 }) => {
-  // Check permission: Only Super Admin and Inventory Manager can Add / Edit / Delete in Customer Master Table
+  // Check permission: Only Super Admin and Inventory Manager can Edit / Delete master customer records
   const canManageMaster =
     currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+
+  // Branch Managers and Frontdesk can also Add new customer records
+  const canAddCustomer =
+    !currentUser ||
+    currentUser.role === 'SUPER_ADMIN' ||
+    currentUser.role === 'INVENTORY_MANAGER' ||
+    currentUser.role === 'BRANCH_MANAGER' ||
+    currentUser.role === 'FRONT_DESK';
+
+  // Export / Import restricted from Branch Manager and Frontdesk
+  const canExportImport =
+    currentUser?.role === 'SUPER_ADMIN' ||
+    currentUser?.role === 'INVENTORY_MANAGER' ||
+    currentUser?.role === 'ACCOUNTANT';
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedBranchFilter, setSelectedBranchFilter] = useState('ALL');
@@ -74,12 +88,16 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form Field States
+  const userDefaultBranch = (currentUser?.branchId && currentUser.branchId !== 'ALL')
+    ? currentUser.branchId
+    : (branches[0]?.id || 'WH001');
+
   const [formData, setFormData] = useState({
     customerId: `CUS-${Math.floor(10000 + Math.random() * 90000)}`,
     customerName: '',
     username: '',
     contactNumber: '',
-    branchId: branches[0]?.id || 'WH001',
+    branchId: userDefaultBranch,
     address: '',
     email: '',
     status: 'ACTIVE' as 'ACTIVE' | 'INACTIVE',
@@ -92,7 +110,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
       customerName: '',
       username: '',
       contactNumber: '',
-      branchId: branches[0]?.id || 'WH001',
+      branchId: (currentUser?.branchId && currentUser.branchId !== 'ALL') ? currentUser.branchId : (branches[0]?.id || 'WH001'),
       address: '',
       email: '',
       status: 'ACTIVE',
@@ -258,31 +276,35 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleExportCSV}
-              className={`flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-xl border transition-colors cursor-pointer ${
-                isDarkMode
-                  ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200'
-                  : 'border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700'
-              }`}
-            >
-              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-              <span>Export CSV</span>
-            </button>
+            {canExportImport && (
+              <button
+                onClick={handleExportCSV}
+                className={`flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-xl border transition-colors cursor-pointer ${
+                  isDarkMode
+                    ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200'
+                    : 'border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700'
+                }`}
+              >
+                <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                <span>Export CSV</span>
+              </button>
+            )}
 
-            <button
-              onClick={onNavigateToImport}
-              className={`flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-xl border transition-colors cursor-pointer ${
-                isDarkMode
-                  ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200'
-                  : 'border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700'
-              }`}
-            >
-              <Upload className="h-4 w-4 text-indigo-600" />
-              <span>Import CSV</span>
-            </button>
+            {canExportImport && (
+              <button
+                onClick={onNavigateToImport}
+                className={`flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-xl border transition-colors cursor-pointer ${
+                  isDarkMode
+                    ? 'border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200'
+                    : 'border-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700'
+                }`}
+              >
+                <Upload className="h-4 w-4 text-indigo-600" />
+                <span>Import CSV</span>
+              </button>
+            )}
 
-            {canManageMaster ? (
+            {canAddCustomer && (
               <button
                 onClick={handleOpenAddModal}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all cursor-pointer"
@@ -290,11 +312,6 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                 <Plus className="h-4 w-4" />
                 <span>Add Customer Record</span>
               </button>
-            ) : (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold">
-                <ShieldAlert className="h-3.5 w-3.5" />
-                <span>Master Edits Restricted (Super Admin / Inventory Mgr Only)</span>
-              </div>
             )}
           </div>
         </div>
@@ -648,13 +665,21 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                                           </td>
                                           <td className="p-2.5 text-center whitespace-nowrap">
                                             <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                              dev.status === 'ACTIVE'
-                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                                                : dev.status === 'SUSPENDED'
-                                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                                              dev.status === 'RENTAL' || dev.status === 'ACTIVE'
+                                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
+                                                : dev.status === 'SOLD'
+                                                ? 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300'
+                                                : dev.status === 'ROUTER_COLLECTED' || dev.status === 'DISCONNECTED'
+                                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
                                                 : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
                                             }`}>
-                                              {dev.status}
+                                              {dev.status === 'RENTAL' || dev.status === 'ACTIVE' 
+                                                ? 'RENTAL (CPE ASSET)' 
+                                                : dev.status === 'SOLD' 
+                                                ? 'SOLD (CUSTOMER OWNED)' 
+                                                : dev.status === 'ROUTER_COLLECTED' || dev.status === 'DISCONNECTED'
+                                                ? `ROUTER COLLECTED${dev.disconnectedDateAD ? ` (${dev.disconnectedDateAD})` : ''}`
+                                                : dev.status}
                                             </span>
                                           </td>
                                         </tr>

@@ -1,20 +1,19 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   User,
   Product,
   Branch,
   InventoryStock,
+  ApprovalRequest,
 } from '../types';
 import {
   ClipboardCheck,
   Search,
   CheckCircle2,
   AlertTriangle,
-  RotateCcw,
   Plus,
   Minus,
   Download,
-  Filter,
   Package,
   Layers,
   ArrowRight,
@@ -24,8 +23,21 @@ import {
   Check,
   X,
   FileSpreadsheet,
+  Send,
+  Clock,
+  Lock,
+  RefreshCw,
+  TableProperties,
+  ShieldCheck,
+  XCircle,
+  HelpCircle,
+  TrendingDown,
+  TrendingUp,
+  Sliders,
+  Edit3,
 } from 'lucide-react';
-import { convertADToBS } from '../utils/nepaliCalendar';
+import { convertADToBS, formatDualDate } from '../utils/nepaliCalendar';
+import { getAllowedBranches, canUserSeeAllBranches, isOperationAllowed } from '../utils/permissions';
 
 interface PhysicalStockAuditProps {
   currentUser: User | null;
@@ -35,6 +47,7 @@ interface PhysicalStockAuditProps {
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   isDarkMode?: boolean;
+  approvalRequests?: ApprovalRequest[];
   onUpdateStockLevel?: (
     productId: string,
     branchId: string,
@@ -42,10 +55,21 @@ interface PhysicalStockAuditProps {
     type: string,
     notes?: string
   ) => Promise<void>;
+  onReconcileStockAudit?: (payload: {
+    branchId: string;
+    auditRefNumber: string;
+    varianceItems: any[];
+    auditorName?: string;
+    userEmail?: string;
+    notes?: string;
+  }) => Promise<any>;
+  onRequestApproval?: (request: Partial<ApprovalRequest>) => Promise<any>;
+  onCancelApproval?: (id: string, reason?: string) => Promise<any>;
+  onProcessApproval?: (id: string, status: 'APPROVED' | 'REJECTED', reason?: string) => Promise<any>;
   onNavigateTab?: (tab: any) => void;
 }
 
-interface AuditRow {
+export interface AuditRow {
   productId: string;
   sku: string;
   barcode: string;
@@ -57,30 +81,68 @@ interface AuditRow {
   countedQty: number | '';
   isCounted: boolean;
   varianceReason: string;
+  customReason?: string;
   requiresSerialTracking?: boolean;
 }
 
 export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   currentUser,
-  products,
-  branches,
-  stock,
+  products = [],
+  branches = [],
+  stock = [],
   selectedBranchId,
   dateMode,
   isDarkMode = false,
+  approvalRequests = [],
   onUpdateStockLevel,
+  onReconcileStockAudit,
+  onRequestApproval,
+  onCancelApproval,
+  onProcessApproval,
   onNavigateTab,
 }) => {
-  const [activeBranchId, setActiveBranchId] = useState<string>(
-    selectedBranchId === 'ALL' ? branches[0]?.id || 'BR-KTM' : selectedBranchId
-  );
+  // 1. Branch Permission & Access Verification
+  const canSeeAll = canUserSeeAllBranches(currentUser);
+  const allowedBranches = useMemo(() => getAllowedBranches(currentUser, branches), [currentUser, branches]);
+
+  const isManagerOrAdmin = useMemo(() => {
+    return (
+      currentUser?.role === 'SUPER_ADMIN' ||
+      currentUser?.role === 'INVENTORY_MANAGER' ||
+      isOperationAllowed('workflow-approval', currentUser?.role)
+    );
+  }, [currentUser]);
+
+  // Determine initial branch strictly based on user login context
+  const getInitialBranchId = (): string => {
+    if (!canSeeAll && currentUser?.branchId && currentUser.branchId !== 'ALL') {
+      return currentUser.branchId;
+    }
+    if (selectedBranchId && selectedBranchId !== 'ALL' && allowedBranches.some((b) => b.id === selectedBranchId)) {
+      return selectedBranchId;
+    }
+    return allowedBranches[0]?.id || branches[0]?.id || 'BR-KTM';
+  };
+
+  const [activeBranchId, setActiveBranchId] = useState<string>(getInitialBranchId);
+
+  // Sync if currentUser or selectedBranchId changes
+  useEffect(() => {
+    if (!canSeeAll && currentUser?.branchId && currentUser.branchId !== 'ALL') {
+      setActiveBranchId(currentUser.branchId);
+    } else if (selectedBranchId && selectedBranchId !== 'ALL' && allowedBranches.some((b) => b.id === selectedBranchId)) {
+      setActiveBranchId(selectedBranchId);
+    }
+  }, [currentUser, selectedBranchId, canSeeAll, allowedBranches]);
+
+  const isBranchLockedForUser = !canSeeAll && Boolean(currentUser?.branchId && currentUser.branchId !== 'ALL');
 
   const [auditorName, setAuditorName] = useState<string>(
     currentUser?.name || 'Authorized Auditor'
   );
 
-  const [auditRefNumber] = useState<string>(
-    `AUD-2083-${Math.floor(100 + Math.random() * 900)}`
+  const [auditRefNumber, setAuditRefNumber] = useState<string>(
+    () => `AUD-2083-${Math.floor(100 + Math.random() * 900)}`
   );
 
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -89,9 +151,48 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
     'ALL' | 'DISCREPANCY' | 'MATCHED' | 'SHORTAGE' | 'EXCESS' | 'UNCOUNTED'
   >('ALL');
 
-  const [isReconciled, setIsReconciled] = useState<boolean>(false);
-  const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
+  // Modals & Submission States
+  const [showApprovalModal, setShowApprovalModal] = useState<boolean>(false);
+  const [showApproveReconcileModal, setShowApproveReconcileModal] = useState<boolean>(false);
+  const [showRejectModal, setShowRejectModal] = useState<boolean>(false);
+  const [showDirectReconcileModal, setShowDirectReconcileModal] = useState<boolean>(false);
+  const [showConsolidatedModal, setShowConsolidatedModal] = useState<boolean>(false);
+  const [approvalNotes, setApprovalNotes] = useState<string>('');
+  const [rejectReason, setRejectReason] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isLocallySubmitted, setIsLocallySubmitted] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Reset local submission state when branch changes
+  useEffect(() => {
+    setIsLocallySubmitted(false);
+  }, [activeBranchId]);
+
+  // Check if there is an existing pending approval request for this branch
+  const pendingAuditRequest = useMemo(() => {
+    return approvalRequests.find(
+      (r) =>
+        r.type === 'STOCK_AUDIT_RECONCILIATION' &&
+        r.branchId === activeBranchId &&
+        r.status === 'PENDING'
+    );
+  }, [approvalRequests, activeBranchId]);
+
+  const recentApprovedAuditRequest = useMemo(() => {
+    return approvalRequests.find(
+      (r) =>
+        r.type === 'STOCK_AUDIT_RECONCILIATION' &&
+        r.branchId === activeBranchId &&
+        r.status === 'APPROVED'
+    );
+  }, [approvalRequests, activeBranchId]);
+
+  // Is Table Locked for general editing?
+  // When an audit is PENDING approval or submitted:
+  // - Table is strictly blocked/locked from editing for all users until processed.
+  // - Super Admin / Stock Manager in Review Mode can inspect before clicking "Approve & Reconcile".
+  const isTableLocked = isLocallySubmitted || Boolean(pendingAuditRequest);
+  const isReviewMode = Boolean(pendingAuditRequest) && isManagerOrAdmin;
 
   // Initialize count state per branch
   const initialAuditRows = useMemo(() => {
@@ -100,6 +201,21 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         (s) => s.productId === prod.id && s.branchId === activeBranchId
       );
       const bookQty = stockItem ? stockItem.quantityOnHand : 0;
+
+      // If pending audit exists and has variance data for this product, prefill the submitted counted qty
+      let countedQty: number | '' = bookQty;
+      let varianceReason = 'Verified Matched';
+      let customReason = '';
+
+      if (pendingAuditRequest?.auditData?.varianceItems) {
+        const submittedItem = pendingAuditRequest.auditData.varianceItems.find(
+          (v) => v.productId === prod.id
+        );
+        if (submittedItem) {
+          countedQty = submittedItem.countedQty;
+          varianceReason = submittedItem.varianceReason || 'Shrinkage / Missing Stock';
+        }
+      }
 
       return {
         productId: prod.id,
@@ -110,23 +226,24 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         unit: prod.unit || 'Pcs',
         unitCost: prod.costPrice || 0,
         bookQty,
-        countedQty: bookQty, // default to book qty for convenience
+        countedQty,
         isCounted: true,
-        varianceReason: 'Verified Matched',
+        varianceReason,
+        customReason,
         requiresSerialTracking: prod.requiresSerialTracking,
       } as AuditRow;
     });
-  }, [products, stock, activeBranchId]);
+  }, [products, stock, activeBranchId, pendingAuditRequest]);
 
   const [auditRows, setAuditRows] = useState<AuditRow[]>(initialAuditRows);
 
-  // Update rows if active branch changes
-  React.useEffect(() => {
+  // Update rows if initial state changes
+  useEffect(() => {
     setAuditRows(initialAuditRows);
-    setIsReconciled(false);
   }, [initialAuditRows]);
 
   const handleCountChange = (productId: string, val: string) => {
+    if (isTableLocked) return;
     setAuditRows((prev) =>
       prev.map((row) => {
         if (row.productId === productId) {
@@ -141,7 +258,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           else if (variance < 0 && defaultReason === 'Verified Matched')
             defaultReason = 'Shrinkage / Missing Stock';
           else if (variance > 0 && defaultReason === 'Verified Matched')
-            defaultReason = 'Unrecorded Surplus / Found';
+            defaultReason = 'Unrecorded Return / Surplus';
 
           return {
             ...row,
@@ -156,16 +273,25 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   };
 
   const handleQuickAdjust = (productId: string, delta: number) => {
+    if (isTableLocked) return;
     setAuditRows((prev) =>
       prev.map((row) => {
         if (row.productId === productId) {
           const current = typeof row.countedQty === 'number' ? row.countedQty : 0;
           const next = Math.max(0, current + delta);
+          const variance = next - row.bookQty;
+          let defaultReason = row.varianceReason;
+          if (variance === 0) defaultReason = 'Verified Matched';
+          else if (variance < 0 && defaultReason === 'Verified Matched')
+            defaultReason = 'Shrinkage / Missing Stock';
+          else if (variance > 0 && defaultReason === 'Verified Matched')
+            defaultReason = 'Unrecorded Return / Surplus';
+
           return {
             ...row,
             countedQty: next,
             isCounted: true,
-            varianceReason: next === row.bookQty ? 'Verified Matched' : row.varianceReason,
+            varianceReason: defaultReason,
           };
         }
         return row;
@@ -173,26 +299,37 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
     );
   };
 
-  const handleSetMatchAll = () => {
+  const handleReasonChange = (productId: string, val: string) => {
+    if (isTableLocked) return;
     setAuditRows((prev) =>
-      prev.map((row) => ({
-        ...row,
-        countedQty: row.bookQty,
-        isCounted: true,
-        varianceReason: 'Verified Matched',
-      }))
+      prev.map((r) =>
+        r.productId === productId ? { ...r, varianceReason: val } : r
+      )
+    );
+  };
+
+  const handleCustomReasonChange = (productId: string, text: string) => {
+    if (isTableLocked) return;
+    setAuditRows((prev) =>
+      prev.map((r) =>
+        r.productId === productId ? { ...r, customReason: text } : r
+      )
     );
   };
 
   const handleSetZeroAll = () => {
+    if (isTableLocked) return;
     setAuditRows((prev) =>
       prev.map((row) => ({
         ...row,
         countedQty: 0,
         isCounted: true,
         varianceReason: 'Shrinkage / Missing Stock',
+        customReason: '',
       }))
     );
+    setToastMessage('All physical counts reset to zero.');
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
   const categories = useMemo(() => {
@@ -203,13 +340,11 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
     return Array.from(set);
   }, [products]);
 
-  // Calculations
+  // Filtered rows for current branch
   const filteredRows = useMemo(() => {
     return auditRows.filter((row) => {
-      // Category
       if (selectedCategory !== 'ALL' && row.category !== selectedCategory) return false;
 
-      // Variance Status
       const counted = typeof row.countedQty === 'number' ? row.countedQty : 0;
       const variance = counted - row.bookQty;
 
@@ -219,13 +354,12 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       if (filterVariance === 'DISCREPANCY' && variance === 0) return false;
       if (filterVariance === 'UNCOUNTED' && row.isCounted) return false;
 
-      // Search Query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         return (
           row.productName.toLowerCase().includes(q) ||
           row.sku.toLowerCase().includes(q) ||
-          row.barcode.toLowerCase().includes(q)
+          (row.barcode && row.barcode.toLowerCase().includes(q))
         );
       }
 
@@ -233,6 +367,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
     });
   }, [auditRows, selectedCategory, filterVariance, searchQuery]);
 
+  // Statistics Calculation
   const stats = useMemo(() => {
     let totalItems = auditRows.length;
     let countedItems = 0;
@@ -261,6 +396,11 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
     const netValueVariance = excessValue - shortageValue;
 
+    const discrepancyRows = auditRows.filter((r) => {
+      const c = typeof r.countedQty === 'number' ? r.countedQty : 0;
+      return c !== r.bookQty;
+    });
+
     return {
       totalItems,
       countedItems,
@@ -271,48 +411,207 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       shortageValue,
       excessValue,
       netValueVariance,
-      discrepancyCount: auditRows.filter((r) => {
-        const c = typeof r.countedQty === 'number' ? r.countedQty : 0;
-        return c !== r.bookQty;
-      }).length,
+      discrepancyCount: discrepancyRows.length,
+      discrepancyRows,
     };
   }, [auditRows]);
 
   const activeBranch = branches.find((b) => b.id === activeBranchId) || branches[0];
 
-  const handlePostReconciliation = async () => {
-    if (!onUpdateStockLevel) return;
+  // 1. Submit Stock Audit for Approval (Workflow: Count Stock > Send Request for approval > Lock table)
+  const handleSubmitForApproval = async () => {
+    if (!onRequestApproval) return;
     setIsSubmitting(true);
     try {
-      // Find all rows with non-zero variance
-      const rowsToAdjust = auditRows.filter((r) => {
-        const c = typeof r.countedQty === 'number' ? r.countedQty : 0;
-        return c !== r.bookQty;
+      const varianceItems = stats.discrepancyRows.map((r) => {
+        const counted = typeof r.countedQty === 'number' ? r.countedQty : 0;
+        const variance = counted - r.bookQty;
+        const finalReason = r.varianceReason === 'Other / Custom Note...' && r.customReason?.trim()
+          ? `Custom: ${r.customReason.trim()}`
+          : r.varianceReason;
+
+        return {
+          productId: r.productId,
+          sku: r.sku,
+          productName: r.productName,
+          category: r.category,
+          unit: r.unit,
+          unitCost: r.unitCost,
+          bookQty: r.bookQty,
+          countedQty: counted,
+          varianceQty: variance,
+          varianceValue: variance * r.unitCost,
+          varianceReason: finalReason,
+        };
       });
 
-      for (const row of rowsToAdjust) {
-        const c = typeof row.countedQty === 'number' ? row.countedQty : 0;
-        const delta = c - row.bookQty;
-        await onUpdateStockLevel(
-          row.productId,
-          activeBranchId,
-          delta,
-          delta > 0 ? 'PHYSICAL_AUDIT_EXCESS' : 'PHYSICAL_AUDIT_SHORTAGE',
-          `Physical Audit Ref: ${auditRefNumber} - ${row.varianceReason}`
-        );
-      }
+      const auditPayload: Partial<ApprovalRequest> = {
+        type: 'STOCK_AUDIT_RECONCILIATION',
+        targetId: auditRefNumber,
+        customerName: `Physical Stock Audit - ${activeBranch?.name || activeBranchId}`,
+        customerCode: activeBranch?.code || activeBranchId,
+        deviceSerial: auditRefNumber,
+        productName: `Stock Discrepancies (${stats.discrepancyCount} items)`,
+        currentStatus: 'UNRECONCILED_AUDIT',
+        requestedStatus: 'RECONCILED_ADJUSTED',
+        requestedByRole: currentUser?.role || 'BRANCH_MANAGER',
+        requestedByEmail: currentUser?.email || 'user@system.com.np',
+        requestedByName: currentUser?.name || auditorName,
+        branchId: activeBranchId,
+        branchName: activeBranch?.name,
+        reason:
+          approvalNotes.trim() ||
+          `Physical inventory stock count audit completed for ${activeBranch?.name}. Found ${stats.discrepancyCount} discrepancies (Shortage: -${stats.shortageQty}, Excess: +${stats.excessQty}, Net Impact: NPR ${stats.netValueVariance.toLocaleString()}). Requesting authorization to adjust physical inventory book balances.`,
+        auditData: {
+          auditRefNumber,
+          branchId: activeBranchId,
+          branchName: activeBranch?.name || activeBranchId,
+          totalItems: stats.totalItems,
+          discrepancyCount: stats.discrepancyCount,
+          shortageQty: stats.shortageQty,
+          excessQty: stats.excessQty,
+          shortageValue: stats.shortageValue,
+          excessValue: stats.excessValue,
+          netValueVariance: stats.netValueVariance,
+          varianceItems,
+        },
+      };
 
-      setIsReconciled(true);
-      setShowConfirmModal(false);
-    } catch (err) {
-      console.error('Failed to post audit reconciliation:', err);
+      await onRequestApproval(auditPayload);
+      setIsLocallySubmitted(true);
+      setShowApprovalModal(false);
+      setApprovalNotes('');
+      setToastMessage(`Stock Audit #${auditRefNumber} submitted for Authorization. Table is now LOCKED for ${activeBranch?.name} until approved!`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to submit audit approval request:', err);
+      setToastMessage(`Submission failed: ${err.message}`);
+      setTimeout(() => setToastMessage(null), 5000);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleExportCSV = () => {
+  // 2. Super Admin / Stock Manager: DEDICATED APPROVE AND RECONCILE STOCK
+  const handleApproveAndReconcile = async () => {
+    if (!pendingAuditRequest || !onProcessApproval) return;
+    setIsSubmitting(true);
+    try {
+      // Process authorization in Workflow Approval Engine (which executes backend stock reconciliation)
+      await onProcessApproval(pendingAuditRequest.id, 'APPROVED');
+
+      setIsLocallySubmitted(false);
+      setShowApproveReconcileModal(false);
+      setToastMessage(
+        `Stock Audit #${pendingAuditRequest.auditData?.auditRefNumber || auditRefNumber} Authorized & Reconciled! Branch stock updated to physical counts.`
+      );
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to approve and reconcile audit:', err);
+      setToastMessage(`Reconciliation failed: ${err.message || 'Unknown error'}`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 3. Super Admin / Stock Manager: REJECT AUDIT REQUEST (Unlocks table for branch recount)
+  const handleRejectAudit = async () => {
+    if (!pendingAuditRequest || !onProcessApproval) return;
+    setIsSubmitting(true);
+    try {
+      await onProcessApproval(
+        pendingAuditRequest.id,
+        'REJECTED',
+        rejectReason.trim() || 'Physical audit count rejected by Stock Manager. Recount required.'
+      );
+      setShowRejectModal(false);
+      setRejectReason('');
+      setToastMessage(`Audit request rejected. Table unlocked for ${activeBranch?.name} recount.`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to reject audit:', err);
+      setToastMessage(`Rejection failed: ${err.message || 'Unknown error'}`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 4. Super Admin / Stock Manager: Direct Stock Reconcile
+  const handleDirectReconcile = async () => {
+    setIsSubmitting(true);
+    try {
+      const varianceItems = stats.discrepancyRows.map((r) => {
+        const c = typeof r.countedQty === 'number' ? r.countedQty : 0;
+        const delta = c - r.bookQty;
+        const reasonText =
+          r.varianceReason === 'Other / Custom Note...' && r.customReason?.trim()
+            ? r.customReason.trim()
+            : r.varianceReason;
+
+        return {
+          productId: r.productId,
+          sku: r.sku,
+          productName: r.productName,
+          unitCost: r.unitCost,
+          bookQty: r.bookQty,
+          countedQty: c,
+          varianceQty: delta,
+          varianceValue: delta * r.unitCost,
+          varianceReason: reasonText,
+        };
+      });
+
+      if (onReconcileStockAudit) {
+        await onReconcileStockAudit({
+          branchId: activeBranchId,
+          auditRefNumber,
+          varianceItems,
+          auditorName: currentUser?.name || auditorName,
+          userEmail: currentUser?.email,
+          notes: `Direct Physical Stock Audit Reconciliation for ${activeBranch?.name}`,
+        });
+      } else if (onUpdateStockLevel) {
+        for (const row of stats.discrepancyRows) {
+          const c = typeof row.countedQty === 'number' ? row.countedQty : 0;
+          const delta = c - row.bookQty;
+          const stockItem = stock.find((s) => s.productId === row.productId && s.branchId === activeBranchId);
+          if (stockItem) {
+            await onUpdateStockLevel(
+              stockItem.id,
+              c,
+              `Direct Physical Audit Ref: ${auditRefNumber} - ${row.varianceReason}`,
+              undefined,
+              delta > 0 ? 'PHYSICAL_AUDIT_EXCESS' : 'PHYSICAL_AUDIT_SHORTAGE'
+            );
+          }
+        }
+      }
+
+      setShowDirectReconcileModal(false);
+      setShowApproveReconcileModal(false);
+      setIsLocallySubmitted(false);
+      setToastMessage(`Stock Audit #${auditRefNumber} reconciled successfully! Branch on-hand balances updated.`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to post direct audit reconciliation:', err);
+      setToastMessage(`Reconciliation failed: ${err.message || 'Unknown error'}`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // 5. Export Branch-wise Audit CSV
+  const handleExportBranchCSV = () => {
     const headers = [
+      'Branch Code',
+      'Branch Name',
+      'Audit Ref Number',
+      'Date AD',
+      'Date BS',
+      'Auditor Name',
       'SKU',
       'Barcode',
       'Product Name',
@@ -323,8 +622,12 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       'Physical Counted Qty',
       'Variance Qty',
       'Variance Value (NPR)',
-      'Variance Reason',
+      'Discrepancy Reason',
+      'Custom Notes',
     ];
+
+    const todayAD = new Date().toISOString().split('T')[0];
+    const todayBS = convertADToBS(todayAD).formattedBS;
 
     const csvContent = [
       headers.join(','),
@@ -333,8 +636,14 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         const variance = counted - r.bookQty;
         const value = variance * r.unitCost;
         return [
+          `"${activeBranch?.code || activeBranchId}"`,
+          `"${activeBranch?.name || activeBranchId}"`,
+          `"${auditRefNumber}"`,
+          `"${todayAD}"`,
+          `"${todayBS}"`,
+          `"${auditorName}"`,
           `"${r.sku}"`,
-          `"${r.barcode}"`,
+          `"${r.barcode || ''}"`,
           `"${r.productName.replace(/"/g, '""')}"`,
           `"${r.category}"`,
           `"${r.unit}"`,
@@ -344,6 +653,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           variance,
           value,
           `"${r.varianceReason}"`,
+          `"${(r.customReason || '').replace(/"/g, '""')}"`,
         ].join(',');
       }),
     ].join('\n');
@@ -352,7 +662,148 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `Stock_Audit_${activeBranch?.code || 'HQ'}_${auditRefNumber}.csv`);
+    link.setAttribute('download', `Stock_Audit_${activeBranch?.code || 'BRANCH'}_${auditRefNumber}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // 6. Consolidated Multi-Branch Matrix Data & Export
+  const consolidatedMatrix = useMemo(() => {
+    return products.map((prod) => {
+      let companyTotalBookQty = 0;
+      let companyTotalCountedQty = 0;
+      let companyTotalVarianceQty = 0;
+
+      const branchBreakdowns = branches.map((b) => {
+        const stk = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
+        const bBookQty = stk ? stk.quantityOnHand : 0;
+        const bCountedQty = b.id === activeBranchId
+          ? (typeof auditRows.find((r) => r.productId === prod.id)?.countedQty === 'number'
+              ? (auditRows.find((r) => r.productId === prod.id)?.countedQty as number)
+              : bBookQty)
+          : bBookQty;
+        const bVariance = bCountedQty - bBookQty;
+
+        companyTotalBookQty += bBookQty;
+        companyTotalCountedQty += bCountedQty;
+        companyTotalVarianceQty += bVariance;
+
+        return {
+          branchId: b.id,
+          branchCode: b.code,
+          branchName: b.name,
+          bookQty: bBookQty,
+          countedQty: bCountedQty,
+          variance: bVariance,
+          varianceVal: bVariance * (prod.costPrice || 0),
+        };
+      });
+
+      const totalVarianceVal = companyTotalVarianceQty * (prod.costPrice || 0);
+
+      return {
+        productId: prod.id,
+        sku: prod.sku,
+        barcode: prod.barcode,
+        productName: prod.name,
+        category: prod.category || 'General',
+        unit: prod.unit || 'Pcs',
+        unitCost: prod.costPrice || 0,
+        branches: branchBreakdowns,
+        companyTotalBookQty,
+        companyTotalCountedQty,
+        companyTotalVarianceQty,
+        totalVarianceVal,
+      };
+    });
+  }, [products, branches, stock, activeBranchId, auditRows]);
+
+  const consolidatedSummary = useMemo(() => {
+    let totalBook = 0;
+    let totalCounted = 0;
+    let totalShortage = 0;
+    let totalExcess = 0;
+    let totalShortageVal = 0;
+    let totalExcessVal = 0;
+    let totalDiscrepancies = 0;
+
+    consolidatedMatrix.forEach((m) => {
+      totalBook += m.companyTotalBookQty;
+      totalCounted += m.companyTotalCountedQty;
+      if (m.companyTotalVarianceQty < 0) {
+        totalShortage += Math.abs(m.companyTotalVarianceQty);
+        totalShortageVal += Math.abs(m.companyTotalVarianceQty) * m.unitCost;
+        totalDiscrepancies++;
+      } else if (m.companyTotalVarianceQty > 0) {
+        totalExcess += m.companyTotalVarianceQty;
+        totalExcessVal += m.companyTotalVarianceQty * m.unitCost;
+        totalDiscrepancies++;
+      }
+    });
+
+    return {
+      totalBook,
+      totalCounted,
+      totalShortage,
+      totalExcess,
+      totalShortageVal,
+      totalExcessVal,
+      totalDiscrepancies,
+    };
+  }, [consolidatedMatrix]);
+
+  const handleExportConsolidatedCSV = () => {
+    const branchHeaders = branches.flatMap((b) => [
+      `"${b.name} (${b.code}) Book"`,
+      `"${b.name} (${b.code}) Count"`,
+      `"${b.name} (${b.code}) Diff"`,
+    ]);
+
+    const headers = [
+      'SKU',
+      'Barcode',
+      'Product Name',
+      'Category',
+      'Unit',
+      'Cost (NPR)',
+      ...branchHeaders,
+      'Company Total Book',
+      'Company Total Count',
+      'Net Variance Qty',
+      'Net Variance Value (NPR)',
+    ];
+
+    const csvContent = [
+      headers.join(','),
+      ...consolidatedMatrix.map((m) => {
+        const branchCells = m.branches.flatMap((b) => [
+          b.bookQty,
+          b.countedQty,
+          b.variance,
+        ]);
+
+        return [
+          `"${m.sku}"`,
+          `"${m.barcode || ''}"`,
+          `"${m.productName.replace(/"/g, '""')}"`,
+          `"${m.category}"`,
+          `"${m.unit}"`,
+          m.unitCost,
+          ...branchCells,
+          m.companyTotalBookQty,
+          m.companyTotalCountedQty,
+          m.companyTotalVarianceQty,
+          m.totalVarianceVal,
+        ].join(',');
+      }),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Consolidated_Stock_Audit_All_Branches_${auditRefNumber}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -363,74 +814,300 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   return (
     <div className="space-y-5">
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="p-3.5 rounded-2xl bg-indigo-600 text-white font-bold text-xs flex items-center justify-between shadow-lg animate-fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            <span>{toastMessage}</span>
+          </div>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="p-1 rounded-lg hover:bg-white/20 cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* 1. SUPER ADMIN / STOCK MANAGER RECONCILIATION REVIEW PANEL */}
+      {isReviewMode && pendingAuditRequest && (
+        <div className="p-5 rounded-3xl border-2 border-purple-400 dark:border-purple-600 bg-gradient-to-r from-purple-50 via-indigo-50/50 to-purple-50 dark:from-purple-950/60 dark:via-slate-900 dark:to-purple-950/60 text-purple-950 dark:text-purple-100 shadow-xl space-y-3.5">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-2xl bg-purple-600 text-white shadow-md">
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-extrabold text-base text-purple-900 dark:text-purple-200">
+                    Administrative Review & Reconciliation Mode
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-purple-600 text-white text-[10px] font-mono font-bold uppercase tracking-wider">
+                    REQUEST #{pendingAuditRequest.requestNumber}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-purple-200 dark:bg-purple-900 text-purple-800 dark:text-purple-200 text-[10px] font-bold">
+                    {activeBranch?.name} ({activeBranch?.code})
+                  </span>
+                </div>
+                <p className="text-xs text-purple-800 dark:text-purple-300 leading-relaxed max-w-3xl">
+                  Submitted by <strong>{pendingAuditRequest.requestedByName}</strong> ({pendingAuditRequest.requestedByRole}) for Batch{' '}
+                  <strong className="font-mono">{pendingAuditRequest.auditData?.auditRefNumber || pendingAuditRequest.deviceSerial}</strong>.
+                  Inspect the physical counts and discrepancy reasons below. You may perform fine-tuned adjustments to quantities before executing reconciliation.
+                </p>
+              </div>
+            </div>
+
+            {/* DEDICATED ACTION BUTTONS FOR SUPER ADMIN / STOCK MANAGER */}
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowRejectModal(true)}
+                disabled={isSubmitting}
+                className="px-4 py-2.5 rounded-xl border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-300 font-bold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all"
+                title="Reject audit and unlock table for branch recount"
+              >
+                <XCircle className="h-4 w-4 text-rose-600" />
+                <span>Reject Audit</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowApproveReconcileModal(true)}
+                disabled={isSubmitting}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs shadow-lg shadow-emerald-600/30 flex items-center gap-2 cursor-pointer disabled:opacity-50 transition-all"
+                title="Authorize and Adjust Branch Inventory Stock to Physical Counts"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Approve & Reconcile Stock</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Discrepancy Snapshot Pill */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-purple-200 dark:border-purple-800 text-xs">
+            <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-purple-100 dark:border-purple-900">
+              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-bold block">Discrepancy Items</span>
+              <span className="font-extrabold font-mono text-purple-900 dark:text-purple-100">{stats.discrepancyCount} SKUs</span>
+            </div>
+            <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-rose-200 dark:border-rose-900/40">
+              <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold block">Total Shortage</span>
+              <span className="font-extrabold font-mono text-rose-600">-{stats.shortageQty} Units (-NPR {stats.shortageValue.toLocaleString()})</span>
+            </div>
+            <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-emerald-200 dark:border-emerald-900/40">
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block">Total Excess</span>
+              <span className="font-extrabold font-mono text-emerald-600">+{stats.excessQty} Units (+NPR {stats.excessValue.toLocaleString()})</span>
+            </div>
+            <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-purple-200 dark:border-purple-800">
+              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-bold block">Net Valuation Impact</span>
+              <span className={`font-extrabold font-mono ${stats.netValueVariance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                {stats.netValueVariance >= 0 ? '+' : ''}NPR {stats.netValueVariance.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. TABLE LOCKED BANNER (When Audit is Submitted or Pending) */}
+      {isTableLocked && (
+        <div className="p-4 rounded-2xl border-2 border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-amber-500 text-white shadow-xs shrink-0 mt-0.5">
+              <Lock className="h-5 w-5" />
+            </div>
+            <div className="text-xs space-y-1">
+              <div className="font-extrabold text-sm flex items-center gap-2">
+                <span>
+                  Stock Count Table Locked — Audit Pending Authorization{' '}
+                  {pendingAuditRequest ? `(#${pendingAuditRequest.requestNumber})` : `(#${auditRefNumber})`}
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-100 text-[10px] uppercase font-mono font-bold">
+                  LOCKED
+                </span>
+              </div>
+              <p className="text-amber-800 dark:text-amber-300 leading-relaxed">
+                Physical stock count for <strong>{activeBranch?.name}</strong> was submitted by{' '}
+                <strong>{pendingAuditRequest?.requestedByName || currentUser?.name || auditorName}</strong>{' '}
+                {pendingAuditRequest?.createdAtAD ? `on ${formatDualDate(pendingAuditRequest.createdAtAD, dateMode)}` : ''}.
+                The table is locked from editing until reviewed and authorized by the Super Admin or Stock Manager.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {isManagerOrAdmin && pendingAuditRequest && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowApproveReconcileModal(true)}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Approve & Reconcile Stock</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRejectModal(true)}
+                  className="px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <XCircle className="h-4 w-4" />
+                  <span>Reject</span>
+                </button>
+              </>
+            )}
+            {onNavigateTab && (
+              <button
+                type="button"
+                onClick={() => onNavigateTab('approvals')}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>View Approval Status</span>
+                <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* RECENTLY APPROVED NOTIFICATION */}
+      {recentApprovedAuditRequest && !pendingAuditRequest && (
+        <div className="p-3.5 rounded-2xl border border-emerald-300 dark:border-emerald-700/60 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>
+              Audit Batch <strong>{recentApprovedAuditRequest.auditData?.auditRefNumber}</strong> was authorized & reconciled by <strong>{recentApprovedAuditRequest.processedByName}</strong> on {recentApprovedAuditRequest.processedAtBS || '2083 BS'}. Physical and system stock balances are synchronized.
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* HEADER SECTION */}
       <div
-        className={`p-5 rounded-2xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+        className={`p-5 rounded-3xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
           isDarkMode
             ? 'bg-slate-900/90 border-slate-800 text-slate-100'
             : 'bg-white border-slate-200 text-slate-800 shadow-xs'
         }`}
       >
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-xl bg-indigo-600/10 text-indigo-500 border border-indigo-500/20">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2.5 rounded-2xl bg-indigo-600/10 text-indigo-500 border border-indigo-500/20">
               <ClipboardCheck className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-serif font-bold tracking-tight">
-                Physical Stock Count & Reconciliation Audit
+              <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
+                <span>Physical Stock Count & Reconciliation Audit</span>
+                {isTableLocked && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 text-[10px] font-mono flex items-center gap-1 font-bold">
+                    <Lock className="h-3 w-3" />
+                    <span>LOCKED</span>
+                  </span>
+                )}
+                {isReviewMode && (
+                  <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 text-[10px] font-mono flex items-center gap-1 font-bold">
+                    <ShieldCheck className="h-3 w-3" />
+                    <span>MANAGER REVIEW</span>
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Perform stock counting, record physical discrepancies, and auto-adjust branch inventory balances.
+                Count branch inventory, record discrepancy justifications, and submit for management authorization to reconcile physical stock.
               </p>
             </div>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          {/* Branch Selector */}
+          {/* Branch Selector with Permission Locking */}
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold">
-            <Building className="h-3.5 w-3.5 text-indigo-500" />
+            <Building className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
             <span className="text-slate-500 dark:text-slate-400">Location:</span>
-            <select
-              value={activeBranchId}
-              onChange={(e) => setActiveBranchId(e.target.value)}
-              className="bg-transparent font-bold text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer"
-            >
-              {branches.map((b) => (
-                <option key={b.id} value={b.id} className="dark:bg-slate-900">
-                  {b.name} ({b.code})
-                </option>
-              ))}
-            </select>
+            {isBranchLockedForUser ? (
+              <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                <span>{activeBranch?.name}</span>
+                <span className="text-[10px] text-indigo-600 dark:text-indigo-400">({activeBranch?.code})</span>
+              </span>
+            ) : (
+              <select
+                value={activeBranchId}
+                onChange={(e) => setActiveBranchId(e.target.value)}
+                className="bg-transparent font-bold text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer"
+              >
+                {allowedBranches.map((b) => (
+                  <option key={b.id} value={b.id} className="dark:bg-slate-900">
+                    {b.name} ({b.code})
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
+          {/* Consolidated Report Modal Button */}
           <button
-            onClick={handleExportCSV}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+            type="button"
+            onClick={() => setShowConsolidatedModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 hover:bg-indigo-100 text-xs font-bold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer"
+            title="Open Consolidated Multi-Branch Stock Audit Report"
           >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
-            <span>Export Audit CSV</span>
+            <TableProperties className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+            <span>Consolidated Matrix</span>
           </button>
 
-          {!isReconciled ? (
+          {/* Export Branch CSV */}
+          <button
+            type="button"
+            onClick={handleExportBranchCSV}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+            title="Download Branch Audit CSV Report"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
+            <span>Export Branch CSV</span>
+          </button>
+
+          {/* PRIMARY WORKFLOW BUTTON: SUBMIT FOR APPROVAL REPORT */}
+          {!pendingAuditRequest && !isLocallySubmitted && (
             <button
-              onClick={() => setShowConfirmModal(true)}
-              disabled={stats.discrepancyCount === 0}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all cursor-pointer ${
-                stats.discrepancyCount > 0
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600'
+              type="button"
+              id="btn-submit-stock-audit-approval"
+              onClick={() => setShowApprovalModal(true)}
+              disabled={stats.discrepancyCount === 0 || isTableLocked}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-md transition-all cursor-pointer ${
+                stats.discrepancyCount > 0 && !isTableLocked
+                  ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 hover:from-indigo-500 hover:to-indigo-600 ring-2 ring-indigo-500/20 active:scale-95'
                   : 'bg-slate-400 dark:bg-slate-800 text-slate-200 cursor-not-allowed opacity-60'
               }`}
+              title={
+                stats.discrepancyCount === 0
+                  ? 'No stock count discrepancies to submit'
+                  : 'Submit Physical Stock Count Audit Report for Authorization & Lock Table'
+              }
             >
-              <Save className="h-4 w-4" />
-              <span>Reconcile Stock ({stats.discrepancyCount})</span>
+              <Send className="h-4 w-4 shrink-0" />
+              <span>Submit for Approval Report {stats.discrepancyCount > 0 ? `(${stats.discrepancyCount})` : ''}</span>
             </button>
-          ) : (
-            <div className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
+          )}
+
+          {/* Super Admin / Stock Manager: DEDICATED APPROVE & RECONCILE ACTION */}
+          {isManagerOrAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                if (pendingAuditRequest) {
+                  setShowApproveReconcileModal(true);
+                } else {
+                  setShowApproveReconcileModal(true);
+                }
+              }}
+              disabled={stats.discrepancyCount === 0 && !pendingAuditRequest}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-white font-extrabold text-xs shadow-md cursor-pointer transition-all ${
+                stats.discrepancyCount > 0 || pendingAuditRequest
+                  ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 active:scale-95'
+                  : 'bg-slate-400 dark:bg-slate-800 text-slate-200 cursor-not-allowed opacity-60'
+              }`}
+              title="Super Admin / Stock Manager: Authorize & Reconcile Physical Counts with Ledger"
+            >
               <CheckCircle2 className="h-4 w-4" />
-              <span>Audit Reconciled & Posted</span>
-            </div>
+              <span>Approve & Reconcile Stock</span>
+            </button>
           )}
         </div>
       </div>
@@ -449,128 +1126,129 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           <p className="text-xl font-extrabold font-mono mt-1 text-slate-900 dark:text-slate-100">
             {stats.totalItems}
           </p>
-          <p className="text-[10px] text-slate-500 mt-0.5">
-            System Qty: <span className="font-bold">{stats.totalBookQty.toLocaleString()}</span> {auditRows[0]?.unit || 'Pcs'}
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            Counted: {stats.countedItems} / {stats.totalItems}
           </p>
         </div>
 
-        {/* Card 2: Shortage Stock */}
-        <div
-          className={`p-4 rounded-2xl border ${
-            stats.shortageQty > 0
-              ? isDarkMode
-                ? 'bg-rose-950/20 border-rose-900/40'
-                : 'bg-rose-50/80 border-rose-200'
-              : isDarkMode
-              ? 'bg-slate-900/60 border-slate-800'
-              : 'bg-white border-slate-200 shadow-xs'
-          }`}
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center justify-between">
-            <span>Stock Shortage</span>
-            <AlertTriangle className="h-3.5 w-3.5" />
-          </p>
-          <p className="text-xl font-extrabold font-mono mt-1 text-rose-600 dark:text-rose-400">
-            -{stats.shortageQty.toLocaleString()}
-          </p>
-          <p className="text-[10px] text-rose-600/80 dark:text-rose-400/80 mt-0.5 font-mono">
-            Value Loss: -NPR {stats.shortageValue.toLocaleString()}
-          </p>
-        </div>
-
-        {/* Card 3: Surplus / Excess Stock */}
-        <div
-          className={`p-4 rounded-2xl border ${
-            stats.excessQty > 0
-              ? isDarkMode
-                ? 'bg-emerald-950/20 border-emerald-900/40'
-                : 'bg-emerald-50/80 border-emerald-200'
-              : isDarkMode
-              ? 'bg-slate-900/60 border-slate-800'
-              : 'bg-white border-slate-200 shadow-xs'
-          }`}
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center justify-between">
-            <span>Stock Excess</span>
-            <CheckCircle2 className="h-3.5 w-3.5" />
-          </p>
-          <p className="text-xl font-extrabold font-mono mt-1 text-emerald-600 dark:text-emerald-400">
-            +{stats.excessQty.toLocaleString()}
-          </p>
-          <p className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 mt-0.5 font-mono">
-            Value Surplus: +NPR {stats.excessValue.toLocaleString()}
-          </p>
-        </div>
-
-        {/* Card 4: Net Financial Variance */}
+        {/* Card 2: Book System Qty */}
         <div
           className={`p-4 rounded-2xl border ${
             isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
           }`}
         >
           <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Net Variance Value
+            Book System Qty
+          </p>
+          <p className="text-xl font-extrabold font-mono mt-1 text-slate-700 dark:text-slate-300">
+            {stats.totalBookQty.toLocaleString()}
+          </p>
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            Physical: {stats.totalCountedQty.toLocaleString()}
+          </p>
+        </div>
+
+        {/* Card 3: Shortage (-) */}
+        <div
+          className={`p-4 rounded-2xl border ${
+            stats.shortageQty > 0
+              ? 'bg-rose-50/70 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900/50 text-rose-950 dark:text-rose-100'
+              : isDarkMode
+              ? 'bg-slate-900/60 border-slate-800'
+              : 'bg-white border-slate-200 shadow-xs'
+          }`}
+        >
+          <p className="text-[11px] font-bold uppercase tracking-wider text-rose-500 flex items-center gap-1">
+            <TrendingDown className="h-3 w-3" />
+            <span>Shortage (-)</span>
+          </p>
+          <p className="text-xl font-extrabold font-mono mt-1 text-rose-600 dark:text-rose-400">
+            -{stats.shortageQty.toLocaleString()}
+          </p>
+          <p className="text-[10px] text-rose-500/80 font-mono mt-0.5">
+            -NPR {stats.shortageValue.toLocaleString()}
+          </p>
+        </div>
+
+        {/* Card 4: Excess (+) */}
+        <div
+          className={`p-4 rounded-2xl border ${
+            stats.excessQty > 0
+              ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/50 text-emerald-950 dark:text-emerald-100'
+              : isDarkMode
+              ? 'bg-slate-900/60 border-slate-800'
+              : 'bg-white border-slate-200 shadow-xs'
+          }`}
+        >
+          <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 flex items-center gap-1">
+            <TrendingUp className="h-3 w-3" />
+            <span>Excess / Surplus (+)</span>
+          </p>
+          <p className="text-xl font-extrabold font-mono mt-1 text-emerald-600 dark:text-emerald-400">
+            +{stats.excessQty.toLocaleString()}
+          </p>
+          <p className="text-[10px] text-emerald-600/80 font-mono mt-0.5">
+            +NPR {stats.excessValue.toLocaleString()}
+          </p>
+        </div>
+
+        {/* Card 5: Net Value Impact */}
+        <div
+          className={`p-4 rounded-2xl border ${
+            stats.netValueVariance !== 0
+              ? stats.netValueVariance < 0
+                ? 'bg-rose-500/10 border-rose-500/30 text-rose-900 dark:text-rose-100'
+                : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-900 dark:text-emerald-100'
+              : isDarkMode
+              ? 'bg-slate-900/60 border-slate-800'
+              : 'bg-white border-slate-200 shadow-xs'
+          }`}
+        >
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            Net Value Impact
           </p>
           <p
             className={`text-xl font-extrabold font-mono mt-1 ${
               stats.netValueVariance < 0
-                ? 'text-rose-500'
+                ? 'text-rose-600'
                 : stats.netValueVariance > 0
-                ? 'text-emerald-500'
-                : 'text-slate-700 dark:text-slate-300'
+                ? 'text-emerald-600'
+                : 'text-slate-500'
             }`}
           >
             {stats.netValueVariance >= 0 ? '+' : ''}NPR {stats.netValueVariance.toLocaleString()}
           </p>
-          <p className="text-[10px] text-slate-500 mt-0.5">
-            Discrepancies: <span className="font-bold text-amber-500">{stats.discrepancyCount} items</span>
-          </p>
-        </div>
-
-        {/* Card 5: Audit Batch Meta */}
-        <div
-          className={`p-4 rounded-2xl border ${
-            isDarkMode ? 'bg-indigo-950/20 border-indigo-900/40' : 'bg-indigo-50/50 border-indigo-200 shadow-xs'
-          }`}
-        >
-          <p className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-            Audit Session
-          </p>
-          <p className="text-xs font-mono font-extrabold text-indigo-700 dark:text-indigo-300 mt-1">
-            {auditRefNumber}
-          </p>
-          <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-            {dateMode === 'BS' ? `BS Date: ${todayBS}` : `AD Date: ${todayAD}`}
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            Discrepancies: {stats.discrepancyCount} items
           </p>
         </div>
       </div>
 
-      {/* TOOLBAR & CONTROLS */}
+      {/* FILTER & SEARCH TOOLBAR */}
       <div
-        className={`p-3.5 rounded-2xl border space-y-3 ${
+        className={`p-4 rounded-2xl border ${
           isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
         }`}
       >
-        <div className="flex flex-col md:flex-row items-center justify-between gap-3">
-          {/* Search Box */}
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          {/* Search Input */}
+          <div className="relative flex-1">
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search SKU, barcode, name..."
+              placeholder="Search by SKU, Barcode, Product Name..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full pl-9 pr-4 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
 
-          {/* Filters & Bulk Quick Actions */}
-          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-            {/* Category Select */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Category Filter */}
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none cursor-pointer"
+              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none cursor-pointer"
             >
               <option value="ALL">All Categories</option>
               {categories.map((c) => (
@@ -584,66 +1262,60 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             <select
               value={filterVariance}
               onChange={(e) => setFilterVariance(e.target.value as any)}
-              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none cursor-pointer"
+              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none cursor-pointer"
             >
-              <option value="ALL">All Stock Rows</option>
-              <option value="DISCREPANCY">Discrepancies Only</option>
-              <option value="MATCHED">Matched Only</option>
-              <option value="SHORTAGE">Shortage (-)</option>
-              <option value="EXCESS">Excess (+)</option>
+              <option value="ALL">All Stock Rows ({auditRows.length})</option>
+              <option value="DISCREPANCY">Discrepancies Only ({stats.discrepancyCount})</option>
+              <option value="MATCHED">Matched Only ({auditRows.length - stats.discrepancyCount})</option>
+              <option value="SHORTAGE">Shortages (-) ({stats.discrepancyRows.filter((r) => ((r.countedQty as number) - r.bookQty) < 0).length})</option>
+              <option value="EXCESS">Excess (+) ({stats.discrepancyRows.filter((r) => ((r.countedQty as number) - r.bookQty) > 0).length})</option>
             </select>
 
-            <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800 mx-1 hidden sm:block" />
+            <div className="h-5 w-[1px] bg-slate-200 dark:bg-slate-800 mx-1 hidden sm:block" />
 
             {/* Bulk Quick Fill buttons */}
             <button
-              onClick={handleSetMatchAll}
-              className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
-              title="Set physical count equal to book count for all"
-            >
-              Match All System Qty
-            </button>
-            <button
+              type="button"
               onClick={handleSetZeroAll}
-              className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-rose-600 dark:text-rose-400 transition-colors cursor-pointer"
-              title="Zero out physical counts"
+              disabled={isTableLocked}
+              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-bold text-rose-600 dark:text-rose-400 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Zero out all physical counts for fresh manual stock count"
             >
-              Zero All
+              Zero All Counts
             </button>
           </div>
         </div>
       </div>
 
-      {/* TABLE DATA GRID */}
+      {/* REDESIGNED AUDIT DATA TABLE */}
       <div
-        className={`rounded-2xl border overflow-hidden ${
-          isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+        className={`rounded-3xl border overflow-hidden ${
+          isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
         }`}
       >
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-xs border-collapse">
             <thead
               className={`font-bold uppercase text-[10px] tracking-wider border-b ${
                 isDarkMode ? 'bg-slate-800/80 border-slate-700 text-slate-300' : 'bg-slate-100/90 border-slate-200 text-slate-700'
               }`}
             >
               <tr>
-                <th className="p-3">SKU / Barcode</th>
-                <th className="p-3">Product Name & Category</th>
-                <th className="p-3 text-right">Unit Cost</th>
-                <th className="p-3 text-center">Book Qty</th>
-                <th className="p-3 text-center w-36">Physical Counted Qty</th>
-                <th className="p-3 text-center">Variance</th>
-                <th className="p-3 text-right">Variance Value</th>
-                <th className="p-3">Discrepancy Reason</th>
-                <th className="p-3 text-center">Actions</th>
+                <th className="p-3.5">SKU / Barcode</th>
+                <th className="p-3.5">Product Name & Category</th>
+                <th className="p-3.5 text-right">Unit Cost</th>
+                <th className="p-3.5 text-center">Book System Qty</th>
+                <th className="p-3.5 text-center w-40">Physical Stock Count</th>
+                <th className="p-3.5 text-center">Variance</th>
+                <th className="p-3.5 text-right">Variance Value</th>
+                <th className="p-3.5 min-w-[220px]">Reason for Discrepancy</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-slate-400">
-                    No audit records match the current search/filter criteria.
+                  <td colSpan={8} className="p-12 text-center text-slate-400">
+                    No stock audit records match the current filter or search criteria.
                   </td>
                 </tr>
               ) : (
@@ -651,26 +1323,27 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                   const counted = typeof row.countedQty === 'number' ? row.countedQty : 0;
                   const variance = counted - row.bookQty;
                   const varianceVal = variance * row.unitCost;
+                  const isCustomReason = row.varianceReason === 'Other / Custom Note...';
 
                   return (
                     <tr
                       key={row.productId}
-                      className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors ${
+                      className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors ${
                         variance !== 0
                           ? variance < 0
-                            ? 'bg-rose-500/5'
-                            : 'bg-emerald-500/5'
+                            ? 'bg-rose-500/5 dark:bg-rose-950/20'
+                            : 'bg-emerald-500/5 dark:bg-emerald-950/20'
                           : ''
                       }`}
                     >
                       {/* SKU & Barcode */}
-                      <td className="p-3 font-mono font-medium">
+                      <td className="p-3.5 font-mono font-medium">
                         <div className="font-bold text-slate-900 dark:text-slate-100">{row.sku}</div>
-                        <div className="text-[10px] text-slate-400">{row.barcode}</div>
+                        <div className="text-[10px] text-slate-400">{row.barcode || '—'}</div>
                       </td>
 
-                      {/* Name & Category */}
-                      <td className="p-3">
+                      {/* Product Name & Category */}
+                      <td className="p-3.5">
                         <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                           <span>{row.productName}</span>
                           {row.requiresSerialTracking && (
@@ -683,70 +1356,79 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       </td>
 
                       {/* Unit Cost */}
-                      <td className="p-3 text-right font-mono text-slate-600 dark:text-slate-400">
+                      <td className="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400">
                         NPR {row.unitCost.toLocaleString()}
                       </td>
 
                       {/* Book System Qty */}
-                      <td className="p-3 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
-                        {row.bookQty} <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
+                      <td className="p-3.5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
+                        <span className="text-sm">{row.bookQty}</span>{' '}
+                        <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
                       </td>
 
-                      {/* Physical Input */}
-                      <td className="p-3 text-center">
+                      {/* Physical Stock Count Input */}
+                      <td className="p-3.5 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
+                            type="button"
                             onClick={() => handleQuickAdjust(row.productId, -1)}
-                            className="p-1 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
-                            title="Decrease 1"
+                            disabled={isTableLocked}
+                            className="p-1 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Decrease Count (-1)"
                           >
-                            <Minus className="h-3 w-3" />
+                            <Minus className="h-3.5 w-3.5" />
                           </button>
                           <input
                             type="number"
                             min="0"
+                            disabled={isTableLocked}
                             value={row.countedQty}
                             onChange={(e) => handleCountChange(row.productId, e.target.value)}
-                            className={`w-16 text-center font-mono font-bold py-1 px-1.5 text-xs rounded-lg border focus:outline-none focus:ring-2 ${
+                            className={`w-18 text-center font-mono font-bold py-1.5 px-2 text-xs rounded-xl border focus:outline-none focus:ring-2 disabled:opacity-75 disabled:cursor-not-allowed ${
                               variance < 0
-                                ? 'border-rose-400 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'
+                                ? 'border-rose-400 bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 focus:ring-rose-400'
                                 : variance > 0
-                                ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
-                                : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100'
+                                ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 focus:ring-emerald-400'
+                                : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-indigo-500'
                             }`}
                           />
                           <button
+                            type="button"
                             onClick={() => handleQuickAdjust(row.productId, 1)}
-                            className="p-1 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
-                            title="Increase 1"
+                            disabled={isTableLocked}
+                            className="p-1 rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Increase Count (+1)"
                           >
-                            <Plus className="h-3 w-3" />
+                            <Plus className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       </td>
 
                       {/* Variance Qty */}
-                      <td className="p-3 text-center font-mono font-extrabold">
+                      <td className="p-3.5 text-center font-mono font-extrabold">
                         {variance === 0 ? (
-                          <span className="text-slate-400 font-medium">0</span>
+                          <span className="inline-flex items-center gap-1 text-slate-400 font-medium">
+                            <Check className="h-3 w-3 text-emerald-500" />
+                            <span>0</span>
+                          </span>
                         ) : variance < 0 ? (
-                          <span className="px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                            {variance}
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                            <span>{variance}</span>
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                            +{variance}
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                            <span>+{variance}</span>
                           </span>
                         )}
                       </td>
 
                       {/* Variance Value */}
                       <td
-                        className={`p-3 text-right font-mono font-bold ${
+                        className={`p-3.5 text-right font-mono font-bold ${
                           variance < 0
-                            ? 'text-rose-500'
+                            ? 'text-rose-600 dark:text-rose-400'
                             : variance > 0
-                            ? 'text-emerald-500'
+                            ? 'text-emerald-600 dark:text-emerald-400'
                             : 'text-slate-400 font-normal'
                         }`}
                       >
@@ -755,20 +1437,13 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                           : `${varianceVal > 0 ? '+' : ''}NPR ${varianceVal.toLocaleString()}`}
                       </td>
 
-                      {/* Variance Reason */}
-                      <td className="p-3">
+                      {/* Discrepancy Reason Input & Selection */}
+                      <td className="p-3.5 space-y-1">
                         <select
                           value={row.varianceReason}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setAuditRows((prev) =>
-                              prev.map((r) =>
-                                r.productId === row.productId ? { ...r, varianceReason: val } : r
-                              )
-                            );
-                          }}
-                          disabled={variance === 0}
-                          className={`w-full py-1 px-2 text-[11px] rounded-lg border bg-transparent focus:outline-none ${
+                          onChange={(e) => handleReasonChange(row.productId, e.target.value)}
+                          disabled={variance === 0 || isTableLocked}
+                          className={`w-full py-1.5 px-2.5 text-xs rounded-xl border bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:cursor-not-allowed ${
                             variance === 0
                               ? 'border-transparent text-slate-400 opacity-60 cursor-not-allowed'
                               : 'border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200'
@@ -778,20 +1453,23 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                           <option value="Shrinkage / Missing Stock">Shrinkage / Missing Stock</option>
                           <option value="Damaged Stock Discarded">Damaged Stock Discarded</option>
                           <option value="Unrecorded Return / Surplus">Unrecorded Return / Surplus</option>
+                          <option value="Customer Device Return Unbooked">Customer Device Return Unbooked</option>
                           <option value="Data Entry Miscount">Data Entry Miscount</option>
                           <option value="Misplaced Location">Misplaced Location</option>
+                          <option value="Other / Custom Note...">Other / Custom Note...</option>
                         </select>
-                      </td>
 
-                      {/* Row Quick Action */}
-                      <td className="p-3 text-center">
-                        <button
-                          onClick={() => handleCountChange(row.productId, String(row.bookQty))}
-                          className="px-2 py-1 rounded-md text-[10px] font-bold border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400"
-                          title="Reset to Book Qty"
-                        >
-                          Match
-                        </button>
+                        {/* Custom Reason Field if Other / Custom Note is selected */}
+                        {isCustomReason && variance !== 0 && (
+                          <input
+                            type="text"
+                            placeholder="Enter specific discrepancy reason..."
+                            disabled={isTableLocked}
+                            value={row.customReason || ''}
+                            onChange={(e) => handleCustomReasonChange(row.productId, e.target.value)}
+                            className="w-full py-1 px-2 text-[11px] rounded-lg border border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          />
+                        )}
                       </td>
                     </tr>
                   );
@@ -802,106 +1480,614 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         </div>
       </div>
 
-      {/* CONFIRMATION RECONCILIATION MODAL */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+      {/* MODAL 1: SUBMIT STOCK AUDIT FOR APPROVAL (Workflow: Count Stock > Send Request for approval) */}
+      {showApprovalModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
           <div
-            className={`w-full max-w-xl rounded-2xl p-6 border shadow-2xl space-y-5 ${
+            className={`w-full max-w-2xl rounded-3xl p-6 border shadow-2xl space-y-5 ${
+              isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-600 text-white">
+                  <Send className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base">Submit Physical Stock Audit for Authorization</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Location: <strong>{activeBranch?.name}</strong> • Batch <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">#{auditRefNumber}</span>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowApprovalModal(false)}
+                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-300 flex items-start gap-2.5">
+              <Lock className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <span>
+                <strong>Important:</strong> Submitting this stock audit will create an official request in the <strong>Workflow Approval Center</strong> and <strong>LOCK</strong> this branch's stock count table until authorized by the Super Admin or Stock Manager.
+              </span>
+            </div>
+
+            {/* Audit Summary Grid */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border text-xs">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Audited</span>
+                <span className="font-extrabold text-base text-slate-800 dark:text-slate-200">{stats.totalItems} SKUs</span>
+                <span className="text-[10px] text-slate-400 block">Discrepancies: {stats.discrepancyCount}</span>
+              </div>
+              <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-xs">
+                <span className="text-[10px] uppercase font-bold text-rose-500 block">Shortages (-)</span>
+                <span className="font-extrabold text-base text-rose-600 font-mono">-{stats.shortageQty} Units</span>
+                <span className="text-[10px] text-rose-500 block font-mono">-NPR {stats.shortageValue.toLocaleString()}</span>
+              </div>
+              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-xs">
+                <span className="text-[10px] uppercase font-bold text-emerald-500 block">Excess (+)</span>
+                <span className="font-extrabold text-base text-emerald-600 font-mono">+{stats.excessQty} Units</span>
+                <span className="text-[10px] text-emerald-500 block font-mono">+NPR {stats.excessValue.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Discrepancy Breakdown Table */}
+            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden max-h-48 overflow-y-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-100 dark:bg-slate-800/80 text-[10px] uppercase font-bold text-slate-600 dark:text-slate-400">
+                  <tr>
+                    <th className="p-2.5">SKU / Item</th>
+                    <th className="p-2.5 text-center">Book</th>
+                    <th className="p-2.5 text-center">Count</th>
+                    <th className="p-2.5 text-center">Variance</th>
+                    <th className="p-2.5 text-right">Value (NPR)</th>
+                    <th className="p-2.5">Reason for Discrepancy</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                  {stats.discrepancyRows.map((r) => {
+                    const c = typeof r.countedQty === 'number' ? r.countedQty : 0;
+                    const delta = c - r.bookQty;
+                    const val = delta * r.unitCost;
+                    const reason = r.varianceReason === 'Other / Custom Note...' && r.customReason
+                      ? r.customReason
+                      : r.varianceReason;
+
+                    return (
+                      <tr key={r.productId}>
+                        <td className="p-2.5 font-sans">
+                          <div className="font-bold font-mono text-slate-900 dark:text-slate-100">{r.sku}</div>
+                          <div className="text-[10px] text-slate-500 truncate max-w-[140px]">{r.productName}</div>
+                        </td>
+                        <td className="p-2.5 text-center text-slate-600 dark:text-slate-400">{r.bookQty}</td>
+                        <td className="p-2.5 text-center font-bold text-slate-900 dark:text-slate-100">{c}</td>
+                        <td
+                          className={`p-2.5 text-center font-extrabold ${
+                            delta < 0 ? 'text-rose-500' : 'text-emerald-500'
+                          }`}
+                        >
+                          {delta > 0 ? `+${delta}` : delta}
+                        </td>
+                        <td
+                          className={`p-2.5 text-right font-bold ${
+                            val < 0 ? 'text-rose-500' : 'text-emerald-500'
+                          }`}
+                        >
+                          {val.toLocaleString()}
+                        </td>
+                        <td className="p-2.5 text-[11px] font-sans text-slate-600 dark:text-slate-300 truncate max-w-[150px]">
+                          {reason}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Notes / Reason for Approver */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                Auditor Statement & Notes for Super Admin / Stock Manager:
+              </label>
+              <textarea
+                rows={2}
+                value={approvalNotes}
+                onChange={(e) => setApprovalNotes(e.target.value)}
+                placeholder="e.g. Completed periodic physical stock verification. Minor shrinkage in patch cables; router CPE models matched ledger perfectly."
+                className="w-full text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 font-semibold">
+              <span>Net Financial Impact:</span>
+              <span className="font-extrabold font-mono text-sm">
+                {stats.netValueVariance >= 0 ? '+' : ''}NPR {stats.netValueVariance.toLocaleString()}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowApprovalModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitForApproval}
+                disabled={isSubmitting}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>Submitting & Locking Table...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4" />
+                    <span>Submit & Lock Stock Count</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: DEDICATED APPROVE AND RECONCILE CONFIRMATION (For Super Admin / Stock Manager) */}
+      {showApproveReconcileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+          <div
+            className={`w-full max-w-2xl rounded-3xl p-6 border shadow-2xl space-y-5 ${
+              isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-2xl bg-emerald-600 text-white shadow-md">
+                  <CheckCircle2 className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900 dark:text-slate-100">
+                    Approve & Reconcile Physical Stock
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Audit Batch <span className="font-mono font-bold text-purple-600">#{pendingAuditRequest?.auditData?.auditRefNumber || auditRefNumber}</span> for <strong>{activeBranch?.name}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowApproveReconcileModal(false)}
+                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 space-y-1">
+              <p className="font-bold flex items-center gap-1.5">
+                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                <span>Executive Stock Adjustment Authorization</span>
+              </p>
+              <p className="leading-relaxed">
+                Confirming authorization will {pendingAuditRequest ? `approve Approval Request #${pendingAuditRequest.requestNumber} and ` : ''}adjust branch inventory on-hand balances for all <strong>{stats.discrepancyCount} discrepancy SKUs</strong> to the physical counts, unlock the audit table, and write official transaction records to the permanent audit trail.
+              </p>
+            </div>
+
+            {/* List of items to be adjusted */}
+            <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden max-h-52 overflow-y-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-100 dark:bg-slate-800/80 text-[10px] uppercase font-bold text-slate-600 dark:text-slate-400">
+                  <tr>
+                    <th className="p-2.5">SKU / Item</th>
+                    <th className="p-2.5 text-center">System Book</th>
+                    <th className="p-2.5 text-center">Audited Count</th>
+                    <th className="p-2.5 text-center">Stock Adjustment</th>
+                    <th className="p-2.5 text-right">Net Impact (NPR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                  {stats.discrepancyRows.map((r) => {
+                    const c = typeof r.countedQty === 'number' ? r.countedQty : 0;
+                    const delta = c - r.bookQty;
+                    const val = delta * r.unitCost;
+
+                    return (
+                      <tr key={r.productId}>
+                        <td className="p-2.5 font-sans">
+                          <div className="font-bold font-mono text-slate-900 dark:text-slate-100">{r.sku}</div>
+                          <div className="text-[10px] text-slate-500 truncate max-w-[150px]">{r.productName}</div>
+                        </td>
+                        <td className="p-2.5 text-center text-slate-600 dark:text-slate-400">{r.bookQty}</td>
+                        <td className="p-2.5 text-center font-bold text-slate-900 dark:text-slate-100">{c}</td>
+                        <td
+                          className={`p-2.5 text-center font-extrabold ${
+                            delta < 0 ? 'text-rose-500' : 'text-emerald-500'
+                          }`}
+                        >
+                          {delta > 0 ? `+${delta} (EXCESS)` : `${delta} (SHORTAGE)`}
+                        </td>
+                        <td
+                          className={`p-2.5 text-right font-bold ${
+                            val < 0 ? 'text-rose-500' : 'text-emerald-500'
+                          }`}
+                        >
+                          {val.toLocaleString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold">
+              <span>Total Financial Adjustment:</span>
+              <span className="font-extrabold font-mono text-sm text-slate-900 dark:text-slate-100">
+                {stats.netValueVariance >= 0 ? '+' : ''}NPR {stats.netValueVariance.toLocaleString()}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowApproveReconcileModal(false)}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={pendingAuditRequest ? handleApproveAndReconcile : handleDirectReconcile}
+                disabled={isSubmitting}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-600/30 transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>Executing Reconciliation...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>Confirm Approve & Reconcile</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: REJECT AUDIT REQUEST MODAL */}
+      {showRejectModal && pendingAuditRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+          <div
+            className={`w-full max-w-md rounded-3xl p-6 border shadow-2xl space-y-4 ${
+              isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center gap-2.5 text-rose-600 font-extrabold text-base">
+              <XCircle className="h-5 w-5" />
+              <span>Reject Stock Audit Request</span>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Rejecting this request will unlock the stock count table for <strong>{activeBranch?.name}</strong> so that branch staff can perform a recount.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                Reason for Rejection / Recount Instructions:
+              </label>
+              <textarea
+                rows={3}
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="e.g. Discrepancies exceed threshold; please recount warehouse bay 2 and verify unboxed returns before re-submitting."
+                className="w-full text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-2.5 focus:outline-none focus:ring-2 focus:ring-rose-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowRejectModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRejectAudit}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 shadow-md cursor-pointer disabled:opacity-50"
+              >
+                {isSubmitting ? 'Rejecting...' : 'Confirm Rejection'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: DIRECT RECONCILE (ADMIN DIRECT OVERRIDE) */}
+      {showDirectReconcileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+          <div
+            className={`w-full max-w-xl rounded-3xl p-6 border shadow-2xl space-y-5 ${
               isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
             }`}
           >
             <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="h-5 w-5 text-amber-500" />
-                <h3 className="font-bold text-base">Confirm Stock Reconciliation & Adjustment</h3>
+                <h3 className="font-bold text-base">Direct Stock Reconcile (Admin Direct Override)</h3>
               </div>
               <button
-                onClick={() => setShowConfirmModal(false)}
-                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400"
+                type="button"
+                onClick={() => setShowDirectReconcileModal(false)}
+                className="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              You are about to finalize Physical Audit batch <strong className="text-indigo-500 font-mono">{auditRefNumber}</strong> for location <strong className="text-slate-800 dark:text-slate-200">{activeBranch?.name}</strong>.
-              This will write system stock adjustment transactions for all variance items.
+              As an Administrator, you can directly post stock adjustments for batch <strong className="text-indigo-500 font-mono">{auditRefNumber}</strong> at <strong>{activeBranch?.name}</strong>.
+              This will update on-hand stock quantities immediately.
             </p>
 
-            {/* Discrepancy Breakdown Table */}
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-100 dark:bg-slate-800/80 text-[10px] uppercase font-bold text-slate-500">
-                  <tr>
-                    <th className="p-2">Item SKU</th>
-                    <th className="p-2">Book Qty</th>
-                    <th className="p-2">Counted</th>
-                    <th className="p-2 text-right">Adjustment Delta</th>
-                    <th className="p-2 text-right">Value Loss/Surplus</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
-                  {auditRows
-                    .filter((r) => {
-                      const c = typeof r.countedQty === 'number' ? r.countedQty : 0;
-                      return c !== r.bookQty;
-                    })
-                    .map((r) => {
-                      const c = typeof r.countedQty === 'number' ? r.countedQty : 0;
-                      const delta = c - r.bookQty;
-                      const val = delta * r.unitCost;
-
-                      return (
-                        <tr key={r.productId}>
-                          <td className="p-2 font-bold">{r.sku}</td>
-                          <td className="p-2">{r.bookQty}</td>
-                          <td className="p-2">{c}</td>
-                          <td
-                            className={`p-2 text-right font-extrabold ${
-                              delta < 0 ? 'text-rose-500' : 'text-emerald-500'
-                            }`}
-                          >
-                            {delta > 0 ? `+${delta}` : delta}
-                          </td>
-                          <td
-                            className={`p-2 text-right font-bold ${
-                              val < 0 ? 'text-rose-500' : 'text-emerald-500'
-                            }`}
-                          >
-                            NPR {val.toLocaleString()}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex items-center justify-between p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300">
+            <div className="flex items-center justify-between p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300">
               <span>Total Discrepancies: <strong>{stats.discrepancyCount} items</strong></span>
               <span>Net Financial Impact: <strong>NPR {stats.netValueVariance.toLocaleString()}</strong></span>
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
-                onClick={() => setShowConfirmModal(false)}
+                type="button"
+                onClick={() => setShowDirectReconcileModal(false)}
                 className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
-                onClick={handlePostReconciliation}
+                type="button"
+                onClick={handleDirectReconcile}
                 disabled={isSubmitting}
                 className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md transition-all cursor-pointer flex items-center gap-1.5"
               >
                 {isSubmitting ? (
-                  <span>Posting Audit Adjustments...</span>
+                  <span>Posting Stock Adjustments...</span>
                 ) : (
                   <>
                     <Check className="h-4 w-4" />
-                    <span>Authorize & Update Inventory Balances</span>
+                    <span>Authorize & Update Balances</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: CONSOLIDATED MULTI-BRANCH STOCK AUDIT REPORT MATRIX */}
+      {showConsolidatedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+          <div
+            className={`w-full max-w-6xl max-h-[90vh] flex flex-col rounded-3xl border shadow-2xl overflow-hidden ${
+              isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-2xl bg-indigo-600/10 text-indigo-600 border border-indigo-500/20">
+                  <TableProperties className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base flex items-center gap-2">
+                    <span>Consolidated Multi-Branch Stock Audit Report</span>
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300 text-[10px] font-mono font-bold">
+                      ALL BRANCHES MATRIX
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Comprehensive cross-location physical stock count vs. system ledger comparison across all branches.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportConsolidatedCSV}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-all cursor-pointer"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>Export Consolidated CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowConsolidatedModal(false)}
+                  className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Consolidated High-level Metrics */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+              <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border text-xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Company Book Stock</span>
+                <span className="text-lg font-extrabold font-mono text-slate-900 dark:text-slate-100">
+                  {consolidatedSummary.totalBook.toLocaleString()} Units
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border text-xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Physical Counted Stock</span>
+                <span className="text-lg font-extrabold font-mono text-indigo-600 dark:text-indigo-400">
+                  {consolidatedSummary.totalCounted.toLocaleString()} Units
+                </span>
+              </div>
+              <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-xs">
+                <span className="text-[10px] font-bold text-rose-500 uppercase block">Consolidated Shortage</span>
+                <span className="text-lg font-extrabold font-mono text-rose-600">
+                  -{consolidatedSummary.totalShortage.toLocaleString()} Units
+                </span>
+                <span className="text-[10px] text-rose-500 font-mono block">-NPR {consolidatedSummary.totalShortageVal.toLocaleString()}</span>
+              </div>
+              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-xs">
+                <span className="text-[10px] font-bold text-emerald-500 uppercase block">Consolidated Excess</span>
+                <span className="text-lg font-extrabold font-mono text-emerald-600">
+                  +{consolidatedSummary.totalExcess.toLocaleString()} Units
+                </span>
+                <span className="text-[10px] text-emerald-500 font-mono block">+NPR {consolidatedSummary.totalExcessVal.toLocaleString()}</span>
+              </div>
+            </div>
+
+            {/* Consolidated Matrix Table */}
+            <div className="flex-1 overflow-auto p-4">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800 text-[10px] uppercase font-bold text-slate-700 dark:text-slate-300 border-b z-10">
+                  <tr>
+                    <th className="p-2.5 border-r border-slate-200 dark:border-slate-700">SKU / Item</th>
+                    <th className="p-2.5 text-right border-r border-slate-200 dark:border-slate-700">Cost</th>
+                    {branches.map((b) => (
+                      <th
+                        key={b.id}
+                        colSpan={3}
+                        className="p-2 text-center border-r border-slate-200 dark:border-slate-700 bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold"
+                      >
+                        {b.name} ({b.code})
+                      </th>
+                    ))}
+                    <th className="p-2.5 text-center font-extrabold">Company Book</th>
+                    <th className="p-2.5 text-center font-extrabold">Company Physical</th>
+                    <th className="p-2.5 text-center font-extrabold">Net Variance</th>
+                    <th className="p-2.5 text-right font-extrabold">Net Value (NPR)</th>
+                  </tr>
+                  <tr className="bg-slate-200/70 dark:bg-slate-800/90 text-[9px] text-slate-500 dark:text-slate-400">
+                    <th className="p-1 border-r border-slate-200 dark:border-slate-700" />
+                    <th className="p-1 border-r border-slate-200 dark:border-slate-700" />
+                    {branches.map((b) => (
+                      <React.Fragment key={`sub-${b.id}`}>
+                        <th className="p-1 text-center font-normal">Book</th>
+                        <th className="p-1 text-center font-normal">Count</th>
+                        <th className="p-1 text-center font-normal border-r border-slate-200 dark:border-slate-700">Diff</th>
+                      </React.Fragment>
+                    ))}
+                    <th className="p-1 text-center" />
+                    <th className="p-1 text-center" />
+                    <th className="p-1 text-center" />
+                    <th className="p-1 text-right" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                  {consolidatedMatrix.map((item) => {
+                    return (
+                      <tr
+                        key={item.productId}
+                        className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/40 ${
+                          item.companyTotalVarianceQty !== 0
+                            ? item.companyTotalVarianceQty < 0
+                              ? 'bg-rose-500/5'
+                              : 'bg-emerald-500/5'
+                            : ''
+                        }`}
+                      >
+                        {/* SKU & Name */}
+                        <td className="p-2.5 border-r border-slate-200 dark:border-slate-700 font-sans">
+                          <div className="font-bold text-slate-900 dark:text-slate-100 font-mono">{item.sku}</div>
+                          <div className="text-[11px] text-slate-500 truncate max-w-[160px]">{item.productName}</div>
+                        </td>
+
+                        {/* Unit Cost */}
+                        <td className="p-2.5 text-right border-r border-slate-200 dark:border-slate-700">
+                          {item.unitCost.toLocaleString()}
+                        </td>
+
+                        {/* Branch by Branch Columns */}
+                        {item.branches.map((b) => (
+                          <React.Fragment key={`cell-${b.branchId}`}>
+                            <td className="p-1 text-center text-slate-600 dark:text-slate-400">{b.bookQty}</td>
+                            <td className="p-1 text-center font-bold text-slate-900 dark:text-slate-100">{b.countedQty}</td>
+                            <td
+                              className={`p-1 text-center font-extrabold border-r border-slate-200 dark:border-slate-700 ${
+                                b.variance === 0
+                                  ? 'text-slate-300'
+                                  : b.variance < 0
+                                  ? 'text-rose-500'
+                                  : 'text-emerald-500'
+                              }`}
+                            >
+                              {b.variance > 0 ? `+${b.variance}` : b.variance}
+                            </td>
+                          </React.Fragment>
+                        ))}
+
+                        {/* Company Total Book */}
+                        <td className="p-2.5 text-center font-bold text-slate-700 dark:text-slate-300">
+                          {item.companyTotalBookQty}
+                        </td>
+
+                        {/* Company Total Physical Counted */}
+                        <td className="p-2.5 text-center font-bold text-indigo-600 dark:text-indigo-400">
+                          {item.companyTotalCountedQty}
+                        </td>
+
+                        {/* Net Variance Qty */}
+                        <td
+                          className={`p-2.5 text-center font-extrabold ${
+                            item.companyTotalVarianceQty === 0
+                              ? 'text-slate-300'
+                              : item.companyTotalVarianceQty < 0
+                              ? 'text-rose-500'
+                              : 'text-emerald-500'
+                          }`}
+                        >
+                          {item.companyTotalVarianceQty > 0 ? `+${item.companyTotalVarianceQty}` : item.companyTotalVarianceQty}
+                        </td>
+
+                        {/* Net Variance Value */}
+                        <td
+                          className={`p-2.5 text-right font-bold ${
+                            item.totalVarianceVal === 0
+                              ? 'text-slate-400'
+                              : item.totalVarianceVal < 0
+                              ? 'text-rose-500'
+                              : 'text-emerald-500'
+                          }`}
+                        >
+                          {item.totalVarianceVal.toLocaleString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0">
+              <div className="text-xs text-slate-500">
+                <span>Total Catalog Items: <strong>{products.length}</strong></span> • <span>Locations: <strong>{branches.length} Branches</strong></span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowConsolidatedModal(false)}
+                className="px-5 py-2 rounded-xl bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 text-xs font-bold cursor-pointer"
+              >
+                Close Matrix View
               </button>
             </div>
           </div>

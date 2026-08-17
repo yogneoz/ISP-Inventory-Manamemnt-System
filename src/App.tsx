@@ -247,6 +247,11 @@ export default function App() {
     await refreshAllData();
   };
 
+  const handleCancelApprovalRequest = async (id: string, reason?: string) => {
+    await api.cancelApprovalRequest(id, currentUser, reason);
+    await refreshAllData();
+  };
+
   // Fetch data on initial mount and whenever selectedBranchId changes
   useEffect(() => {
     refreshAllData();
@@ -536,6 +541,11 @@ export default function App() {
     refreshAllData();
   };
 
+  const handleCancelReceiveShipment = async (id: string, reason?: string) => {
+    await api.cancelReceiveShipment(id, currentUser, reason);
+    refreshAllData();
+  };
+
   // Stock Operations Actions
   const handleCreateOperation = async (op: Partial<StockOperation>) => {
     await api.createStockOperation(op);
@@ -733,7 +743,7 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'approvals' && (
+              {(activeTab === 'approvals' || activeTab === 'workflow-approval') && (
                 <ApprovalWorkflowCenter
                   approvalRequests={approvalRequests}
                   branches={branches}
@@ -741,6 +751,13 @@ export default function App() {
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
                   onProcessApproval={handleProcessApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
+                  onNavigateToStockAudit={(branchId) => {
+                    if (branchId && branchId !== 'ALL') {
+                      setSelectedBranchId(branchId);
+                    }
+                    setActiveTab('physical-stock-audit');
+                  }}
                 />
               )}
 
@@ -888,7 +905,15 @@ export default function App() {
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   isDarkMode={isDarkMode}
+                  approvalRequests={approvalRequests}
                   onUpdateStockLevel={handleUpdateStockLevel}
+                  onReconcileStockAudit={async (payload) => {
+                    await api.reconcileStockAudit(payload);
+                    await refreshAllData();
+                  }}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
+                  onProcessApproval={handleProcessApprovalRequest}
                   onNavigateTab={setActiveTab}
                 />
               )}
@@ -942,6 +967,7 @@ export default function App() {
                   products={products}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
+                  approvalRequests={approvalRequests}
                   onCreateCustomerDevice={async (newRecord) => {
                     await api.createCustomerDevice(newRecord);
                     await refreshAllData();
@@ -950,7 +976,9 @@ export default function App() {
                     await api.updateCustomerDeviceStatus(id, status);
                     await refreshAllData();
                   }}
+                  onExchangeSuccess={refreshAllData}
                   onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   onNavigateToMaster={() => setActiveTab('customers')}
                   isDarkMode={isDarkMode}
                 />
@@ -1051,6 +1079,7 @@ export default function App() {
                   branches={branches}
                   stock={stock}
                   customerDevices={customerDevices}
+                  approvalRequests={approvalRequests}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   onCreateShipment={async (sh) => {
@@ -1058,6 +1087,9 @@ export default function App() {
                     refreshAllData();
                   }}
                   onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1078,6 +1110,7 @@ export default function App() {
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
+                  approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -1085,11 +1118,14 @@ export default function App() {
                     refreshAllData();
                   }}
                   onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
 
-              {activeTab === 'receive-shipment' && (
+              {(activeTab === 'receive-shipment' || activeTab === 'receive-branch-transfer') && (
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -1105,6 +1141,7 @@ export default function App() {
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
+                  approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -1112,6 +1149,9 @@ export default function App() {
                     refreshAllData();
                   }}
                   onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1125,6 +1165,7 @@ export default function App() {
                   branches={branches}
                   stock={stock}
                   customerDevices={customerDevices}
+                  approvalRequests={approvalRequests}
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   onCreateShipment={async (sh) => {
@@ -1132,6 +1173,9 @@ export default function App() {
                     refreshAllData();
                   }}
                   onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1152,6 +1196,7 @@ export default function App() {
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
+                  approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -1159,6 +1204,9 @@ export default function App() {
                     refreshAllData();
                   }}
                   onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1179,6 +1227,7 @@ export default function App() {
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
+                  approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -1186,6 +1235,9 @@ export default function App() {
                     refreshAllData();
                   }}
                   onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1206,6 +1258,7 @@ export default function App() {
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
+                  approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -1213,6 +1266,9 @@ export default function App() {
                     refreshAllData();
                   }}
                   onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1233,6 +1289,7 @@ export default function App() {
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
+                  approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -1240,6 +1297,9 @@ export default function App() {
                     refreshAllData();
                   }}
                   onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}
@@ -1260,6 +1320,7 @@ export default function App() {
                   currentUser={currentUser}
                   shipments={shipments}
                   assets={assets}
+                  approvalRequests={approvalRequests}
                   onCreateOperation={handleCreateOperation}
                   onReceiveOperation={handleReceiveOperation}
                   onCreateShipment={async (sh) => {
@@ -1267,6 +1328,40 @@ export default function App() {
                     refreshAllData();
                   }}
                   onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
+                  onUpdateAssetStatus={handleUpdateAssetStatus}
+                />
+              )}
+
+              {activeTab === 'device-exchange' && (
+                <StockOperations
+                  operations={stockOperations}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  customerDevices={customerDevices}
+                  customers={customers}
+                  selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
+                  initialType="DEVICE_EXCHANGE"
+                  autoOpenModal={false}
+                  isDarkMode={isDarkMode}
+                  currentUser={currentUser}
+                  shipments={shipments}
+                  assets={assets}
+                  approvalRequests={approvalRequests}
+                  onCreateOperation={handleCreateOperation}
+                  onReceiveOperation={handleReceiveOperation}
+                  onCreateShipment={async (sh) => {
+                    await api.createShipment(sh);
+                    refreshAllData();
+                  }}
+                  onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                  onRequestApproval={handleCreateApprovalRequest}
+                  onCancelApproval={handleCancelApprovalRequest}
                   onUpdateAssetStatus={handleUpdateAssetStatus}
                 />
               )}

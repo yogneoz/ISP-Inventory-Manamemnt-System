@@ -188,9 +188,11 @@ export interface CustomerDeviceRecord {
   deviceSerial: string;
   ponSerial: string;
   macAddress?: string;
-  status: 'ACTIVE' | 'RENTAL' | 'SUSPENDED' | 'DISCONNECTED' | 'IN_STOCK' | 'REFUND' | 'RETURNED';
+  status: 'ACTIVE' | 'RENTAL' | 'DISCONNECTED' | 'ROUTER_COLLECTED' | 'IN_STOCK' | 'REFUND' | 'RETURNED' | 'EXCHANGED' | 'SOLD';
   issuedDateAD: string;
   issuedDateBS: string;
+  disconnectedDateAD?: string;
+  disconnectedDateBS?: string;
   warrantyMonths?: number;
   warrantyEndDateAD?: string;
   purchaseBillRef?: string;
@@ -244,7 +246,7 @@ export interface Shipment {
   dispatchDateAD: string;
   dispatchDateBS: string;
   estimatedArrivalAD: string;
-  status: 'DISPATCHED' | 'IN_TRANSIT' | 'DELIVERED' | 'RECEIVED' | 'DISCREPANCY';
+  status: 'DISPATCHED' | 'IN_TRANSIT' | 'DELIVERED' | 'RECEIVED' | 'DISCREPANCY' | 'CANCELLED';
   items: ShipmentItem[];
   notes?: string;
   receivedDateAD?: string;
@@ -341,7 +343,7 @@ export interface AuditLog {
   userEmail: string;
   userName: string;
   action: string;
-  module: 'AUTH' | 'PRODUCTS' | 'STOCK' | 'ASSETS' | 'PURCHASE_ORDERS' | 'INVOICES' | 'SHIPMENTS' | 'OPERATIONS' | 'FISCAL_YEAR';
+  module: 'AUTH' | 'PRODUCTS' | 'STOCK' | 'ASSETS' | 'PURCHASE_ORDERS' | 'INVOICES' | 'SHIPMENTS' | 'OPERATIONS' | 'BRANCH_OPERATIONS' | 'FISCAL_YEAR' | 'INVENTORY_AUDIT' | 'APPROVAL_WORKFLOW';
   details: string;
   timestampAD: string;
   timestampBS: string;
@@ -355,7 +357,7 @@ export interface TransactionLog {
   productSku: string;
   productName: string;
   branchId: string;
-  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'PULLOUT' | 'DAMAGE' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'CONSUMABLE_ISSUE';
+  changeType: 'INBOUND_PO' | 'SHIPMENT_TRANSFER' | 'TRANSFER_CANCELLED' | 'TRANSFER_RECEIPT_CANCELLED' | 'PULLOUT' | 'DAMAGE' | 'DISPOSAL' | 'STOCK_OUT' | 'MANUAL_ADJUSTMENT' | 'PURCHASE_INVOICE' | 'CONSUMABLE_ISSUE' | 'PHYSICAL_AUDIT_EXCESS' | 'PHYSICAL_AUDIT_SHORTAGE';
   quantityBefore: number;
   quantityChanged: number;
   quantityAfter: number;
@@ -414,15 +416,15 @@ export interface SystemState {
 export interface ApprovalRequest {
   id: string;
   requestNumber: string; // e.g. APR-2083-101
-  type: 'CUSTOMER_DEVICE_STATUS' | 'STOCK_ADJUSTMENT' | 'PURCHASE_OVERRIDE' | string;
-  targetId: string; // e.g. CustomerDeviceRecord.id
-  customerName: string;
+  type: 'CUSTOMER_DEVICE_STATUS' | 'CANCEL_TRANSFER' | 'CANCEL_IN_TRANSIT_TRANSFER' | 'STOCK_ADJUSTMENT' | 'STOCK_AUDIT_RECONCILIATION' | 'PURCHASE_OVERRIDE' | 'CANCEL_RECEIVE_TRANSFER' | string;
+  targetId: string; // e.g. CustomerDeviceRecord.id, Shipment.id, or Audit Batch Ref
+  customerName: string; // e.g. Customer Name, Transfer Tracking Code, or "Physical Stock Audit - Kathmandu"
   customerCode?: string;
-  deviceSerial: string;
+  deviceSerial: string; // e.g. Device Serial, Transfer Tracking Code, or Audit Ref No
   ponSerial?: string;
-  productName: string;
-  currentStatus: CustomerDeviceRecord['status'];
-  requestedStatus: CustomerDeviceRecord['status'];
+  productName: string; // e.g. Product Name, Transfer Items Summary, or Discrepancy Summary
+  currentStatus: CustomerDeviceRecord['status'] | Shipment['status'] | string;
+  requestedStatus: CustomerDeviceRecord['status'] | Shipment['status'] | string;
   requestedByRole: UserRole;
   requestedByEmail: string;
   requestedByName: string;
@@ -430,7 +432,40 @@ export interface ApprovalRequest {
   branchName?: string;
   reason: string;
   restockQtyOnApproval?: boolean;
-  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  shipmentData?: {
+    shipmentId?: string;
+    trackingCode: string;
+    sourceBranchName?: string;
+    destinationBranchName?: string;
+    itemSummary?: string;
+    totalQuantity?: number;
+  };
+  auditData?: {
+    auditRefNumber: string;
+    branchId: string;
+    branchName: string;
+    totalItems: number;
+    discrepancyCount: number;
+    shortageQty: number;
+    excessQty: number;
+    shortageValue: number;
+    excessValue: number;
+    netValueVariance: number;
+    varianceItems: {
+      productId: string;
+      sku: string;
+      productName: string;
+      category: string;
+      unit: string;
+      unitCost: number;
+      bookQty: number;
+      countedQty: number;
+      varianceQty: number;
+      varianceValue: number;
+      varianceReason: string;
+    }[];
+  };
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
   requestedAtAD: string;
   requestedAtBS: string;
   processedByEmail?: string;

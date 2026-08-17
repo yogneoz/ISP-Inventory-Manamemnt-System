@@ -212,7 +212,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
             </h3>
             <button
               onClick={() =>
-                exportToCSV('Subisu_IRD_VAT_Register', invoices, [
+                exportToCSV('IZone_IRD_VAT_Register', invoices, [
                   { key: 'invoiceNumber', label: 'Invoice Ref #' },
                   { key: 'supplierName', label: 'Supplier Name' },
                   { key: 'invoiceDateAD', label: 'Date (AD)' },
@@ -276,7 +276,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
             </h3>
             <button
               onClick={() =>
-                exportToCSV('Subisu_Stock_Transaction_Ledger', transactionLogs, [
+                exportToCSV('IZone_Stock_Transaction_Ledger', transactionLogs, [
                   { key: 'transactionNumber', label: 'Txn #' },
                   { key: 'productName', label: 'Product' },
                   { key: 'productSku', label: 'SKU' },
@@ -350,7 +350,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
             </h3>
             <button
               onClick={() =>
-                exportToCSV('Subisu_System_Audit_Log', auditLogs, [
+                exportToCSV('IZone_System_Audit_Log', auditLogs, [
                   { key: 'userName', label: 'User Name' },
                   { key: 'userEmail', label: 'User Email' },
                   { key: 'module', label: 'Module' },

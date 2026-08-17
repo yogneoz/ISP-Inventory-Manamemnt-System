@@ -191,6 +191,20 @@ export const api = {
     });
   },
 
+  async reconcileStockAudit(payload: {
+    branchId: string;
+    auditRefNumber: string;
+    varianceItems: any[];
+    auditorName?: string;
+    userEmail?: string;
+    notes?: string;
+  }): Promise<{ success: boolean; totalAdjusted: number; netFinancialImpact: number; message: string }> {
+    return fetchJson('/api/stock/reconcile-audit', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   // Assets
   async getAssets(branchId?: string): Promise<Asset[]> {
     const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
@@ -296,6 +310,28 @@ export const api = {
     });
   },
 
+  async cancelShipment(
+    id: string,
+    user?: User | null,
+    reason?: string
+  ): Promise<{ shipment: Shipment; message: string }> {
+    return fetchJson(`/api/shipments/${id}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ user, reason }),
+    });
+  },
+
+  async cancelReceiveShipment(
+    id: string,
+    user?: User | null,
+    reason?: string
+  ): Promise<{ shipment: Shipment; message: string }> {
+    return fetchJson(`/api/shipments/${id}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ user, reason }),
+    });
+  },
+
   // Stock Operations (Pullout, Damage, Stock Out)
   async getStockOperations(branchId?: string): Promise<StockOperation[]> {
     const query = branchId && branchId !== 'ALL' ? `?branchId=${branchId}` : '';
@@ -364,6 +400,24 @@ export const api = {
     });
   },
 
+  async exchangeCustomerDevice(payload: {
+    oldDeviceId: string;
+    exchangeReason: string;
+    oldDeviceAction: 'DAMAGE' | 'RESTOCK' | 'DISPOSED';
+    newProductId?: string;
+    newProductName?: string;
+    newDeviceSerial: string;
+    newPonSerial: string;
+    newMacAddress?: string;
+    notes?: string;
+    branchId?: string;
+  }): Promise<{ oldRecord: CustomerDeviceRecord; newRecord: CustomerDeviceRecord; message: string }> {
+    return fetchJson('/api/customer-devices/exchange', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   // Customer Master Database
   async getCustomers(branchId?: string, query?: string): Promise<CustomerRecord[]> {
     const params = new URLSearchParams();
@@ -420,6 +474,13 @@ export const api = {
     return fetchJson(`/api/approval-requests/${id}/process`, {
       method: 'POST',
       body: JSON.stringify({ status, approverUser, rejectionReason }),
+    });
+  },
+
+  async cancelApprovalRequest(id: string, user?: User | null, reason?: string): Promise<{ request: ApprovalRequest; message: string }> {
+    return fetchJson(`/api/approval-requests/${id}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ user, reason }),
     });
   },
 

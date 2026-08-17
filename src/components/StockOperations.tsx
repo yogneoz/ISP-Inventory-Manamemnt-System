@@ -15,9 +15,11 @@ import {
   LocationRecord,
   CustomerRecord,
   CustomerDeviceRecord,
+  ApprovalRequest,
 } from '../types';
 import { initialLocationsData, initialCustomersData } from '../data/initialData';
 import { formatDualDate } from '../utils/nepaliCalendar';
+import { api } from '../services/api';
 import {
   AlertOctagon,
   Plus,
@@ -42,6 +44,7 @@ import {
   Wrench,
   PackageMinus,
   MapPin,
+  Wifi,
   UserCheck,
   DollarSign,
   ArrowRight,
@@ -53,6 +56,8 @@ import {
   RotateCcw,
   PackageCheck,
   AlertCircle,
+  XCircle,
+  Clock,
 } from 'lucide-react';
 import { isOperationAllowed, canUserSeeAllBranches, getAllowedBranches, getAllowedBranchIds } from '../utils/permissions';
 import { BarcodeScannerModal } from './BarcodeScannerModal';
@@ -74,6 +79,7 @@ interface StockOperationsProps {
   locations?: LocationRecord[];
   customers?: CustomerRecord[];
   customerDevices?: CustomerDeviceRecord[];
+  approvalRequests?: ApprovalRequest[];
   onCreateOperation: (op: Partial<StockOperation>) => Promise<void>;
   onReceiveOperation?: (id: string) => Promise<void>;
   onCreateShipment?: (sh: Partial<Shipment>) => Promise<void>;
@@ -89,6 +95,14 @@ interface StockOperationsProps {
       receivedByNotes?: string;
     }
   ) => Promise<void>;
+  onCancelReceiveShipment?: (id: string, reason?: string) => Promise<void>;
+  onRequestApproval?: (
+    requestData: Omit<
+      ApprovalRequest,
+      'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'
+    >
+  ) => Promise<void>;
+  onCancelApproval?: (id: string) => Promise<void>;
   onUpdateAssetStatus?: (id: string, updates: Asset['status'] | Partial<Asset>) => Promise<void>;
 }
 
@@ -108,10 +122,14 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   locations = initialLocationsData,
   customers = initialCustomersData,
   customerDevices = [],
+  approvalRequests = [],
   onCreateOperation,
   onReceiveOperation,
   onCreateShipment,
   onReceiveShipment,
+  onCancelReceiveShipment,
+  onRequestApproval,
+  onCancelApproval,
   onUpdateAssetStatus,
 }) => {
   // Determine role permissions for Damage Labeling & Stock Control
@@ -121,7 +139,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     (currentUser?.role as string) === 'INVENTORY_CONTROLLER';
 
   // Map initial tab
-  const getInitialTab = (): 'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'LOGS' => {
+  const getInitialTab = (): 'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS' => {
+    if (initialType === 'DEVICE_EXCHANGE') return 'DEVICE_EXCHANGE';
     if (initialType === 'CONSUMABLE_ISSUE') return 'CONSUMABLE_ISSUE';
     if (initialType === 'DAMAGE') return 'DAMAGE_TRACKING';
     if (initialType === 'RECEIVE_TRANSFER' || initialType === 'RECEIVE') return 'RECEIVE_TRANSFER';
@@ -133,7 +152,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   };
 
   const [activeTab, setActiveTab] = useState<
-    'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'LOGS'
+    'PULLOUT_BINS' | 'DAMAGE_TRACKING' | 'RECEIVE_TRANSFER' | 'CREATE_TRANSFER' | 'ASSIGN_ASSET' | 'CONSUMABLE_ISSUE' | 'PRODUCT_SALE' | 'DEVICE_EXCHANGE' | 'LOGS'
   >(getInitialTab());
 
   useEffect(() => {
@@ -151,8 +170,29 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
 
-  // Selected asset for assignment modal
+  // Selected asset or product for assignment modal
   const [selectedAssetForAssign, setSelectedAssetForAssign] = useState<Asset | null>(null);
+  const [selectedProductForAssign, setSelectedProductForAssign] = useState<Product | null>(null);
+  const [productAssignSerial, setProductAssignSerial] = useState<string>('');
+  const [productAssignPon, setProductAssignPon] = useState<string>('');
+  const [productAssignMac, setProductAssignMac] = useState<string>('');
+  const [productAssignTag, setProductAssignTag] = useState<string>('');
+  const [customerSearchInAssignModal, setCustomerSearchInAssignModal] = useState<string>('');
+  const [isCustomerDropdownOpen, setIsCustomerDropdownOpen] = useState<boolean>(false);
+
+  // Device Exchange Tab State
+  const [exchangeCustomerDevices, setExchangeCustomerDevices] = useState<CustomerDeviceRecord[]>([]);
+  const [isLoadingExchangeDevices, setIsLoadingExchangeDevices] = useState<boolean>(false);
+  const [selectedDeviceForExchange, setSelectedDeviceForExchange] = useState<CustomerDeviceRecord | null>(null);
+  const [exchangeSearchQuery, setExchangeSearchQuery] = useState<string>('');
+  const [exchangeReason, setExchangeReason] = useState<string>('Defective / Hardware Fault (No Power / Optical Loss)');
+  const [oldDeviceAction, setOldDeviceAction] = useState<'DAMAGE' | 'RESTOCK' | 'DISPOSED'>('RESTOCK');
+  const [exchangeProductName, setExchangeProductName] = useState<string>('');
+  const [exchangeNewSerial, setExchangeNewSerial] = useState<string>('');
+  const [exchangeNewPon, setExchangeNewPon] = useState<string>('');
+  const [exchangeNewMac, setExchangeNewMac] = useState<string>('');
+  const [exchangeNotes, setExchangeNotes] = useState<string>('');
+  const [isSubmittingExchange, setIsSubmittingExchange] = useState<boolean>(false);
 
   // Allowed branches for current user
   const allowedBranches = getAllowedBranches(currentUser, branches);
@@ -208,6 +248,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       }
     }
   }, [effectivePulloutSourceBranches, sourceBranchId]);
+  const [transferStatusFilter, setTransferStatusFilter] = useState<'ALL' | 'IN_TRANSIT' | 'RECEIVED' | 'CANCEL_PENDING'>('ALL');
   const [binInspector, setBinInspector] = useState<string>(currentUser?.name || 'Logistics Officer');
   const [binNotes, setBinNotes] = useState<string>('Overstock / Damaged stock return dispatch to central warehouse');
   const [pulloutItems, setPulloutItems] = useState<PulloutItem[]>([]);
@@ -348,6 +389,143 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     });
 
     setReceivingShipmentModal(null);
+  };
+
+  // 8. Cancel Received Transfer States (Direct Super Admin / Inventory Manager & Workflow Requests)
+  const [directCancelModalShipment, setDirectCancelModalShipment] = useState<Shipment | null>(null);
+  const [directCancelReason, setDirectCancelReason] = useState<string>('');
+  const [requestCancelModalShipment, setRequestCancelModalShipment] = useState<Shipment | null>(null);
+  const [requestCancelReason, setRequestCancelReason] = useState<string>('');
+  const [cancelPendingRequestModal, setCancelPendingRequestModal] = useState<{
+    req: ApprovalRequest;
+    shipment: Shipment;
+  } | null>(null);
+  const [isProcessingCancel, setIsProcessingCancel] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((current) => (current === msg ? null : current));
+    }, 5000);
+  };
+
+  // Execute direct cancellation (Super Admin & Inventory Manager)
+  const handleDirectCancelSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!directCancelModalShipment) return;
+
+    setIsProcessingCancel(true);
+    try {
+      if (onCancelReceiveShipment) {
+        await onCancelReceiveShipment(
+          directCancelModalShipment.id,
+          directCancelReason.trim() || undefined
+        );
+      } else {
+        await api.cancelShipment(
+          directCancelModalShipment.id,
+          currentUser,
+          directCancelReason.trim() || undefined
+        );
+      }
+
+      showToast(
+        `In-Transit Transfer ${directCancelModalShipment.trackingCode} cancelled successfully. Sent items have been refunded to ${directCancelModalShipment.sourceBranchName || 'Source Branch'} stock.`
+      );
+      setDirectCancelModalShipment(null);
+      setDirectCancelReason('');
+    } catch (err: any) {
+      showToast(`Cancellation failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsProcessingCancel(false);
+    }
+  };
+
+  // Submit approval request for cancellation (Other Roles: Branch Manager, Front Desk, etc.)
+  const handleRequestCancelSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!requestCancelModalShipment) return;
+    if (!requestCancelReason.trim()) {
+      showToast('Please provide a reason for requesting cancellation.');
+      return;
+    }
+
+    setIsProcessingCancel(true);
+    try {
+      const itemsSummary = requestCancelModalShipment.items
+        ?.map((it) => `${it.quantitySent || it.quantity}x ${it.productName}`)
+        .join(', ') || 'Transfer Items';
+
+      const totalQty = requestCancelModalShipment.items?.reduce(
+        (sum, it) => sum + (it.quantitySent || it.quantity || 1),
+        0
+      ) || 0;
+
+      const requestPayload = {
+        type: 'CANCEL_TRANSFER',
+        targetId: requestCancelModalShipment.id,
+        customerName: requestCancelModalShipment.trackingCode,
+        customerCode: 'TRANSFER_IN_TRANSIT',
+        deviceSerial: requestCancelModalShipment.trackingCode,
+        productName: itemsSummary,
+        currentStatus: requestCancelModalShipment.status,
+        requestedStatus: 'CANCELLED',
+        requestedByRole: currentUser?.role || 'BRANCH_MANAGER',
+        requestedByEmail: currentUser?.email || 'user@system.com.np',
+        requestedByName: currentUser?.name || 'Staff User',
+        branchId: requestCancelModalShipment.sourceBranchId || requestCancelModalShipment.destinationBranchId,
+        branchName: requestCancelModalShipment.sourceBranchName || requestCancelModalShipment.destinationBranchName,
+        reason: requestCancelReason.trim(),
+        shipmentData: {
+          shipmentId: requestCancelModalShipment.id,
+          trackingCode: requestCancelModalShipment.trackingCode,
+          sourceBranchName: requestCancelModalShipment.sourceBranchName,
+          destinationBranchName: requestCancelModalShipment.destinationBranchName,
+          itemSummary: itemsSummary,
+          totalQuantity: totalQty,
+        },
+      };
+
+      if (onRequestApproval) {
+        await onRequestApproval(requestPayload);
+      } else {
+        await api.createApprovalRequest(requestPayload);
+      }
+
+      showToast(
+        `Cancellation request for In-Transit transfer ${requestCancelModalShipment.trackingCode} submitted to Workflow Approval Center. Authorized approval required.`
+      );
+      setRequestCancelModalShipment(null);
+      setRequestCancelReason('');
+    } catch (err: any) {
+      showToast(`Failed to submit request: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsProcessingCancel(false);
+    }
+  };
+
+  // Withdraw / Cancel pending approval request
+  const handleConfirmWithdrawRequest = async () => {
+    if (!cancelPendingRequestModal) return;
+
+    setIsProcessingCancel(true);
+    try {
+      if (onCancelApproval) {
+        await onCancelApproval(cancelPendingRequestModal.req.id);
+      } else {
+        await api.cancelApprovalRequest(cancelPendingRequestModal.req.id);
+      }
+
+      showToast(
+        `Approval request #${cancelPendingRequestModal.req.requestNumber} for ${cancelPendingRequestModal.shipment.trackingCode} has been cancelled.`
+      );
+      setCancelPendingRequestModal(null);
+    } catch (err: any) {
+      showToast(`Failed to cancel request: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsProcessingCancel(false);
+    }
   };
 
   // Filtered products for pullout search
@@ -1012,15 +1190,83 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // 4. Submit Assign Fixed Asset
   const handleOpenAssignModal = (asset: Asset) => {
     setSelectedAssetForAssign(asset);
+    setSelectedProductForAssign(null);
+    setIsAssignModalOpen(true);
+  };
+
+  const handleOpenProductAssignModal = (prod: Product) => {
+    setSelectedProductForAssign(prod);
+    setSelectedAssetForAssign(null);
+    setProductAssignTag(`FA-ONU-${Math.floor(1000 + Math.random() * 9000)}`);
+    setProductAssignSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
+    setProductAssignPon(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
+    setProductAssignMac('00:1A:2B:3C:4D:5E');
+    setAssignTargetType('CUSTOMER');
+    setAssignCustomerId(customers[0]?.id || '');
+    setAssignLocationId(locations[0]?.id || '');
+    setAssignNotes('Deployed as Customer Rental CPE Asset from inventory stock.');
     setIsAssignModalOpen(true);
   };
 
   const handleSubmitAssignAsset = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedAssetForAssign || !onUpdateAssetStatus) return;
-
     const todayAD = new Date().toISOString().split('T')[0];
-    const todayBS = '2083-04-16 BS';
+    const todayBS = '2083-04-28 BS';
+
+    // A) If assigning a Product directly as a Fixed Asset / Rental CPE
+    if (selectedProductForAssign) {
+      const custObj = customers.find((c) => c.id === assignCustomerId);
+      const locObj = locations.find((l) => l.id === assignLocationId);
+
+      await api.createAsset({
+        tagNumber: productAssignTag || `FA-ONU-${Math.floor(1000 + Math.random() * 9000)}`,
+        name: selectedProductForAssign.name,
+        category: selectedProductForAssign.category || 'IT Equipment',
+        branchId: selectedBranchId === 'ALL' ? 'WH001' : selectedBranchId,
+        acquisitionDateAD: todayAD,
+        acquisitionDateBS: todayBS,
+        acquisitionCost: selectedProductForAssign.costPrice,
+        depreciationMethod: 'STRAIGHT_LINE',
+        depreciationRatePercent: selectedProductForAssign.depreciationRate || 15,
+        status: assignTargetType === 'CUSTOMER' ? 'ASSIGNED_TO_CUSTOMER' : 'ASSIGNED_TO_LOCATION',
+        assignedType: assignTargetType,
+        assignedCustomerId: assignTargetType === 'CUSTOMER' ? assignCustomerId : undefined,
+        assignedCustomerName: assignTargetType === 'CUSTOMER' ? (custObj ? `${custObj.customerName} (${custObj.customerId})` : assignCustomerId) : undefined,
+        assignedLocationId: assignTargetType === 'LOCATION' ? assignLocationId : undefined,
+        assignedLocationName: assignTargetType === 'LOCATION' ? (locObj?.name || assignLocationId) : undefined,
+        assignmentDateAD: todayAD,
+        assignmentDateBS: todayBS,
+        assignmentNotes: assignNotes,
+      });
+
+      if (assignTargetType === 'CUSTOMER' && custObj) {
+        await api.createCustomerDevice({
+          customerId: custObj.id,
+          customerName: custObj.customerName,
+          customerCode: custObj.customerId,
+          contactPhone: custObj.contactNumber || '9800000000',
+          installationAddress: custObj.address || 'Nepal',
+          branchId: selectedBranchId === 'ALL' ? 'WH001' : selectedBranchId,
+          productName: selectedProductForAssign.name,
+          deviceSerial: productAssignSerial || `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
+          ponSerial: productAssignPon || `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+          macAddress: productAssignMac || undefined,
+          status: 'RENTAL',
+          issuedDateAD: todayAD,
+          issuedDateBS: todayBS,
+          notes: `[RENTAL CPE ASSET - Tag: ${productAssignTag}] ${assignNotes}`,
+        });
+      }
+
+      setIsAssignModalOpen(false);
+      setSelectedProductForAssign(null);
+      alert(`Product "${selectedProductForAssign.name}" successfully registered as Fixed Asset Tag ${productAssignTag} & assigned!`);
+      if (typeof window !== 'undefined') window.location.reload();
+      return;
+    }
+
+    // B) If assigning an existing Asset from Asset Ledger
+    if (!selectedAssetForAssign || !onUpdateAssetStatus) return;
 
     if (assignTargetType === 'LOCATION') {
       const locObj = locations.find((l) => l.id === assignLocationId);
@@ -1044,6 +1290,24 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         assignmentDateBS: todayBS,
         assignmentNotes: assignNotes,
       });
+
+      if (custObj) {
+        await api.createCustomerDevice({
+          customerId: custObj.id,
+          customerName: custObj.customerName,
+          customerCode: custObj.customerId,
+          contactPhone: custObj.contactNumber || '9800000000',
+          installationAddress: custObj.address || 'Nepal',
+          branchId: selectedAssetForAssign.branchId || 'WH001',
+          productName: selectedAssetForAssign.name,
+          deviceSerial: `SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`,
+          ponSerial: `HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`,
+          status: 'RENTAL',
+          issuedDateAD: todayAD,
+          issuedDateBS: todayBS,
+          notes: `[FIXED ASSET CPE - Tag: ${selectedAssetForAssign.tagNumber}] ${assignNotes}`,
+        });
+      }
     }
 
     setIsAssignModalOpen(false);
@@ -1158,7 +1422,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       status: 'LOGGED',
     });
 
-    alert(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: रु ${netSaleAmount.toLocaleString('en-IN')}`);
+    alert(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: रु ${netSaleAmount.toLocaleString('en-IN')}.\nSold device(s) tagged as SOLD in Customer Device Directory.`);
     setSaleItems([]);
   };
 
@@ -1208,6 +1472,101 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const consumableOperations = operations.filter((op) => op.type === 'CONSUMABLE_ISSUE' && isOpInAllowedBranch(op));
   const saleOperations = operations.filter((op) => op.type === 'STOCK_OUT' && isOpInAllowedBranch(op));
 
+  // Fetch Customer Devices for Exchange Tab
+  useEffect(() => {
+    const fetchDevices = async () => {
+      setIsLoadingExchangeDevices(true);
+      try {
+        const devs = await api.getCustomerDevices(selectedBranchId === 'ALL' ? undefined : selectedBranchId);
+        setExchangeCustomerDevices(devs);
+      } catch (err) {
+        console.error('Failed to load customer devices for exchange tab:', err);
+      } finally {
+        setIsLoadingExchangeDevices(false);
+      }
+    };
+    fetchDevices();
+  }, [selectedBranchId]);
+
+  const handlePerformExchange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDeviceForExchange) {
+      alert('Please select a customer device to exchange.');
+      return;
+    }
+    if (!exchangeNewSerial.trim() || !exchangeNewPon.trim()) {
+      alert('Please enter new device serial number (SN) and PON serial number.');
+      return;
+    }
+
+    setIsSubmittingExchange(true);
+    try {
+      await api.exchangeCustomerDevice({
+        oldDeviceId: selectedDeviceForExchange.id,
+        exchangeReason,
+        oldDeviceAction,
+        newProductName: exchangeProductName || selectedDeviceForExchange.productName,
+        newDeviceSerial: exchangeNewSerial.trim(),
+        newPonSerial: exchangeNewPon.trim(),
+        newMacAddress: exchangeNewMac.trim() || undefined,
+        notes: exchangeNotes.trim() || undefined,
+        branchId: selectedBranchId === 'ALL' ? selectedDeviceForExchange.branchId : selectedBranchId,
+      });
+
+      const actionText =
+        oldDeviceAction === 'RESTOCK'
+          ? 'Old device serial restored to branch available inventory stock (+1)'
+          : oldDeviceAction === 'DAMAGE'
+          ? 'Old device serial moved to defective stock bin'
+          : 'Old device serial marked as scrapped/disposed';
+
+      alert(`Device Exchange Successful!\nCustomer: ${selectedDeviceForExchange.customerName}\nNew Serial: ${exchangeNewSerial.trim()}\n${actionText}`);
+
+      setSelectedDeviceForExchange(null);
+      setExchangeNewSerial('');
+      setExchangeNewPon('');
+      setExchangeNewMac('');
+      setExchangeNotes('');
+
+      // Refresh list
+      const updatedDevs = await api.getCustomerDevices(selectedBranchId === 'ALL' ? undefined : selectedBranchId);
+      setExchangeCustomerDevices(updatedDevs);
+      if (typeof window !== 'undefined') {
+        window.location.reload();
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Failed to exchange device.');
+    } finally {
+      setIsSubmittingExchange(false);
+    }
+  };
+
+  const filteredExchangeDevices = exchangeCustomerDevices.filter((d) => {
+    // Only RENTAL (or legacy ACTIVE) CPE products are eligible for hardware exchange
+    if (d.status !== 'RENTAL' && d.status !== 'ACTIVE') return false;
+    if (!exchangeSearchQuery.trim()) return true;
+    const q = exchangeSearchQuery.toLowerCase();
+    return (
+      d.customerName.toLowerCase().includes(q) ||
+      d.customerCode.toLowerCase().includes(q) ||
+      d.deviceSerial.toLowerCase().includes(q) ||
+      d.ponSerial.toLowerCase().includes(q) ||
+      d.productName.toLowerCase().includes(q) ||
+      (d.contactPhone && d.contactPhone.includes(q))
+    );
+  });
+
+  const filteredCustomersInAssignModal = customers.filter((c) => {
+    if (!customerSearchInAssignModal.trim()) return true;
+    const q = customerSearchInAssignModal.toLowerCase();
+    return (
+      c.customerName.toLowerCase().includes(q) ||
+      c.customerId.toLowerCase().includes(q) ||
+      (c.contactNumber && c.contactNumber.includes(q)) ||
+      (c.address && c.address.toLowerCase().includes(q))
+    );
+  });
+
   const allCombinedOps = [...operations, ...synthesizedDamageOps];
 
   // Filters for Stock Operations Logs
@@ -1234,6 +1593,18 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   );
   const assignedAssets = assets.filter(
     (a) => a.status === 'ASSIGNED_TO_LOCATION' || a.status === 'ASSIGNED_TO_CUSTOMER' || Boolean(a.assignedType)
+  );
+
+  // Catalog Products suitable for Fixed Asset & Customer Rental CPE deployment
+  const catalogFixedAssetProducts = products.filter(
+    (p) =>
+      p.productGroup === 'Fixed Asset' ||
+      p.category.toLowerCase().includes('router') ||
+      p.category.toLowerCase().includes('onu') ||
+      p.category.toLowerCase().includes('stb') ||
+      p.category.toLowerCase().includes('equipment') ||
+      p.name.toLowerCase().includes('onu') ||
+      p.name.toLowerCase().includes('router')
   );
 
   return (
@@ -1474,6 +1845,21 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
         })()}
 
         <button
+          onClick={() => setActiveTab('DEVICE_EXCHANGE')}
+          title="Exchange customer ONU/STB device, enter replacement serials, and return old unit to stock"
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === 'DEVICE_EXCHANGE'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : isDarkMode
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <RefreshCw className="h-4 w-4 text-indigo-300" />
+          <span>8. Device Exchange ({exchangeCustomerDevices.length})</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('LOGS')}
           className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
             activeTab === 'LOGS'
@@ -1670,9 +2056,90 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <Inbox className="h-4 w-4 text-amber-500" />
                 <span>Inter-Branch Transfer Dispatches & Incoming Stock</span>
               </h3>
+            </div>
+
+            {/* Status Filter Tabs & Header Actions */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+                <button
+                  type="button"
+                  onClick={() => setTransferStatusFilter('ALL')}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                    transferStatusFilter === 'ALL'
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                      : isDarkMode
+                      ? 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  All Transfers ({shipments.filter((sh) => branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransferStatusFilter('IN_TRANSIT')}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                    transferStatusFilter === 'IN_TRANSIT'
+                      ? 'bg-sky-600 text-white shadow-xs'
+                      : isDarkMode
+                      ? 'bg-slate-800/80 text-sky-400 hover:bg-slate-700'
+                      : 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100'
+                  }`}
+                >
+                  <Clock className="h-3 w-3" />
+                  <span>In Transit ({shipments.filter((sh) => (branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter) && sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED' && sh.status !== 'CANCELLED').length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransferStatusFilter('CANCEL_PENDING')}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                    transferStatusFilter === 'CANCEL_PENDING'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : isDarkMode
+                      ? 'bg-slate-800/80 text-amber-400 hover:bg-slate-700'
+                      : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>Cancel Pending ({shipments.filter((sh) => {
+                    const matchesBranch = branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter;
+                    const hasPendingReq = approvalRequests?.some(
+                      (r) => (r.type === 'CANCEL_TRANSFER' || r.type === 'CANCEL_IN_TRANSIT_TRANSFER' || r.type === 'CANCEL_RECEIVE_TRANSFER') && (r.targetId === sh.id || r.deviceSerial === sh.trackingCode || r.customerName === sh.trackingCode) && r.status === 'PENDING'
+                    );
+                    return matchesBranch && hasPendingReq && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED';
+                  }).length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransferStatusFilter('RECEIVED')}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                    transferStatusFilter === 'RECEIVED'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : isDarkMode
+                      ? 'bg-slate-800/80 text-emerald-400 hover:bg-slate-700'
+                      : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                  }`}
+                >
+                  <CheckCircle2 className="h-3 w-3" />
+                  <span>Stock Received ({shipments.filter((sh) => (branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter) && (sh.status === 'RECEIVED' || sh.status === 'DELIVERED')).length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTransferStatusFilter('CANCELLED')}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                    transferStatusFilter === 'CANCELLED'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : isDarkMode
+                      ? 'bg-slate-800/80 text-rose-400 hover:bg-slate-700'
+                      : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
+                  }`}
+                >
+                  <XCircle className="h-3 w-3" />
+                  <span>Cancelled ({shipments.filter((sh) => (branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter) && sh.status === 'CANCELLED').length})</span>
+                </button>
+              </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400 font-medium">Filter Branch:</span>
+                <span className="text-xs text-slate-400 font-medium shrink-0">Filter Branch:</span>
                 <select
                   value={branchFilter}
                   onChange={(e) => setBranchFilter(e.target.value)}
@@ -1694,12 +2161,47 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {shipments
-                .filter((sh) => branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter)
-                .map((sh) => (
+                .filter((sh) => {
+                  const matchesBranch = branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter;
+                  if (!matchesBranch) return false;
+
+                  const hasPendingReq = approvalRequests?.some(
+                    (r) => (r.type === 'CANCEL_TRANSFER' || r.type === 'CANCEL_IN_TRANSIT_TRANSFER' || r.type === 'CANCEL_RECEIVE_TRANSFER') && (r.targetId === sh.id || r.deviceSerial === sh.trackingCode || r.customerName === sh.trackingCode) && r.status === 'PENDING'
+                  );
+
+                  if (transferStatusFilter === 'IN_TRANSIT') return sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED' && sh.status !== 'CANCELLED';
+                  if (transferStatusFilter === 'RECEIVED') return sh.status === 'RECEIVED' || sh.status === 'DELIVERED';
+                  if (transferStatusFilter === 'CANCEL_PENDING') return hasPendingReq && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED';
+                  if (transferStatusFilter === 'CANCELLED') return sh.status === 'CANCELLED';
+                  return true;
+                })
+                .map((sh) => {
+                  const pendingCancelReq = approvalRequests?.find(
+                    (r) =>
+                      (r.type === 'CANCEL_TRANSFER' || r.type === 'CANCEL_IN_TRANSIT_TRANSFER' || r.type === 'CANCEL_RECEIVE_TRANSFER') &&
+                      (r.targetId === sh.id || r.deviceSerial === sh.trackingCode || r.customerName === sh.trackingCode) &&
+                      r.status === 'PENDING'
+                  );
+
+                  const isReceived = sh.status === 'RECEIVED' || sh.status === 'DELIVERED';
+                  const isCancelled = sh.status === 'CANCELLED';
+                  const isInTransit = !isReceived && !isCancelled;
+
+                  return (
                   <div
                     key={sh.id}
                     className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${
-                      isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      pendingCancelReq
+                        ? isDarkMode
+                          ? 'bg-amber-950/20 border-amber-800/60'
+                          : 'bg-amber-50/40 border-amber-200'
+                        : isCancelled
+                        ? isDarkMode
+                          ? 'bg-rose-950/20 border-rose-900/60 opacity-85'
+                          : 'bg-rose-50/40 border-rose-200 opacity-85'
+                        : isDarkMode
+                        ? 'bg-slate-900/60 border-slate-800'
+                        : 'bg-slate-50 border-slate-200'
                     }`}
                   >
                     <div>
@@ -1707,13 +2209,25 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         <span className="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
                           {sh.trackingCode}
                         </span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                          sh.status === 'RECEIVED' || sh.status === 'DELIVERED'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300'
-                            : 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300'
-                        }`}>
-                          {sh.status}
-                        </span>
+                        {pendingCancelReq ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 flex items-center gap-1 animate-pulse">
+                            <Clock className="h-3 w-3 animate-spin" />
+                            <span>CANCEL PENDING ({pendingCancelReq.requestNumber})</span>
+                          </span>
+                        ) : isCancelled ? (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 flex items-center gap-1">
+                            <XCircle className="h-3 w-3" />
+                            <span>TRANSFER CANCELLED</span>
+                          </span>
+                        ) : (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                            isReceived
+                              ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300'
+                              : 'bg-sky-50 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border-sky-300'
+                          }`}>
+                            {sh.status}
+                          </span>
+                        )}
                       </div>
 
                       <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mt-1">
@@ -1799,27 +2313,80 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       {sh.notes && <p className="text-[11px] text-slate-400 mt-1 italic">{sh.notes}</p>}
                     </div>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
                       <span className="text-[11px] font-mono text-slate-400">Dispatch Date: {sh.dispatchDateAD}</span>
 
-                      {sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED' && onReceiveShipment ? (
-                        <button
-                          onClick={() => openReceiveModal(sh)}
-                          title="Verify physical quantities & hardware serial/MAC checklist before adding to branch stock"
-                          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-xs hover:bg-emerald-500 shadow-sm cursor-pointer transition-all"
-                        >
-                          <PackageCheck className="h-3.5 w-3.5" />
-                          <span>Verify & Receive Stock</span>
-                        </button>
+                      {pendingCancelReq ? (
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/70 px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700">
+                            <Clock className="h-3.5 w-3.5 animate-spin" />
+                            <span>Cancel Pending</span>
+                          </div>
+                          <button
+                            onClick={() => setCancelPendingRequestModal({ req: pendingCancelReq, shipment: sh })}
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white shadow-xs border border-amber-600/30 cursor-pointer transition-all"
+                            title={`Cancel pending cancellation request #${pendingCancelReq.requestNumber}`}
+                          >
+                            <XCircle className="h-3.5 w-3.5 shrink-0" />
+                            <span>Cancel Request</span>
+                          </button>
+                        </div>
+                      ) : isCancelled ? (
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-800">
+                          <XCircle className="h-3.5 w-3.5" />
+                          <span>Transfer Cancelled & Items Restocked to Source</span>
+                        </div>
+                      ) : isInTransit ? (
+                        <div className="flex items-center gap-2">
+                          {onReceiveShipment && (
+                            <button
+                              onClick={() => openReceiveModal(sh)}
+                              title="Verify physical quantities & hardware serial/MAC checklist before adding to branch stock"
+                              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm cursor-pointer transition-all"
+                            >
+                              <PackageCheck className="h-3.5 w-3.5" />
+                              <span>Verify & Receive Stock</span>
+                            </button>
+                          )}
+
+                          {isSuperOrInventory ? (
+                            <button
+                              onClick={() => {
+                                setDirectCancelModalShipment(sh);
+                                setDirectCancelReason('');
+                              }}
+                              title="Super Admin / Inventory Manager: Cancel in-transit transfer and refund stock back to source branch"
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-xs cursor-pointer transition-all"
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              <span>Cancel Transfer Bin</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setRequestCancelModalShipment(sh);
+                                setRequestCancelReason('');
+                              }}
+                              title="Submit request to Workflow Approval Center to cancel this in-transit transfer"
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold text-xs shadow-xs cursor-pointer transition-all"
+                            >
+                              <ShieldAlert className="h-3.5 w-3.5" />
+                              <span>Cancel Request</span>
+                            </button>
+                          )}
+                        </div>
                       ) : (
-                        <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          <span>Stock Received</span>
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            <span>Stock Received (Completed)</span>
+                          </span>
+                        </div>
                       )}
                     </div>
                   </div>
-                ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -2086,13 +2653,84 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       {/* TAB 5: ASSIGN FIXED ASSET (Locations & Customer Sites) */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'ASSIGN_ASSET' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-800 dark:text-indigo-300 flex items-center justify-between text-xs font-medium">
             <div className="flex items-center gap-2">
               <Wrench className="h-5 w-5 text-indigo-500 flex-shrink-0" />
               <span>
-                <strong>Fixed Asset Location & Customer Assignment:</strong> Fixed Assets deployed in POP Server Rooms, Fiber Network Nodes, or Customer Sites are assigned directly to their operational location and removed from available unassigned stock.
+                <strong>Fixed Asset Location & Customer Assignment:</strong> Fixed Assets & CPE Devices (Routers/ONUs/STBs) deployed in POP Server Rooms, Fiber Network Nodes, or Customer Sites are assigned directly to their operational location or rented to customers and managed as depreciable assets.
               </span>
+            </div>
+          </div>
+
+          {/* Section A: Catalog Routers, ONUs & Fixed Asset Products (Deploy from Available Inventory) */}
+          <div className={`p-5 rounded-2xl border ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+          }`}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className={`font-bold text-sm flex items-center gap-2 ${
+                isDarkMode ? 'text-white' : 'text-slate-900'
+              }`}>
+                <Wifi className="h-4 w-4 text-indigo-500" />
+                <span>Product Catalog: Routers, ONUs & Fixed Assets for Rental CPE Deployment ({catalogFixedAssetProducts.length})</span>
+              </h3>
+              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
+                Deploy / Rent Product Item
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+              Items defined with Product Group <strong>"Fixed Asset"</strong> or ONU/Router hardware can be directly deployed to customer homes as Rental CPEs or assigned to POP network locations.
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[320px] overflow-y-auto pr-1">
+              {catalogFixedAssetProducts.length === 0 ? (
+                <p className="text-xs text-slate-400 p-4 text-center col-span-3">No Fixed Asset or ONU Router products found in product catalog.</p>
+              ) : (
+                catalogFixedAssetProducts.map((prod) => {
+                  const branchStock = stock.filter((s) => s.productId === prod.id);
+                  const totalOnHand = branchStock.reduce((acc, s) => acc + s.quantityOnHand, 0);
+
+                  return (
+                    <div
+                      key={prod.id}
+                      className={`p-3.5 rounded-2xl border flex flex-col justify-between transition-all hover:border-indigo-500/50 ${
+                        isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono font-bold text-slate-400">{prod.sku}</span>
+                          <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md ${
+                            prod.productGroup === 'Fixed Asset'
+                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+                              : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                          }`}>
+                            {prod.productGroup || 'Product / Rental'}
+                          </span>
+                        </div>
+                        <h4 className="font-bold text-xs text-slate-900 dark:text-white mt-1 line-clamp-1">{prod.name}</h4>
+                        <p className="text-[10px] text-slate-500 mt-0.5">
+                          Cost: रु {prod.costPrice.toLocaleString('en-IN')} | Cat: {prod.category}
+                        </p>
+                      </div>
+
+                      <div className="mt-3 pt-2.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                          Stock: {totalOnHand} Pcs
+                        </span>
+                        <button
+                          onClick={() => handleOpenProductAssignModal(prod)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold shadow-xs cursor-pointer"
+                        >
+                          <UserCheck className="h-3.5 w-3.5" />
+                          <span>Assign / Rent CPE</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -2495,6 +3133,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             </span>
           </div>
 
+          <div className="mb-4 p-2.5 rounded-xl bg-purple-50/80 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-purple-900 dark:text-purple-200 text-xs flex items-center justify-between font-medium">
+            <span>🛍️ Devices sold via this form will be automatically registered and tagged as <strong>SOLD (Customer Owned)</strong> in the Customer Device Serials Directory.</span>
+          </div>
+
           <form onSubmit={handleSubmitProductSale} className="space-y-4 text-xs">
             <div className="grid grid-cols-3 gap-3">
               <div>
@@ -2795,6 +3437,321 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               >
                 <PackageMinus className="h-4 w-4" />
                 <span>Submit Product Sales Invoice</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 8: DEVICE EXCHANGE / REPLACEMENT SWAP */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'DEVICE_EXCHANGE' && (
+        <div className={`p-6 rounded-2xl border max-w-5xl mx-auto shadow-sm ${
+          isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
+        }`}>
+          <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-2xl bg-indigo-600 text-white">
+                <RefreshCw className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold flex items-center gap-2">
+                  <span>Customer Hardware Replacement & Exchange</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Swap customer routers/ONUs/STBs, assign new replacement serials, and return old serial units back to branch inventory stock.
+                </p>
+              </div>
+            </div>
+            <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800">
+              {exchangeCustomerDevices.length} Active Deployed Units
+            </span>
+          </div>
+
+          <form onSubmit={handlePerformExchange} className="space-y-5 text-xs">
+            {/* Step 1: Select Installed Customer Device */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                  <Search className="h-4 w-4 text-indigo-500" />
+                  <span>Step 1: Select Installed Customer Device (Search Master Directory / Installed Stock) *</span>
+                </h4>
+                {selectedDeviceForExchange && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedDeviceForExchange(null)}
+                    className="text-[11px] text-rose-500 hover:underline font-bold cursor-pointer"
+                  >
+                    Clear Selection
+                  </button>
+                )}
+              </div>
+
+              {!selectedDeviceForExchange ? (
+                <div className="space-y-3">
+                  <div className="p-2.5 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200 text-xs font-medium flex items-center justify-between">
+                    <span>🔄 <strong>Rental CPE Warranty Exchange Filter</strong>: Only customers with active <strong>RENTAL</strong> devices are eligible for exchange. Sold devices are customer-owned.</span>
+                  </div>
+
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search customer name, customer ID code, rental serial number (SN), or PON serial..."
+                      value={exchangeSearchQuery}
+                      onChange={(e) => setExchangeSearchQuery(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 pl-9 pr-3 py-2 text-xs font-semibold text-slate-900 dark:text-white"
+                    />
+                  </div>
+
+                  <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+                    {isLoadingExchangeDevices ? (
+                      <div className="p-4 text-center text-slate-400 text-xs">Loading customer devices...</div>
+                    ) : filteredExchangeDevices.length === 0 ? (
+                      <div className="p-4 text-center text-slate-400 text-xs">No active RENTAL customer devices match your search query. (Sold products are excluded from device exchange).</div>
+                    ) : (
+                      filteredExchangeDevices.map((dev) => (
+                        <div
+                          key={dev.id}
+                          onClick={() => {
+                            setSelectedDeviceForExchange(dev);
+                            setExchangeProductName(dev.productName);
+                            setExchangeNewSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
+                            setExchangeNewPon(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
+                            setExchangeNewMac('00:1A:2B:3C:4D:5E');
+                          }}
+                          className="p-3 text-left hover:bg-indigo-50 dark:hover:bg-indigo-950/60 cursor-pointer transition-all flex items-center justify-between"
+                        >
+                          <div>
+                            <div className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-2">
+                              <span>{dev.customerName}</span>
+                              <span className="font-mono text-indigo-600 dark:text-indigo-400 text-[11px]">({dev.customerCode})</span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              Model: <strong>{dev.productName}</strong> | SN: <span className="font-mono font-bold text-slate-700 dark:text-slate-300">{dev.deviceSerial}</span> | PON: <span className="font-mono text-slate-600 dark:text-slate-400">{dev.ponSerial}</span>
+                            </div>
+                            {dev.installationAddress && (
+                              <div className="text-[10px] text-slate-400 mt-0.5">
+                                📍 {dev.installationAddress}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className="px-3 py-1 rounded-lg bg-indigo-600 text-white font-bold text-[11px] shrink-0"
+                          >
+                            Select Device
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-xs">
+                  <div className="flex items-center justify-between font-bold text-indigo-950 dark:text-indigo-200">
+                    <span>Target Customer: {selectedDeviceForExchange.customerName} ({selectedDeviceForExchange.customerCode})</span>
+                    <span>Contact: {selectedDeviceForExchange.contactPhone || 'N/A'}</span>
+                  </div>
+                  <div className="mt-2 text-slate-700 dark:text-slate-300 text-[11px] grid grid-cols-2 gap-2">
+                    <div>
+                      <strong>Installed Product:</strong> {selectedDeviceForExchange.productName}
+                    </div>
+                    <div>
+                      <strong>Address:</strong> {selectedDeviceForExchange.installationAddress || 'N/A'}
+                    </div>
+                    <div>
+                      <strong>Old Device Serial (SN):</strong> <span className="font-mono font-bold text-indigo-600 dark:text-indigo-300">{selectedDeviceForExchange.deviceSerial}</span>
+                    </div>
+                    <div>
+                      <strong>Old PON Serial:</strong> <span className="font-mono font-bold text-indigo-600 dark:text-indigo-300">{selectedDeviceForExchange.ponSerial}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Step 2: Old Serial Disposition */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Step 2: Old Device Disposition (Return Serial Unit Handling) *
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOldDeviceAction('RESTOCK')}
+                  className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all ${
+                    oldDeviceAction === 'RESTOCK'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-500 text-emerald-900 dark:text-emerald-200 font-bold shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <div className="font-bold flex items-center gap-1.5 text-xs">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                    <span>Put Back to Available Inventory (+1 Stock)</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Return tested working device back to branch store stock for re-issue
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOldDeviceAction('DAMAGE')}
+                  className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all ${
+                    oldDeviceAction === 'DAMAGE'
+                      ? 'bg-rose-50 dark:bg-rose-950/80 border-rose-500 text-rose-900 dark:text-rose-200 font-bold shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <div className="font-bold flex items-center gap-1.5 text-xs">
+                    <AlertTriangle className="h-4 w-4 text-rose-500" />
+                    <span>Move to Defective Stock Bin</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Move hardware unit to branch damaged bin for RMA repair
+                  </p>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setOldDeviceAction('DISPOSED')}
+                  className={`p-3.5 rounded-2xl border text-left cursor-pointer transition-all ${
+                    oldDeviceAction === 'DISPOSED'
+                      ? 'bg-amber-50 dark:bg-amber-950/80 border-amber-500 text-amber-900 dark:text-amber-200 font-bold shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                  }`}
+                >
+                  <div className="font-bold flex items-center gap-1.5 text-xs">
+                    <XCircle className="h-4 w-4 text-amber-500" />
+                    <span>Scrap & Dispose Unit</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Scrap irreparable unit from company inventory
+                  </p>
+                </button>
+              </div>
+            </div>
+
+            {/* Step 3: Replacement Device Details */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+              <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <Plus className="h-4 w-4 text-indigo-500" />
+                <span>Step 3: New Replacement Device Details *</span>
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    New Product Model *
+                  </label>
+                  <select
+                    value={exchangeProductName}
+                    onChange={(e) => setExchangeProductName(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-2.5 text-xs text-slate-800 dark:text-slate-100 font-semibold"
+                  >
+                    {products.map((p) => (
+                      <option key={p.id} value={p.name}>
+                        {p.name} ({p.category})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    New Device Serial Number (SN) *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      value={exchangeNewSerial}
+                      onChange={(e) => setExchangeNewSerial(e.target.value)}
+                      placeholder="e.g. SN-ONU24G-991203"
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-2.5 pr-20 text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setExchangeNewSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`)}
+                      className="absolute right-1 top-1 bottom-1 px-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 text-[10px] font-bold hover:bg-indigo-200 cursor-pointer"
+                    >
+                      Auto-Gen
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    New PON Serial Number *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={exchangeNewPon}
+                    onChange={(e) => setExchangeNewPon(e.target.value)}
+                    placeholder="e.g. HWTC-99182A3"
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-2.5 text-xs font-mono font-bold text-slate-800 dark:text-slate-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    New MAC Address (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={exchangeNewMac}
+                    onChange={(e) => setExchangeNewMac(e.target.value)}
+                    placeholder="e.g. 00:1A:2B:3C:4D:5E"
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 p-2.5 text-xs font-mono text-slate-800 dark:text-slate-100"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Exchange Reason & Notes */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Reason for Device Exchange / Swap *
+                </label>
+                <select
+                  value={exchangeReason}
+                  onChange={(e) => setExchangeReason(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-800 dark:text-slate-100"
+                >
+                  <option value="Defective / Hardware Fault (No Power / Optical Loss)">🛠️ Defective / Hardware Fault (No Power / Optical Loss)</option>
+                  <option value="Model Upgrade (Single-Band to Dual-Band 5G ONU)">🚀 Model Upgrade (Single-Band to Dual-Band 5G ONU)</option>
+                  <option value="Port Damage / Electrical Surge (Lightning Loss)">⚡ Port Damage / Electrical Surge (Lightning Loss)</option>
+                  <option value="Routine Field Maintenance & Firmware Swap">🔧 Routine Field Maintenance & Firmware Swap</option>
+                  <option value="Physical Fiber Drop Port Damage">📡 Physical Fiber Drop Port Damage</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Technician / Exchange Field Notes
+                </label>
+                <input
+                  type="text"
+                  value={exchangeNotes}
+                  onChange={(e) => setExchangeNotes(e.target.value)}
+                  placeholder="e.g. Replaced by Technician Suresh. Optical power -18.5dBm, signal online..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-800 dark:text-slate-100"
+                />
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-3">
+              <button
+                type="submit"
+                disabled={isSubmittingExchange || !selectedDeviceForExchange}
+                className="w-full sm:w-auto px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span>{isSubmittingExchange ? 'Processing Exchange & Restocking...' : 'Confirm Hardware Exchange & Sync Inventory'}</span>
               </button>
             </div>
           </form>
@@ -3206,27 +4163,85 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       )}
 
       {/* ============================================================ */}
-      {/* MODAL 3: Assign Fixed Asset Modal */}
+      {/* MODAL 3: Assign Fixed Asset / Product Rental CPE Modal */}
       {/* ============================================================ */}
-      {isAssignModalOpen && selectedAssetForAssign && (
+      {isAssignModalOpen && (selectedAssetForAssign || selectedProductForAssign) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
-          <div className={`w-full max-w-lg rounded-3xl border shadow-2xl overflow-hidden p-6 ${
+          <div className={`w-full max-w-xl rounded-3xl border shadow-2xl overflow-hidden p-6 max-h-[90vh] overflow-y-auto ${
             isDarkMode ? 'bg-[#0f1218] border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-900'
           }`}>
             <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
               <h3 className="text-base font-serif font-bold flex items-center gap-2">
                 <Wrench className="h-5 w-5 text-indigo-500" />
-                <span>Assign Fixed Asset: {selectedAssetForAssign.name}</span>
+                <span>
+                  {selectedProductForAssign
+                    ? `Deploy Catalog Product as CPE Rental: ${selectedProductForAssign.name}`
+                    : `Assign Fixed Asset: ${selectedAssetForAssign?.name}`}
+                </span>
               </h3>
-              <button onClick={() => setIsAssignModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+              <button onClick={() => { setIsAssignModalOpen(false); setSelectedProductForAssign(null); setSelectedAssetForAssign(null); }} className="text-slate-400 hover:text-slate-600 cursor-pointer">
                 ✕
               </button>
             </div>
 
             <form onSubmit={handleSubmitAssignAsset} className="space-y-4 mt-4 text-xs">
-              <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
-                Tag: <strong>{selectedAssetForAssign.tagNumber}</strong> | Category: {selectedAssetForAssign.category}
-              </div>
+              {selectedAssetForAssign ? (
+                <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
+                  Tag: <strong>{selectedAssetForAssign.tagNumber}</strong> | Category: {selectedAssetForAssign.category}
+                </div>
+              ) : selectedProductForAssign ? (
+                <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 space-y-3">
+                  <div className="flex items-center justify-between font-bold text-indigo-950 dark:text-indigo-200 text-xs">
+                    <span>Product: {selectedProductForAssign.name}</span>
+                    <span>SKU: {selectedProductForAssign.sku}</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block font-bold text-[10px] text-slate-600 dark:text-slate-400 mb-1">Asset Tag Number *</label>
+                      <input
+                        type="text"
+                        required
+                        value={productAssignTag}
+                        onChange={(e) => setProductAssignTag(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 font-mono font-bold text-indigo-600"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-[10px] text-slate-600 dark:text-slate-400 mb-1">Device Serial (SN) *</label>
+                      <input
+                        type="text"
+                        required
+                        value={productAssignSerial}
+                        onChange={(e) => setProductAssignSerial(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 font-mono font-bold text-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-[10px] text-slate-600 dark:text-slate-400 mb-1">PON Serial Number *</label>
+                      <input
+                        type="text"
+                        required
+                        value={productAssignPon}
+                        onChange={(e) => setProductAssignPon(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 font-mono font-bold text-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-[10px] text-slate-600 dark:text-slate-400 mb-1">MAC Address (Optional)</label>
+                      <input
+                        type="text"
+                        value={productAssignMac}
+                        onChange={(e) => setProductAssignMac(e.target.value)}
+                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 font-mono text-slate-800 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <div>
                 <label className="block font-bold mb-1">Assign Target Category *</label>
@@ -3258,7 +4273,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     }`}
                   >
                     <UserCheck className="h-4 w-4" />
-                    <span>Customer Home / Site</span>
+                    <span>Customer Home / Rental CPE</span>
                   </button>
                 </div>
               </div>
@@ -3281,21 +4296,61 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   </select>
                 </div>
               ) : (
-                <div>
-                  <label className="block font-bold mb-1">Select Customer *</label>
-                  <select
-                    value={assignCustomerId}
-                    onChange={(e) => setAssignCustomerId(e.target.value)}
-                    className={`w-full rounded-xl border p-2.5 ${
-                      isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-300'
-                    }`}
-                  >
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.customerName} ({c.customerId}) - {c.address}
-                      </option>
-                    ))}
-                  </select>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block font-bold">Select Customer (Customer Master Directory Search) *</label>
+                    <span className="text-[10px] text-indigo-500 font-mono font-bold">
+                      {customers.length} Directory Records
+                    </span>
+                  </div>
+
+                  <div className="relative">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Type customer name, account ID, phone, or location to filter..."
+                      value={customerSearchInAssignModal}
+                      onChange={(e) => setCustomerSearchInAssignModal(e.target.value)}
+                      className={`w-full rounded-xl border pl-9 pr-3 py-2 text-xs font-semibold ${
+                        isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-slate-50 border-slate-300 text-slate-800'
+                      }`}
+                    />
+                  </div>
+
+                  <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredCustomersInAssignModal.length === 0 ? (
+                      <div className="p-3 text-center text-slate-400 text-xs">
+                        No customer matching "{customerSearchInAssignModal}" in Master Directory.
+                      </div>
+                    ) : (
+                      filteredCustomersInAssignModal.map((c) => {
+                        const isSelected = assignCustomerId === c.id;
+                        return (
+                          <div
+                            key={c.id}
+                            onClick={() => setAssignCustomerId(c.id)}
+                            className={`p-2.5 text-left flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-indigo-950/60 cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-indigo-100 dark:bg-indigo-950/90 border-l-4 border-indigo-600 font-bold'
+                                : ''
+                            }`}
+                          >
+                            <div>
+                              <div className="text-xs font-bold text-slate-900 dark:text-white">
+                                {c.customerName} <span className="font-mono text-indigo-600 dark:text-indigo-400 text-[11px]">({c.customerId})</span>
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                📍 {c.address} | 📞 {c.contactNumber}
+                              </div>
+                            </div>
+                            {isSelected && (
+                              <CheckCircle2 className="h-4 w-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -3544,6 +4599,279 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 8. Direct Cancel In-Transit Transfer Modal (Super Admin / Inventory Manager Only) */}
+      {directCancelModalShipment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-rose-200 dark:border-rose-900/60 overflow-hidden text-slate-800 dark:text-slate-200">
+            <div className="flex items-center justify-between border-b border-rose-200 dark:border-rose-900/60 bg-rose-50/80 dark:bg-rose-950/40 p-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-rose-100 dark:bg-rose-900/80 text-rose-700 dark:text-rose-300">
+                  <RotateCcw className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-rose-900 dark:text-rose-200">
+                    Cancel In-Transit Transfer Bin
+                  </h3>
+                  <span className="font-mono text-xs text-rose-700 dark:text-rose-400 font-bold">
+                    #{directCancelModalShipment.trackingCode}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDirectCancelModalShipment(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleDirectCancelSubmit} className="p-5 space-y-4 text-xs">
+              <div className="p-3.5 rounded-xl bg-rose-50/60 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 space-y-2">
+                <div className="flex justify-between font-bold text-slate-900 dark:text-slate-100">
+                  <span>Transfer Route:</span>
+                  <span>
+                    {directCancelModalShipment.sourceBranchName || directCancelModalShipment.sourceBranchId} → {directCancelModalShipment.destinationBranchName || directCancelModalShipment.destinationBranchId}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                  <span className="font-bold block">Transferred Items Refunded to Source Branch:</span>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    {directCancelModalShipment.items?.map((it, idx) => (
+                      <li key={idx}>
+                        <strong>{it.quantitySent ?? it.quantity} {it.unit || 'units'}</strong> of {it.productName}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-[11px] text-amber-900 dark:text-amber-300 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                  <span>Action Effects & Inventory Restocking:</span>
+                </div>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  <li>Immediately restores all sent quantities back to <strong>{directCancelModalShipment.sourceBranchName || 'Source Branch'}</strong> on-hand stock.</li>
+                  <li>Removes the incoming expected quantity from {directCancelModalShipment.destinationBranchName || 'Destination Branch'}.</li>
+                  <li>Sets shipment status to <strong>CANCELLED</strong>.</li>
+                  <li>Restores serialized device records back to in-stock status at source branch.</li>
+                  <li>Logs an auditable reversal trail under your credentials ({currentUser?.name}).</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-slate-600 dark:text-slate-300 mb-1">
+                  Cancellation Reason (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={directCancelReason}
+                  onChange={(e) => setDirectCancelReason(e.target.value)}
+                  placeholder="e.g. Transfer cancelled by dispatch officer, wrong destination selected, duplicate dispatch bin..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  disabled={isProcessingCancel}
+                  onClick={() => setDirectCancelModalShipment(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessingCancel}
+                  className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-lg shadow-rose-600/30 cursor-pointer disabled:opacity-50 transition-all"
+                >
+                  {isProcessingCancel ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      <span>Cancelling Transfer...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      <span>Confirm & Cancel Transfer</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 9. Request Cancel Transfer Modal (Workflow for Branch Managers & other staff) */}
+      {requestCancelModalShipment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-amber-200 dark:border-amber-900/60 overflow-hidden text-slate-800 dark:text-slate-200">
+            <div className="flex items-center justify-between border-b border-amber-200 dark:border-amber-900/60 bg-amber-50/80 dark:bg-amber-950/40 p-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-amber-100 dark:bg-amber-900/80 text-amber-700 dark:text-amber-300">
+                  <ShieldAlert className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-amber-900 dark:text-amber-200">
+                    Request Cancel Transfer (In-Transit)
+                  </h3>
+                  <span className="font-mono text-xs text-amber-700 dark:text-amber-400 font-bold">
+                    #{requestCancelModalShipment.trackingCode}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRequestCancelModalShipment(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRequestCancelSubmit} className="p-5 space-y-4 text-xs">
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-1.5">
+                <div className="flex justify-between font-bold text-slate-900 dark:text-slate-100">
+                  <span>Transfer Route:</span>
+                  <span>
+                    {requestCancelModalShipment.sourceBranchName || requestCancelModalShipment.sourceBranchId} → {requestCancelModalShipment.destinationBranchName || requestCancelModalShipment.destinationBranchId}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-600 dark:text-slate-300">
+                  <span>Items: </span>
+                  <strong>
+                    {requestCancelModalShipment.items?.map((it) => `${it.quantitySent || it.quantity}x ${it.productName}`).join(', ')}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-[11px] text-amber-900 dark:text-amber-300">
+                <span>
+                  <strong>Workflow Approval Notice:</strong> Since you are logged in as{' '}
+                  <span className="font-bold underline">{currentUser?.role || 'Staff'}</span>, submitting this will list an official transfer cancellation order in the <strong>Workflow Approval Center</strong>. Once an authorized person approves, the in-transit transfer will be cancelled and stock will be returned to the source branch.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase text-slate-700 dark:text-slate-300 mb-1">
+                  Reason for Transfer Cancellation Request <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={requestCancelReason}
+                  onChange={(e) => setRequestCancelReason(e.target.value)}
+                  placeholder="Explain why this in-transit transfer needs to be cancelled (e.g. Customer cancelled order, wrong items scanned, dispatched by mistake)..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  disabled={isProcessingCancel}
+                  onClick={() => setRequestCancelModalShipment(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessingCancel}
+                  className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold text-xs shadow-lg shadow-amber-600/30 cursor-pointer disabled:opacity-50 transition-all"
+                >
+                  {isProcessingCancel ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      <span>Submitting Request...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-3.5 w-3.5" />
+                      <span>Submit Cancellation Request</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 10. Withdraw / Cancel Pending Approval Request Modal */}
+      {cancelPendingRequestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-amber-200 dark:border-amber-900/60 p-6 space-y-4 text-slate-800 dark:text-slate-200">
+            <div className="flex items-center gap-2.5 text-amber-600 font-extrabold text-base">
+              <XCircle className="h-6 w-6" />
+              <span>Cancel Pending Approval Request</span>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Are you sure you want to cancel and withdraw the pending cancellation request{' '}
+              <strong>#{cancelPendingRequestModal.req.requestNumber}</strong> for transfer{' '}
+              <strong>{cancelPendingRequestModal.shipment.trackingCode}</strong>?
+            </p>
+
+            <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-[11px] space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Submitted by:</span>
+                <span className="font-bold">{cancelPendingRequestModal.req.requestedByName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Submitted Reason:</span>
+                <span className="italic truncate max-w-[200px]">"{cancelPendingRequestModal.req.reason}"</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-200 dark:border-slate-800">
+              <button
+                type="button"
+                disabled={isProcessingCancel}
+                onClick={() => setCancelPendingRequestModal(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+              >
+                Keep Request
+              </button>
+              <button
+                type="button"
+                disabled={isProcessingCancel}
+                onClick={handleConfirmWithdrawRequest}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-md cursor-pointer disabled:opacity-50 transition-all"
+              >
+                {isProcessingCancel ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    <span>Cancelling...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Confirm Cancel Request</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 max-w-md bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-3 rounded-2xl shadow-2xl border border-slate-700 dark:border-slate-300 text-xs font-semibold flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-5">
+          <span>{toastMessage}</span>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="p-1 hover:bg-slate-800 dark:hover:bg-slate-200 rounded-lg cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
     </div>

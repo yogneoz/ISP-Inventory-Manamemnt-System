@@ -1,5 +1,5 @@
 /**
- * CSV / Excel Data Exporter Utility for Subisu Multi-Branch ERP
+ * CSV / Excel Data Exporter Utility for IZone Multi-Branch ERP
  */
 
 export function exportToCSV<T extends Record<string, any>>(

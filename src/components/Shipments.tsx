@@ -1,7 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Shipment, ShipmentItem, Product, Branch, InventoryStock, User, CustomerDeviceRecord } from '../types';
+import {
+  Shipment,
+  ShipmentItem,
+  Product,
+  Branch,
+  InventoryStock,
+  User,
+  CustomerDeviceRecord,
+  ApprovalRequest,
+} from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
 import { getAllowedBranches } from '../utils/permissions';
+import { api } from '../services/api';
 import { ProductSearchBar } from './ProductSearchBar';
 import {
   Truck,
@@ -17,6 +27,13 @@ import {
   AlertCircle,
   Boxes,
   Barcode,
+  RotateCcw,
+  ShieldAlert,
+  Clock,
+  XCircle,
+  Info,
+  ShieldCheck,
+  Tag,
 } from 'lucide-react';
 
 interface ShipmentsProps {
@@ -27,6 +44,7 @@ interface ShipmentsProps {
   branches: Branch[];
   stock: InventoryStock[];
   customerDevices?: CustomerDeviceRecord[];
+  approvalRequests?: ApprovalRequest[];
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   onCreateShipment: (
@@ -44,6 +62,9 @@ interface ShipmentsProps {
       receivedByNotes?: string;
     }
   ) => Promise<void>;
+  onCancelReceiveShipment?: (id: string, reason?: string) => Promise<void>;
+  onRequestApproval?: (requestData: Partial<ApprovalRequest>) => Promise<void>;
+  onCancelApproval?: (requestId: string) => Promise<void>;
   isDarkMode?: boolean;
 }
 
@@ -61,10 +82,14 @@ export const Shipments: React.FC<ShipmentsProps> = ({
   branches,
   stock,
   customerDevices = [],
+  approvalRequests = [],
   selectedBranchId,
   dateMode,
   onCreateShipment,
   onReceiveShipment,
+  onCancelReceiveShipment,
+  onRequestApproval,
+  onCancelApproval,
   isDarkMode = false,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(activeTab === 'create-shipment');
@@ -81,6 +106,145 @@ export const Shipments: React.FC<ShipmentsProps> = ({
     };
   }>({});
   const [receivingByNotes, setReceivingByNotes] = useState<string>('');
+
+  // Cancel Received Transfer States (Direct Super Admin / Inventory Manager & Workflow Requests)
+  const [directCancelModalShipment, setDirectCancelModalShipment] = useState<Shipment | null>(null);
+  const [directCancelReason, setDirectCancelReason] = useState<string>('');
+  const [requestCancelModalShipment, setRequestCancelModalShipment] = useState<Shipment | null>(null);
+  const [requestCancelReason, setRequestCancelReason] = useState<string>('');
+  const [cancelPendingRequestModal, setCancelPendingRequestModal] = useState<{
+    req: ApprovalRequest;
+    shipment: Shipment;
+  } | null>(null);
+  const [isProcessingCancel, setIsProcessingCancel] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const isSuperOrInventory =
+    currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((current) => (current === msg ? null : current));
+    }, 5000);
+  };
+
+  // Execute direct cancellation (Super Admin & Inventory Manager)
+  const handleDirectCancelSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!directCancelModalShipment) return;
+
+    setIsProcessingCancel(true);
+    try {
+      if (onCancelReceiveShipment) {
+        await onCancelReceiveShipment(
+          directCancelModalShipment.id,
+          directCancelReason.trim() || undefined
+        );
+      } else {
+        await api.cancelReceiveShipment(
+          directCancelModalShipment.id,
+          currentUser,
+          directCancelReason.trim() || undefined
+        );
+      }
+      showToast(
+        `Transfer ${directCancelModalShipment.trackingCode} receipt cancelled successfully. Inventory and serials restored to In-Transit status.`
+      );
+      setDirectCancelModalShipment(null);
+      setDirectCancelReason('');
+    } catch (err: any) {
+      showToast(`Cancellation failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsProcessingCancel(false);
+    }
+  };
+
+  // Submit cancel request for Super Admin approval (Branch Managers / Frontdesk)
+  const handleRequestCancelSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!requestCancelModalShipment) return;
+    if (!requestCancelReason.trim()) {
+      showToast('Please provide a justification reason for requesting transfer receipt cancellation.');
+      return;
+    }
+
+    setIsProcessingCancel(true);
+    try {
+      const itemsSummary = requestCancelModalShipment.items
+        .map((i) => `${i.productName} (${i.quantityReceived || i.quantitySent || (i as any).quantity || 1} pcs)`)
+        .join(', ');
+
+      const totalQty = requestCancelModalShipment.items.reduce(
+        (sum, i) => sum + (i.quantityReceived || i.quantitySent || (i as any).quantity || 1),
+        0
+      );
+
+      const requestPayload: Omit<ApprovalRequest, 'id' | 'requestNumber' | 'status' | 'requestedAtAD' | 'requestedAtBS'> = {
+        type: 'CANCEL_RECEIVE_TRANSFER',
+        targetId: requestCancelModalShipment.id,
+        customerName: requestCancelModalShipment.trackingCode,
+        customerCode: `TRF-${requestCancelModalShipment.destinationBranchId || 'BRANCH'}`,
+        deviceSerial: requestCancelModalShipment.trackingCode,
+        productName: itemsSummary || 'Inter-Branch Transferred Stock',
+        currentStatus: 'RECEIVED',
+        requestedStatus: 'IN_TRANSIT',
+        requestedByRole: currentUser?.role || 'BRANCH_MANAGER',
+        requestedByEmail: currentUser?.email || 'user@izone.com.np',
+        requestedByName: currentUser?.name || 'Authorized Staff',
+        branchId: requestCancelModalShipment.destinationBranchId,
+        branchName: requestCancelModalShipment.destinationBranchName || requestCancelModalShipment.destinationBranchId,
+        reason: requestCancelReason.trim(),
+        shipmentData: {
+          shipmentId: requestCancelModalShipment.id,
+          trackingCode: requestCancelModalShipment.trackingCode,
+          sourceBranchName: requestCancelModalShipment.sourceBranchName || requestCancelModalShipment.sourceBranchId,
+          destinationBranchName: requestCancelModalShipment.destinationBranchName || requestCancelModalShipment.destinationBranchId,
+          itemSummary: itemsSummary,
+          totalQuantity: totalQty,
+        },
+      };
+
+      if (onRequestApproval) {
+        await onRequestApproval(requestPayload);
+      } else {
+        await api.createApprovalRequest(requestPayload);
+      }
+
+      showToast(
+        `Cancellation approval request submitted successfully for Transfer ${requestCancelModalShipment.trackingCode}. Routed to Workflow Approval Center.`
+      );
+      setRequestCancelModalShipment(null);
+      setRequestCancelReason('');
+    } catch (err: any) {
+      showToast(`Failed to submit request: ${err.message || 'Unknown error'}`);
+    } finally {
+      setIsProcessingCancel(false);
+    }
+  };
+
+  // Cancel / Withdraw a pending request
+  const handleWithdrawCancelRequest = async () => {
+    if (!cancelPendingRequestModal) return;
+
+    setIsProcessingCancel(true);
+    try {
+      if (onCancelApproval) {
+        await onCancelApproval(cancelPendingRequestModal.req.id);
+      } else {
+        await api.cancelApprovalRequest(
+          cancelPendingRequestModal.req.id,
+          currentUser
+        );
+      }
+      showToast(`Request #${cancelPendingRequestModal.req.requestNumber} cancelled & withdrawn.`);
+      setCancelPendingRequestModal(null);
+    } catch (err: any) {
+      showToast(`Failed to cancel request: ${err.message}`);
+    } finally {
+      setIsProcessingCancel(false);
+    }
+  };
 
   const openReceiveModal = (sh: Shipment) => {
     setReceivingShipmentModal(sh);
@@ -513,8 +677,24 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredShipments.map((sh) => (
-                  <tr key={sh.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                filteredShipments.map((sh) => {
+                  const pendingCancelReq = approvalRequests?.find(
+                    (r) =>
+                      r.type === 'CANCEL_RECEIVE_TRANSFER' &&
+                      (r.targetId === sh.id || r.deviceSerial === sh.trackingCode || r.customerName === sh.trackingCode) &&
+                      r.status === 'PENDING'
+                  );
+
+                  return (
+                  <tr key={sh.id} className={`transition-colors ${
+                    pendingCancelReq
+                      ? isDarkMode
+                        ? 'bg-amber-950/20 hover:bg-amber-950/30'
+                        : 'bg-amber-50/40 hover:bg-amber-50/70'
+                      : isDarkMode
+                      ? 'hover:bg-slate-800/40'
+                      : 'hover:bg-slate-50'
+                  }`}>
                     <td className="p-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
                       {sh.trackingCode}
                     </td>
@@ -532,24 +712,31 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                     </td>
                     <td className="p-3.5 text-center">
                       <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300 font-mono">
-                        {sh.items.reduce((s, i) => s + i.quantitySent, 0)} Units ({sh.items.length} skus)
+                        {sh.items.reduce((s, i) => s + (i.quantityReceived || i.quantitySent || (i as any).quantity || 1), 0)} Units ({sh.items.length} skus)
                       </span>
                     </td>
                     <td className="p-3.5 text-center">
-                      <span
-                        className={`rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                          sh.status === 'RECEIVED'
-                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                            : sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED'
-                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                            : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                        }`}
-                      >
-                        {sh.status.replace('_', ' ')}
-                      </span>
+                      {pendingCancelReq ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold rounded-md bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700 animate-pulse whitespace-nowrap">
+                          <Clock className="h-3 w-3 animate-spin" />
+                          <span>CANCEL PENDING ({pendingCancelReq.requestNumber})</span>
+                        </span>
+                      ) : (
+                        <span
+                          className={`rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
+                            sh.status === 'RECEIVED'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                              : sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED'
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                              : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                          }`}
+                        >
+                          {sh.status.replace('_', ' ')}
+                        </span>
+                      )}
                     </td>
                     <td className="p-3.5 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
+                      <div className="flex items-center justify-center gap-1.5 flex-wrap">
                         <button
                           onClick={() => setViewingShipment(sh)}
                           title="View Shipment Details"
@@ -557,7 +744,17 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                         >
                           <Eye className="h-3.5 w-3.5" />
                         </button>
-                        {sh.status !== 'RECEIVED' && (
+
+                        {pendingCancelReq ? (
+                          <button
+                            onClick={() => setCancelPendingRequestModal({ req: pendingCancelReq, shipment: sh })}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white font-bold text-[11px] shadow-xs cursor-pointer transition-all"
+                            title={`Withdraw pending cancellation request #${pendingCancelReq.requestNumber}`}
+                          >
+                            <XCircle className="h-3.5 w-3.5 shrink-0" />
+                            <span>Cancel Request</span>
+                          </button>
+                        ) : sh.status !== 'RECEIVED' ? (
                           <button
                             onClick={() => openReceiveModal(sh)}
                             className="flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 px-2.5 py-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 transition-colors cursor-pointer"
@@ -566,11 +763,24 @@ export const Shipments: React.FC<ShipmentsProps> = ({
                             <PackageCheck className="h-3.5 w-3.5" />
                             <span>Verify & Receive Stock</span>
                           </button>
-                        )}
+                        ) : isSuperOrInventory ? (
+                          <button
+                            onClick={() => {
+                              setDirectCancelModalShipment(sh);
+                              setDirectCancelReason('');
+                            }}
+                            title="Super Admin / Inventory Manager: Revert received stock and set transfer back to In-Transit"
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-[11px] shadow-xs cursor-pointer transition-all"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            <span>Cancel Receive Transfer</span>
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1134,6 +1344,285 @@ export const Shipments: React.FC<ShipmentsProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* 1. DIRECT CANCEL RECEIVE TRANSFER MODAL (Super Admin / Inventory Manager) */}
+      {/* ------------------------------------------------------------- */}
+      {directCancelModalShipment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border overflow-hidden my-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-rose-900/50 text-slate-200' : 'bg-white border-rose-200 text-slate-800'
+          }`}>
+            {/* Header */}
+            <div className="p-4 bg-rose-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-white/20">
+                  <RotateCcw className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base">Cancel Stock Transfer Receiving</h3>
+                  <p className="text-xs text-rose-100 font-mono">
+                    Transfer #{directCancelModalShipment.trackingCode}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDirectCancelModalShipment(null)}
+                className="p-1 rounded-lg text-white/80 hover:text-white hover:bg-white/10 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleDirectCancelSubmit} className="p-5 space-y-4">
+              <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
+                isDarkMode ? 'bg-rose-950/30 border-rose-800/50 text-rose-300' : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}>
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-rose-600" />
+                <div className="space-y-1">
+                  <div className="font-bold">Inventory Reversal Warning</div>
+                  <p>
+                    Cancelling this received transfer will deduct the received items from <span className="font-bold underline">{directCancelModalShipment.destinationBranchName || directCancelModalShipment.destinationBranchId}</span> and revert the shipment status back to <span className="font-bold uppercase text-amber-600 dark:text-amber-400">IN_TRANSIT</span>.
+                  </p>
+                </div>
+              </div>
+
+              {/* Items Summary Table */}
+              <div className={`p-3 rounded-xl border space-y-2 ${isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                  <span>Stock Items to Revert</span>
+                  <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                    {directCancelModalShipment.items.reduce((s, i) => s + (i.quantityReceived || i.quantitySent || (i as any).quantity || 1), 0)} Total Units
+                  </span>
+                </div>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto">
+                  {directCancelModalShipment.items.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between text-xs py-1 border-b border-dashed border-slate-200 dark:border-slate-800 last:border-0">
+                      <span className="font-semibold text-slate-900 dark:text-slate-100 truncate pr-2">
+                        {item.productName || item.productId}
+                      </span>
+                      <span className="font-mono font-bold text-rose-600 shrink-0">
+                        -{item.quantityReceived || item.quantitySent || (item as any).quantity || 1} units
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reason Input */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Reason for Cancellation / Correction <span className="text-slate-400 font-normal">(Optional)</span>
+                </label>
+                <textarea
+                  rows={2}
+                  value={directCancelReason}
+                  onChange={(e) => setDirectCancelReason(e.target.value)}
+                  placeholder="e.g. Accidental confirmation by receiving staff, wrong shipment selected, or transit dispute..."
+                  className={`w-full rounded-xl border px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-rose-500 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'
+                  }`}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  disabled={isProcessingCancel}
+                  onClick={() => setDirectCancelModalShipment(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessingCancel}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white flex items-center gap-1.5 shadow-md shadow-rose-600/30 cursor-pointer disabled:opacity-50"
+                >
+                  {isProcessingCancel ? (
+                    <Clock className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  )}
+                  <span>{isProcessingCancel ? 'Processing Reversal...' : 'Confirm Cancellation & Revert Stock'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* 2. REQUEST CANCEL RECEIVE TRANSFER MODAL (Staff Workflow) */}
+      {/* ------------------------------------------------------------- */}
+      {requestCancelModalShipment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className={`w-full max-w-xl rounded-2xl shadow-2xl border overflow-hidden my-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-amber-900/50 text-slate-200' : 'bg-white border-amber-200 text-slate-800'
+          }`}>
+            {/* Header */}
+            <div className="p-4 bg-amber-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-white/20">
+                  <ShieldAlert className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base">Request Transfer Receipt Cancellation</h3>
+                  <p className="text-xs text-amber-100 font-mono">
+                    Transfer #{requestCancelModalShipment.trackingCode}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRequestCancelModalShipment(null)}
+                className="p-1 rounded-lg text-white/80 hover:text-white hover:bg-white/10 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRequestCancelSubmit} className="p-5 space-y-4">
+              <div className={`p-3.5 rounded-xl border flex items-start gap-3 text-xs ${
+                isDarkMode ? 'bg-amber-950/30 border-amber-800/50 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'
+              }`}>
+                <Info className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+                <div className="space-y-1">
+                  <div className="font-bold">Workflow Approval Process</div>
+                  <p>
+                    As a branch operator, this cancellation request will be submitted to the <span className="font-bold underline">Workflow Approval Center</span> for Super Admin or Inventory Manager review and authorization.
+                  </p>
+                </div>
+              </div>
+
+              {/* Transfer Details Card */}
+              <div className={`p-3 rounded-xl border text-xs space-y-2 ${isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-center justify-between text-slate-500 font-medium">
+                  <span>Transfer Route:</span>
+                  <span className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1">
+                    {requestCancelModalShipment.sourceBranchName} <ArrowRight className="h-3 w-3" /> {requestCancelModalShipment.destinationBranchName}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-slate-500 font-medium">
+                  <span>Items Count:</span>
+                  <span className="font-bold text-slate-900 dark:text-slate-100">
+                    {requestCancelModalShipment.items.reduce((s, i) => s + (i.quantityReceived || i.quantitySent || (i as any).quantity || 1), 0)} Total Units
+                  </span>
+                </div>
+              </div>
+
+              {/* Reason Input (Mandatory) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Justification / Cancellation Reason <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={requestCancelReason}
+                  onChange={(e) => setRequestCancelReason(e.target.value)}
+                  placeholder="Explain why this transfer receipt needs to be cancelled and reverted to In-Transit..."
+                  className={`w-full rounded-xl border px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+                    isDarkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-300'
+                  }`}
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  disabled={isProcessingCancel}
+                  onClick={() => setRequestCancelModalShipment(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessingCancel}
+                  className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1.5 shadow-md shadow-amber-600/30 cursor-pointer disabled:opacity-50"
+                >
+                  {isProcessingCancel ? (
+                    <Clock className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ShieldAlert className="h-3.5 w-3.5" />
+                  )}
+                  <span>{isProcessingCancel ? 'Submitting Request...' : 'Submit Cancellation Request'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* 3. WITHDRAW PENDING CANCEL REQUEST MODAL */}
+      {/* ------------------------------------------------------------- */}
+      {cancelPendingRequestModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className={`w-full max-w-md rounded-2xl shadow-2xl border overflow-hidden my-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+          }`}>
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-amber-400" />
+                <h3 className="font-bold text-sm">Withdraw Cancellation Request</h3>
+              </div>
+              <button
+                onClick={() => setCancelPendingRequestModal(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <p>
+                Are you sure you want to withdraw the pending cancellation request for transfer <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{cancelPendingRequestModal.shipment.trackingCode}</span>?
+              </p>
+              <div className={`p-3 rounded-xl border ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="font-bold text-slate-700 dark:text-slate-300">Request #{cancelPendingRequestModal.req.requestNumber}</div>
+                <div className="text-slate-500 mt-1">Reason: {cancelPendingRequestModal.req.reason}</div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  disabled={isProcessingCancel}
+                  onClick={() => setCancelPendingRequestModal(null)}
+                  className="px-4 py-2 rounded-xl font-semibold border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Keep Request
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessingCancel}
+                  onClick={handleWithdrawCancelRequest}
+                  className="px-4 py-2 rounded-xl font-bold bg-amber-600 hover:bg-amber-500 text-white flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  {isProcessingCancel ? <Clock className="h-3 w-3 animate-spin" /> : <XCircle className="h-3 w-3" />}
+                  <span>{isProcessingCancel ? 'Cancelling...' : 'Withdraw Request'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl bg-slate-900 text-white shadow-2xl border border-slate-700 text-xs font-semibold animate-in slide-in-from-bottom duration-200">
+          <Info className="h-4 w-4 text-emerald-400 shrink-0" />
+          <span>{toastMessage}</span>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="ml-2 text-slate-400 hover:text-white cursor-pointer"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
     </div>

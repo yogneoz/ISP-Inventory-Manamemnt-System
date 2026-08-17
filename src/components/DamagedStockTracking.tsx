@@ -132,11 +132,11 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
 
   // Permission checks
   const canDispose = canUserDisposeDamagedStock(currentUser);
-  const canMarkDamage = !currentUser || isOperationAllowed('branch-damage-mark', currentUser?.role);
+  const canAdjustDamageCount = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
 
   const openDamagedStockEdit = (s: InventoryStock, p: Product, b: Branch) => {
-    if (!canMarkDamage) {
-      alert('Permission Denied: You do not have permission to adjust damaged stock levels.');
+    if (!canAdjustDamageCount) {
+      alert('Permission Denied: Only Stock Manager / Super Admin can adjust damaged stock count in Damage Stock Matrix.');
       return;
     }
     setEditingStock({ stockItem: s, product: p, branch: b });
@@ -625,10 +625,10 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                                 </button>
                               )}
 
-                              {onUpdateStockLevel && (
+                              {canAdjustDamageCount && onUpdateStockLevel && (
                                 <button
                                   onClick={() => openDamagedStockEdit(s, prod, b)}
-                                  title="Adjust local damaged stock balance"
+                                  title="Adjust local damaged stock balance (Stock Manager)"
                                   className="p-1 rounded text-slate-400 hover:text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-950/80 transition-colors cursor-pointer"
                                 >
                                   <Edit className="h-3.5 w-3.5" />

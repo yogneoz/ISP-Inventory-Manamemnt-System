@@ -138,7 +138,14 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   const grandTotalDeficitUnits = productsReorderData.reduce((sum, p) => sum + p.totalDeficit, 0);
   const grandTotalReorderCost = productsReorderData.reduce((sum, p) => sum + p.totalReorderValuation, 0);
 
+  // Permission Check: Stock Manager and Super Admin only
+  const isStockManager = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+
   const openEditModal = (s: InventoryStock, p: Product, b: Branch, mode: 'stock' | 'reorder') => {
+    if (!isStockManager) {
+      alert('Permission Denied: Only Stock Manager / Super Admin can edit branch reorder thresholds and adjust stock balances.');
+      return;
+    }
     setEditingStock({ stockItem: s, product: p, branch: b, mode });
     setNewQty(s.quantityOnHand);
     setNewReorderLevel(s.minReorderLevel ?? p.minReorderLevel);
@@ -147,7 +154,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
 
   const handleStockSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingStock) return;
+    if (!editingStock || !isStockManager) return;
 
     if (editingStock.mode === 'stock' && onUpdateStockLevel) {
       await onUpdateStockLevel(editingStock.stockItem.id, Number(newQty), reason);
@@ -158,7 +165,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   };
 
   const handleBulkSyncDefaults = async () => {
-    if (!onBulkUpdateStockReorderLevels) return;
+    if (!onBulkUpdateStockReorderLevels || !isStockManager) return;
     setIsSyncingBulk(true);
 
     try {
@@ -203,42 +210,33 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {onBulkUpdateStockReorderLevels && (() => {
-            const canEdit = isOperationAllowed('prod-edit', currentUser?.role);
-            if (!canEdit) return null;
-            return (
-              <button
-                type="button"
-                title="Bulk sync thresholds across branches"
-                onClick={() => setShowBulkModal(true)}
-                className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold border transition-all cursor-pointer ${
-                  isDarkMode
-                    ? 'bg-slate-900 text-indigo-400 border-slate-800 hover:bg-slate-800'
-                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                }`}
-              >
-                <SlidersHorizontal className="h-4 w-4" />
-                <span>Bulk Sync Thresholds</span>
-              </button>
-            );
-          })()}
+          {isStockManager && onBulkUpdateStockReorderLevels && (
+            <button
+              type="button"
+              title="Bulk sync thresholds across branches"
+              onClick={() => setShowBulkModal(true)}
+              className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold border transition-all cursor-pointer ${
+                isDarkMode
+                  ? 'bg-slate-900 text-indigo-400 border-slate-800 hover:bg-slate-800'
+                  : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+              }`}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              <span>Bulk Sync Thresholds</span>
+            </button>
+          )}
 
-          {onGroupLowStockPO && (() => {
-            const curBranchObj = branches.find((b) => b.id === selectedBranchId);
-            const canCreatePo = isOperationAllowed('po-create', currentUser?.role, curBranchObj?.allowProcurement);
-            if (!canCreatePo) return null;
-            return (
-              <button
-                type="button"
-                title="Group low stock products and generate PO"
-                onClick={onGroupLowStockPO}
-                className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-200 dark:shadow-none cursor-pointer transition-all"
-              >
-                <ShoppingCart className="h-4 w-4" />
-                <span>Group Low-Stock Items & Create PO</span>
-              </button>
-            );
-          })()}
+          {isStockManager && onGroupLowStockPO && (
+            <button
+              type="button"
+              title="Group low stock products and generate PO (Stock Manager Decision)"
+              onClick={onGroupLowStockPO}
+              className="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-200 dark:shadow-none cursor-pointer transition-all"
+            >
+              <ShoppingCart className="h-4 w-4" />
+              <span>Group Low-Stock Items & Create PO</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -509,27 +507,29 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                               </div>
                             </div>
 
-                            <div className="flex flex-col gap-0.5">
-                              {onUpdateStockReorderLevel && (
-                                <button
-                                  onClick={() => openEditModal(s, prod, b, 'reorder')}
-                                  title="Edit branch min reorder threshold"
-                                  className="p-1 rounded text-indigo-500 hover:bg-indigo-100 dark:hover:bg-indigo-950/80 transition-colors cursor-pointer"
-                                >
-                                  <Sliders className="h-3 w-3" />
-                                </button>
-                              )}
+                            {isStockManager && (
+                              <div className="flex flex-col gap-0.5">
+                                {onUpdateStockReorderLevel && (
+                                  <button
+                                    onClick={() => openEditModal(s, prod, b, 'reorder')}
+                                    title="Edit branch min reorder threshold"
+                                    className="p-1 rounded text-indigo-500 hover:bg-indigo-100 dark:hover:bg-indigo-950/80 transition-colors cursor-pointer"
+                                  >
+                                    <Sliders className="h-3 w-3" />
+                                  </button>
+                                )}
 
-                              {onUpdateStockLevel && (
-                                <button
-                                  onClick={() => openEditModal(s, prod, b, 'stock')}
-                                  title="Adjust physical stock count"
-                                  className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
-                                >
-                                  <Edit className="h-3 w-3" />
-                                </button>
-                              )}
-                            </div>
+                                {onUpdateStockLevel && (
+                                  <button
+                                    onClick={() => openEditModal(s, prod, b, 'stock')}
+                                    title="Adjust physical stock count"
+                                    className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                                  >
+                                    <Edit className="h-3 w-3" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </td>
                       );

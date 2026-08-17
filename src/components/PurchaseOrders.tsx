@@ -86,7 +86,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     { id: 'sup-1', name: 'Apex Trade & Telecom Supplies Pvt. Ltd.', panVatNumber: '300129841' },
     { id: 'sup-2', name: 'Himalayan Tech Distributors Pvt. Ltd.', panVatNumber: '302918273' },
     { id: 'sup-3', name: 'Nepal Optical & Fiber Optics Importers', panVatNumber: '601239845' },
-    { id: 'sup-4', name: 'Subisu Cablenet Hardware Suppliers', panVatNumber: '602819384' },
+    { id: 'sup-4', name: 'IZone Cablenet Hardware Suppliers', panVatNumber: '602819384' },
     { id: 'sup-5', name: 'Broadlink Fiber Importers Pvt. Ltd.', panVatNumber: '301829304' },
   ];
 
