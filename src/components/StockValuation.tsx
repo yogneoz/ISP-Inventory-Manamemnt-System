@@ -227,10 +227,10 @@ export const StockValuation: React.FC<StockValuationProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
-            {grandCostValuation.toLocaleString('en-IN')}
+            {(grandCostValuation ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[11px] text-slate-400 mt-1 font-medium">
-            At purchase cost across {grandTotalUnits.toLocaleString('en-IN')} units
+            At purchase cost across {(grandTotalUnits ?? 0).toLocaleString('en-IN')} units
           </div>
         </div>
 
@@ -247,7 +247,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>
-            {grandRetailValuation.toLocaleString('en-IN')}
+            {(grandRetailValuation ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[11px] text-slate-400 mt-1 font-medium">
             At selling price market value
@@ -267,7 +267,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-emerald-400' : 'text-emerald-600'}`}>
-            {grandPotentialMargin.toLocaleString('en-IN')}
+            {(grandPotentialMargin ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[11px] text-slate-400 mt-1 font-medium flex items-center gap-1">
             <span className="font-bold text-emerald-500 font-mono">{grandMarginPercent.toFixed(1)}%</span> average margin
@@ -287,7 +287,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
-            {grandDamagedLoss.toLocaleString('en-IN')}
+            {(grandDamagedLoss ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[11px] text-slate-400 mt-1 font-medium">
             Unusable damaged stock write-off
@@ -433,11 +433,11 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                       </td>
 
                       <td className="p-3.5 text-right font-mono text-slate-500">
-                        {prod.costPrice.toLocaleString('en-IN')}
+                        {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       <td className="p-3.5 text-right font-mono text-slate-500">
-                        {prod.sellingPrice.toLocaleString('en-IN')}
+                        {(prod.sellingPrice ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       <td className="p-3.5 text-center font-mono font-bold">
@@ -445,16 +445,16 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                       </td>
 
                       <td className={`p-3.5 text-right font-mono font-bold ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
-                        {costValuation.toLocaleString('en-IN')}
+                        {(costValuation ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       <td className={`p-3.5 text-right font-mono font-bold ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>
-                        {retailValuation.toLocaleString('en-IN')}
+                        {(retailValuation ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       <td className="p-3.5 text-right font-mono">
                         <div className="font-bold text-emerald-500">
-                          +{potentialMargin.toLocaleString('en-IN')}
+                          +{(potentialMargin ?? 0).toLocaleString('en-IN')}
                         </div>
                         <div className="text-[10px] text-slate-400 font-semibold">
                           {marginPercent.toFixed(1)}% margin
@@ -464,7 +464,7 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                       <td className="p-3.5 text-center font-mono">
                         {totalDamaged > 0 ? (
                           <span className="text-rose-500 font-bold">
-                            {totalDamaged} Pcs ({damagedLoss.toLocaleString('en-IN')})
+                            {totalDamaged} Pcs ({(damagedLoss ?? 0).toLocaleString('en-IN')})
                           </span>
                         ) : (
                           <span className="text-slate-400">0</span>
@@ -506,15 +506,15 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                       {catRow.category}
                     </td>
                     <td className="p-3.5 text-center font-mono">{catRow.skusCount} SKUs</td>
-                    <td className="p-3.5 text-center font-mono font-bold">{catRow.totalUnits.toLocaleString('en-IN')} Pcs</td>
+                    <td className="p-3.5 text-center font-mono font-bold">{(catRow.totalUnits ?? 0).toLocaleString('en-IN')} Pcs</td>
                     <td className="p-3.5 text-right font-mono font-bold text-indigo-500">
-                      {catRow.costValuation.toLocaleString('en-IN')}
+                      {(catRow.costValuation ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3.5 text-right font-mono font-bold text-sky-500">
-                      {catRow.retailValuation.toLocaleString('en-IN')}
+                      {(catRow.retailValuation ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3.5 text-right font-mono font-bold text-emerald-500">
-                      +{catRow.margin.toLocaleString('en-IN')}
+                      +{(catRow.margin ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3.5 text-right font-mono">
                       <div className="flex items-center justify-end gap-2">
@@ -565,18 +565,18 @@ export const StockValuation: React.FC<StockValuationProps> = ({
                         Code: {bRow.branch.code} {bRow.branch.isHeadquarters ? '• Central HQ' : ''}
                       </div>
                     </td>
-                    <td className="p-3.5 text-center font-mono font-bold">{bRow.totalUnits.toLocaleString('en-IN')} Pcs</td>
+                    <td className="p-3.5 text-center font-mono font-bold">{(bRow.totalUnits ?? 0).toLocaleString('en-IN')} Pcs</td>
                     <td className="p-3.5 text-center font-mono text-rose-500 font-bold">
                       {bRow.damagedUnits} Pcs
                     </td>
                     <td className="p-3.5 text-right font-mono font-bold text-indigo-500">
-                      {bRow.costValuation.toLocaleString('en-IN')}
+                      {(bRow.costValuation ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3.5 text-right font-mono font-bold text-sky-500">
-                      {bRow.retailValuation.toLocaleString('en-IN')}
+                      {(bRow.retailValuation ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3.5 text-right font-mono font-bold text-emerald-500">
-                      +{bRow.margin.toLocaleString('en-IN')}
+                      +{(bRow.margin ?? 0).toLocaleString('en-IN')}
                     </td>
                   </tr>
                 ))}

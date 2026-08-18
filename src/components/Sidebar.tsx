@@ -200,6 +200,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       label: 'Damaged Stock Matrix',
       icon: AlertTriangle,
     },
+    {
+      id: 'export-stock' as NavTab,
+      label: 'Export Stock Data & Reports',
+      icon: DownloadCloud,
+      hasSeparatorAbove: true,
+    },
   ];
   groups.push({
     id: 'inventory',

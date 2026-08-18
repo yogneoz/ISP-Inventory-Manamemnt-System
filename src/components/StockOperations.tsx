@@ -1422,7 +1422,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       status: 'LOGGED',
     });
 
-    alert(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: रु ${netSaleAmount.toLocaleString('en-IN')}.\nSold device(s) tagged as SOLD in Customer Device Directory.`);
+    alert(`Multi-item Product Sales Invoice logged successfully! Net Bill Amount: रु ${(netSaleAmount ?? 0).toLocaleString('en-IN')}.\nSold device(s) tagged as SOLD in Customer Device Directory.`);
     setSaleItems([]);
   };
 
@@ -1927,7 +1927,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200 dark:border-slate-800">
                     <span className="text-slate-400 font-mono text-[11px]">{op.dateAD}</span>
                     <span className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
-                      रु {op.totalValue.toLocaleString('en-IN')}
+                      रु {(op.totalValue ?? 0).toLocaleString('en-IN')}
                     </span>
                   </div>
                 </div>
@@ -2025,10 +2025,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                       <td className="p-2.5 font-medium text-slate-900 dark:text-white">{op.productName}</td>
                       <td className="p-2.5 font-mono font-bold text-rose-600">{Math.abs(op.quantityChanged || 1)} Pcs</td>
                       <td className="p-2.5 font-mono font-bold text-slate-800 dark:text-slate-200">
-                        <div>रु {op.totalValue.toLocaleString('en-IN')}</div>
+                        <div>रु {(op.totalValue ?? 0).toLocaleString('en-IN')}</div>
                         {op.netWriteOffLoss !== undefined && (
                           <div className="text-[10px] font-normal text-rose-500">
-                            Net Loss: रु {op.netWriteOffLoss.toLocaleString('en-IN')}
+                            Net Loss: रु {(op.netWriteOffLoss ?? 0).toLocaleString('en-IN')}
                           </div>
                         )}
                       </td>
@@ -2711,7 +2711,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         </div>
                         <h4 className="font-bold text-xs text-slate-900 dark:text-white mt-1 line-clamp-1">{prod.name}</h4>
                         <p className="text-[10px] text-slate-500 mt-0.5">
-                          Cost: रु {prod.costPrice.toLocaleString('en-IN')} | Cat: {prod.category}
+                          Cost: रु {(prod.costPrice ?? 0).toLocaleString('en-IN')} | Cat: {prod.category}
                         </p>
                       </div>
 
@@ -2766,7 +2766,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         </span>
                         <h4 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">{asset.name}</h4>
                         <p className="text-[10px] text-slate-400 mt-0.5">
-                          Cost: रु {asset.acquisitionCost.toLocaleString('en-IN')} | Category: {asset.category}
+                          Cost: रु {(asset.acquisitionCost ?? 0).toLocaleString('en-IN')} | Category: {asset.category}
                         </p>
                       </div>
 
@@ -3013,7 +3013,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             </td>
 
                             <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                              रु {item.totalValue.toLocaleString('en-IN')}
+                              रु {(item.totalValue ?? 0).toLocaleString('en-IN')}
                             </td>
 
                             <td className="p-2.5 text-center">
@@ -3104,7 +3104,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         </td>
                         <td className="p-2.5 font-medium text-slate-700 dark:text-slate-300">{op.technicianName || 'N/A'}</td>
                         <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                          रु {op.totalValue?.toLocaleString('en-IN') || 0}
+                          रु {(op.totalValue ?? 0).toLocaleString('en-IN')}
                         </td>
                       </tr>
                     ))}
@@ -3364,7 +3364,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             </td>
 
                             <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
-                              रु {item.totalValue.toLocaleString('en-IN')}
+                              रु {(item.totalValue ?? 0).toLocaleString('en-IN')}
                             </td>
 
                             <td className="p-2.5 text-center">
@@ -3391,19 +3391,19 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                 <div>
                   <span className="text-slate-400 block text-[10px]">Gross Product Bill</span>
                   <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                    रु {saleItems.reduce((s, i) => s + (i.quantity * i.sellingPrice), 0).toLocaleString('en-IN')}
+                    रु {(saleItems.reduce((s, i) => s + ((i.quantity || 0) * (i.sellingPrice || 0)), 0) ?? 0).toLocaleString('en-IN')}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px]">Total Discounts Applied</span>
                   <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
-                    रु {saleItems.reduce((s, i) => s + i.discount, 0).toLocaleString('en-IN')}
+                    रु {(saleItems.reduce((s, i) => s + (i.discount || 0), 0) ?? 0).toLocaleString('en-IN')}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-400 block text-[10px]">Net Receivable Bill Amount</span>
                   <span className="font-mono font-extrabold text-purple-700 dark:text-purple-300 text-sm">
-                    रु {Math.max(0, saleItems.reduce((s, i) => s + (i.quantity * i.sellingPrice), 0) - saleItems.reduce((s, i) => s + i.discount, 0)).toLocaleString('en-IN')}
+                    रु {(Math.max(0, saleItems.reduce((s, i) => s + ((i.quantity || 0) * (i.sellingPrice || 0)), 0) - saleItems.reduce((s, i) => s + (i.discount || 0), 0)) ?? 0).toLocaleString('en-IN')}
                   </span>
                 </div>
               </div>
@@ -3790,7 +3790,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                     <td className="p-2.5 font-bold">{op.type}</td>
                     <td className="p-2.5">{op.branchId}</td>
                     <td className="p-2.5">{op.productName || op.reason}</td>
-                    <td className="p-2.5 font-mono font-bold">रु {op.totalValue.toLocaleString('en-IN')}</td>
+                    <td className="p-2.5 font-mono font-bold">रु {(op.totalValue ?? 0).toLocaleString('en-IN')}</td>
                     <td className="p-2.5">{op.inspectorName}</td>
                     <td className="p-2.5 font-mono text-slate-400">{op.dateAD}</td>
                   </tr>
@@ -3906,7 +3906,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             <div className="text-right">
                               <span className="text-[9px] text-slate-400 block">Total Val</span>
                               <span className="font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
-                                रु {item.totalValue.toLocaleString('en-IN')}
+                                रु {(item.totalValue ?? 0).toLocaleString('en-IN')}
                               </span>
                             </div>
 

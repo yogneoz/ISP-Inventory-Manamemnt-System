@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PurchaseOrder, Product, Branch, POLineItem, InventoryStock, Supplier, User } from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
 import { isOperationAllowed, getAllowedBranches } from '../utils/permissions';
@@ -26,6 +26,10 @@ import {
   Lock,
   Pencil,
   Clock,
+  ArrowLeft,
+  Calendar,
+  Layers,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface PurchaseOrdersProps {
@@ -76,10 +80,21 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   onUpdatePOStatus,
   isDarkMode = false,
 }) => {
-  const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
+  // Navigation Tabs: 'PO_LIST' | 'CREATE_PO' | 'VIEW_PO'
+  const [activeTab, setActiveTab] = useState<'PO_LIST' | 'CREATE_PO' | 'VIEW_PO'>(
+    autoOpenModal ? 'CREATE_PO' : 'PO_LIST'
+  );
+
   const [viewingPO, setViewingPO] = useState<PurchaseOrder | null>(null);
   const [editingPO, setEditingPO] = useState<PurchaseOrder | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Sync active tab with autoOpenModal prop when it changes
+  useEffect(() => {
+    if (autoOpenModal) {
+      setActiveTab('CREATE_PO');
+    }
+  }, [autoOpenModal]);
 
   // Default known suppliers list for autocomplete if props list is empty
   const defaultSuppliersList = [
@@ -124,7 +139,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   });
 
   // Keep lines synced with prepopulatedLines prop when provided
-  React.useEffect(() => {
+  useEffect(() => {
     if (prepopulatedLines && prepopulatedLines.length > 0) {
       setLines(prepopulatedLines);
     }
@@ -141,7 +156,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     setExpectedDeliveryDateAD(new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]);
   };
 
-  const handleOpenCreateModal = () => {
+  const handleOpenCreateTab = () => {
     setEditingPO(null);
     setSupplierName(availableSuppliers[0]?.name || 'Apex Trade & Telecom Supplies Pvt. Ltd.');
     setBranchId(selectedBranchId !== 'ALL' ? selectedBranchId : branches[0]?.id || 'WH001');
@@ -150,11 +165,16 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
     setBillWiseDiscount(0);
     setNotes('');
     setLines(prepopulatedLines && prepopulatedLines.length > 0 ? prepopulatedLines : []);
-    setIsModalOpen(true);
+    setActiveTab('CREATE_PO');
   };
 
-  const handleOpenEditModal = (po: PurchaseOrder) => {
-    if (po.status === 'IN_PROGRESS' || (po.status as string) === 'INPROGRESS' || po.status === 'CANCELLED' || po.status === 'RECEIVED') {
+  const handleOpenEditTab = (po: PurchaseOrder) => {
+    if (
+      po.status === 'IN_PROGRESS' ||
+      (po.status as string) === 'INPROGRESS' ||
+      po.status === 'CANCELLED' ||
+      po.status === 'RECEIVED'
+    ) {
       alert(`Cannot edit PO #${po.poNumber} because its status is ${po.status}.`);
       return;
     }
@@ -175,8 +195,7 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         isTaxExempt: i.isTaxExempt || i.taxRate === 0,
       }))
     );
-    setViewingPO(null);
-    setIsModalOpen(true);
+    setActiveTab('CREATE_PO');
   };
 
   const handleAutoPopulateLowStock = () => {
@@ -303,11 +322,16 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (lines.length === 0) return;
+    if (lines.length === 0) {
+      alert('Please add at least one product item line before saving.');
+      return;
+    }
 
     const targetBranch = branches.find((b) => b.id === branchId);
     if (targetBranch && targetBranch.allowProcurement === false) {
-      alert(`Procurement & Purchasing permission is disabled for branch "${targetBranch.name}". Please enable it in Branch Directory.`);
+      alert(
+        `Procurement & Purchasing permission is disabled for branch "${targetBranch.name}". Please enable it in Branch Directory.`
+      );
       return;
     }
 
@@ -358,12 +382,13 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
       });
     }
 
-    setIsModalOpen(false);
+    handleResetForm();
+    setActiveTab('PO_LIST');
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header & Controls */}
+    <div className="space-y-6" id="purchase-orders-container">
+      {/* Header & Title Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2
@@ -375,27 +400,28 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             <span>Purchase Orders & Supplier Procurement</span>
           </h2>
           <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Create multi-item vendor purchase orders with 13% VAT & Bill-wise Discount.
+            Full-width inline PO creation with 13% VAT, Bill-wise Discount, and multi-branch supplier management.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 w-64 sm:w-80 ${
+        {/* Top Action Buttons when in PO List */}
+        <div className="flex items-center gap-2">
+          {activeTab !== 'PO_LIST' && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('PO_LIST')}
+              className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold shadow-xs transition-all cursor-pointer ${
                 isDarkMode
-                  ? 'bg-slate-900 border-slate-800 text-slate-200'
-                  : 'bg-white border-slate-200 text-slate-800'
+                  ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                  : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
               }`}
-            />
-          </div>
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back to PO List</span>
+            </button>
+          )}
 
-          {(() => {
+          {activeTab === 'PO_LIST' && (() => {
             const curBranch = branches.find((b) => b.id === branchId);
             const canCreatePo = isOperationAllowed('po-create', currentUser?.role, curBranch?.allowProcurement);
             if (!canCreatePo) return null;
@@ -403,9 +429,10 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
             return (
               <button
                 type="button"
+                id="btn-new-purchase-order"
                 title="Issue new Purchase Order"
-                onClick={handleOpenCreateModal}
-                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/20 cursor-pointer transition-all"
+                onClick={handleOpenCreateTab}
+                className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/20 cursor-pointer transition-all"
               >
                 <Plus className="h-4 w-4" />
                 <span>New Purchase Order</span>
@@ -415,743 +442,1046 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
         </div>
       </div>
 
-      {/* PO Summary Metrics */}
-      <div className="flex-none grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div
-          className={`rounded-2xl p-4 border shadow-sm ${
-            isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-          }`}
-        >
-          <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Total POs Issued
-          </span>
-          <div className={`text-xl font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            {filteredPOs.length} Orders
-          </div>
-        </div>
-        <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/5 shadow-sm">
-          <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">Pending Deliveries</span>
-          <div className="text-xl font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1">
-            {filteredPOs.filter((p) => p.status === 'SENT' || p.status === 'APPROVED').length} Pending
-          </div>
-        </div>
-        <div className="rounded-2xl p-4 border border-indigo-500/30 bg-indigo-500/5 shadow-sm">
-          <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Pending Value</span>
-          <div className="text-xl font-mono font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
-            {filteredPOs
-              .filter((p) => p.status !== 'RECEIVED')
-              .reduce((s, p) => s + p.totalAmount, 0)
-              .toLocaleString('en-IN')}
-          </div>
-        </div>
-        <div className="rounded-2xl p-4 border border-emerald-500/30 bg-emerald-500/5 shadow-sm">
-          <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Received Stock Value</span>
-          <div className="text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
-            {filteredPOs
-              .filter((p) => p.status === 'RECEIVED')
-              .reduce((s, p) => s + p.totalAmount, 0)
-              .toLocaleString('en-IN')}
-          </div>
-        </div>
-      </div>
-
-      {/* PO Data Table */}
+      {/* Navigation Sub-Tabs (Branch Operations Style) */}
       <div
-        className={`rounded-2xl border shadow-lg overflow-hidden ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+        className={`flex items-center gap-1.5 border-b pb-1 overflow-x-auto ${
+          isDarkMode ? 'border-slate-800' : 'border-slate-200'
         }`}
       >
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead
-              className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
-                isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+        <button
+          type="button"
+          id="tab-po-register"
+          onClick={() => setActiveTab('PO_LIST')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === 'PO_LIST'
+              ? 'bg-indigo-600 text-white shadow-sm'
+              : isDarkMode
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <FileText className="h-4 w-4" />
+          <span>1. Purchase Orders Register</span>
+          <span
+            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+              activeTab === 'PO_LIST'
+                ? 'bg-indigo-800 text-white'
+                : isDarkMode
+                ? 'bg-slate-800 text-slate-300'
+                : 'bg-slate-200 text-slate-700'
+            }`}
+          >
+            {filteredPOs.length}
+          </span>
+        </button>
+
+        {(() => {
+          const curBranch = branches.find((b) => b.id === branchId);
+          const canCreatePo = isOperationAllowed('po-create', currentUser?.role, curBranch?.allowProcurement);
+          return (
+            <button
+              type="button"
+              id="tab-po-form"
+              disabled={!canCreatePo}
+              title={
+                !canCreatePo
+                  ? 'Purchase order creation is disabled for your role permissions'
+                  : 'Open full inline PO entry form'
+              }
+              onClick={() => {
+                if (!canCreatePo) {
+                  alert('Purchase Order creation is disabled for your role permissions.');
+                  return;
+                }
+                if (activeTab !== 'CREATE_PO') {
+                  handleOpenCreateTab();
+                }
+              }}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+                !canCreatePo
+                  ? 'opacity-40 cursor-not-allowed text-slate-400'
+                  : activeTab === 'CREATE_PO'
+                  ? 'bg-indigo-600 text-white shadow-sm cursor-pointer'
+                  : isDarkMode
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
               }`}
             >
-              <tr>
-                <th className="p-3.5 sticky top-0 bg-inherit">PO Number</th>
-                <th className="p-3.5 sticky top-0 bg-inherit">Supplier Name</th>
-                <th className="p-3.5 sticky top-0 bg-inherit">Target Branch</th>
-                <th className="p-3.5 sticky top-0 bg-inherit">Order Date</th>
-                <th className="p-3.5 sticky top-0 bg-inherit">Delivery Target</th>
-                <th className="p-3.5 sticky top-0 bg-inherit text-center">Line Items</th>
-                <th className="p-3.5 sticky top-0 bg-inherit text-right">Gross Total</th>
-                <th className="p-3.5 sticky top-0 bg-inherit text-center">Status</th>
-                <th className="p-3.5 sticky top-0 bg-inherit text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-              {filteredPOs.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="p-8 text-center text-slate-500 text-xs">
-                    No purchase orders found. Click "New Purchase Order" to create one.
-                  </td>
-                </tr>
-              ) : (
-                filteredPOs.map((po) => {
-                  const branch = branches.find((b) => b.id === po.branchId);
-                  return (
-                    <tr key={po.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                      <td className="p-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                        {po.poNumber}
-                      </td>
-                      <td className="p-3.5 font-bold text-slate-800 dark:text-white">{po.supplierName}</td>
-                      <td className="p-3.5 text-slate-600 dark:text-slate-300">{branch?.name || po.branchId}</td>
-                      <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
-                        {formatDualDate(po.orderDateAD, dateMode)}
-                      </td>
-                      <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
-                        {formatDualDate(po.expectedDeliveryDateAD, dateMode)}
-                      </td>
-                      <td className="p-3.5 text-center">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 text-[11px] font-semibold text-slate-700 dark:text-slate-300">
-                          {po.items.length} items
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                        {(po.totalAmount ?? 0).toLocaleString('en-IN')}
-                      </td>
-                      <td className="p-3.5 text-center">
-                        <span
-                          className={`rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
-                            po.status === 'RECEIVED'
-                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                              : po.status === 'SENT'
-                              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
-                              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                          }`}
-                        >
-                          {po.status}
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-center">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => setViewingPO(po)}
-                            title="View PO Details"
-                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </button>
-
-                          {po.status !== 'CANCELLED' && po.status !== 'RECEIVED' && (
-                            <span
-                              className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 px-2 py-1 text-[10px] font-bold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30"
-                              title="To receive stock & register device serials, select this PO when creating a Purchase Invoice (PI)"
-                            >
-                              <FileText className="h-3.5 w-3.5" />
-                              <span>Process via PI</span>
-                            </span>
-                          )}
-
-                          {po.status !== 'CANCELLED' && (
-                            <button
-                              onClick={async () => {
-                                if (onUpdatePOStatus) {
-                                  await onUpdatePOStatus(po.id, 'CANCELLED');
-                                }
-                              }}
-                              className="flex items-center gap-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/80 px-2 py-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 transition-colors cursor-pointer"
-                              title="Cancel PO"
-                            >
-                              <XCircle className="h-3.5 w-3.5" />
-                              <span>Cancel</span>
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+              {!canCreatePo ? <Lock className="h-3.5 w-3.5" /> : <Plus className="h-4 w-4" />}
+              <span>
+                2. {editingPO ? `Edit Purchase Order (${editingPO.poNumber})` : 'Create Purchase Order (Inline Form)'}
+              </span>
+              {lines.length > 0 && (
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                    activeTab === 'CREATE_PO'
+                      ? 'bg-indigo-800 text-white'
+                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                  }`}
+                >
+                  {lines.length} items
+                </span>
               )}
-            </tbody>
-          </table>
-        </div>
+            </button>
+          );
+        })()}
+
+        {viewingPO && (
+          <button
+            type="button"
+            id="tab-po-view"
+            onClick={() => setActiveTab('VIEW_PO')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === 'VIEW_PO'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : isDarkMode
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Eye className="h-4 w-4" />
+            <span>3. View PO: #{viewingPO.poNumber}</span>
+          </button>
+        )}
       </div>
 
-      {/* Purchase Order Creation Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-full max-w-5xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden my-6 text-slate-800 dark:text-slate-200">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4">
-              <div>
-                <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
-                  <ShoppingCart className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-                  <span>{editingPO ? `Edit Purchase Order — ${editingPO.poNumber}` : 'New Purchase Order Entry'}</span>
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Scan barcode or search & add items, set unit rates, and apply bill-wise discount.
-                </p>
+      {/* TAB 1: PURCHASE ORDERS LIST / REGISTER */}
+      {activeTab === 'PO_LIST' && (
+        <div className="space-y-6" id="po-list-view">
+          {/* Metrics Overview Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div
+              className={`rounded-2xl p-4 border shadow-xs ${
+                isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+              }`}
+            >
+              <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                Total POs Issued
+              </span>
+              <div className={`text-xl font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                {filteredPOs.length} Orders
               </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-5">
-              {/* Top Form Fields */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 bg-slate-50 dark:bg-slate-900/40 p-4 rounded-xl border border-slate-200 dark:border-slate-800/80">
-                {/* Vendor Autocomplete Input */}
-                <div className="relative">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Vendor / Supplier Name
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      required
-                      value={supplierName}
-                      onFocus={() => setIsSupplierDropdownOpen(true)}
-                      onChange={(e) => {
-                        setSupplierName(e.target.value);
-                        setIsSupplierDropdownOpen(true);
-                      }}
-                      placeholder="Type or select Vendor Name / PAN"
-                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pr-8 pl-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
-                    />
-                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-                  </div>
-
-                  {/* Autocomplete Dropdown */}
-                  {isSupplierDropdownOpen && (
-                    <div className="absolute z-50 left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl divide-y divide-slate-100 dark:divide-slate-800">
-                      {filteredSuppliers.length === 0 ? (
-                        <div className="p-2.5 text-xs text-slate-400 text-center">
-                          Press Enter to use "{supplierName}" as custom supplier
-                        </div>
-                      ) : (
-                        filteredSuppliers.map((s) => (
-                          <button
-                            key={s.id || s.name}
-                            type="button"
-                            onClick={() => {
-                              setSupplierName(s.name);
-                              setIsSupplierDropdownOpen(false);
-                            }}
-                            className="w-full text-left p-2.5 hover:bg-indigo-50 dark:hover:bg-slate-800/80 transition-colors cursor-pointer"
-                          >
-                            <div className="font-bold text-slate-900 dark:text-white text-xs">{s.name}</div>
-                            {s.panVatNumber && (
-                              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
-                                PAN/VAT: {s.panVatNumber}
-                              </div>
-                            )}
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Destination Branch
-                  </label>
-                  <select
-                    value={branchId}
-                    onChange={(e) => setBranchId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
-                  >
-                    {getAllowedBranches(currentUser, branches).map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.name} ({b.location})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Taxation Term
-                  </label>
-                  <select
-                    value={taxationType}
-                    onChange={(e) => {
-                      const val = e.target.value as 'TAXABLE_13' | 'TAX_EXEMPTED';
-                      setTaxationType(val);
-                      setLines(lines.map((l) => ({ ...l, isTaxExempt: val === 'TAX_EXEMPTED' })));
-                    }}
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="TAXABLE_13">Billwise 13% VAT (Taxable)</option>
-                    <option value="TAX_EXEMPTED">Tax Exempted (0% Tax)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Expected Delivery Date (AD)
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={expectedDeliveryDateAD}
-                    onChange={(e) => setExpectedDeliveryDateAD(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
+            <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/10 shadow-xs">
+              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">Pending Deliveries</span>
+              <div className="text-xl font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1">
+                {filteredPOs.filter((p) => p.status === 'SENT' || p.status === 'APPROVED' || p.status === 'IN_PROGRESS' || (p.status as string) === 'INPROGRESS').length} Orders
               </div>
+            </div>
 
-              {/* Product Search & Scan Bar */}
-              <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-800/60 space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold text-indigo-700 dark:text-indigo-300">
-                  <span className="flex items-center gap-1.5">
-                    <Search className="h-4 w-4" />
-                    <span>Scan Barcode or Search & Enter Product Name / SKU:</span>
-                  </span>
-                  <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400">
-                    Scan or type item name to instantly add or increment quantity
-                  </span>
-                </div>
-                <ProductSearchBar
-                  products={products}
-                  onAddOrIncrementProduct={handleAddOrIncrementProduct}
-                  placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
-                />
+            <div className="rounded-2xl p-4 border border-indigo-500/30 bg-indigo-500/10 shadow-xs">
+              <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Pending Order Value</span>
+              <div className="text-xl font-mono font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
+                Rs. {(filteredPOs
+                  .filter((p) => p.status !== 'RECEIVED' && p.status !== 'CANCELLED')
+                  .reduce((s, p) => s + (p.totalAmount || 0), 0) ?? 0)
+                  .toLocaleString('en-IN')}
               </div>
+            </div>
 
-              {/* POS Multi-Line Table */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                    <Calculator className="h-4 w-4 text-indigo-500" />
-                    <span>Order Items Table ({lines.length} items)</span>
-                  </h4>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleAutoPopulateLowStock}
-                      className="flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline cursor-pointer bg-amber-50 dark:bg-amber-950/50 px-3 py-1 rounded-lg border border-amber-200 dark:border-amber-800/50"
-                      title="Automatically populate low stock products below reorder levels"
-                    >
-                      <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                      <span>Auto-fill Low Stock</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={addLine}
-                      className="flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer bg-indigo-50 dark:bg-indigo-950/50 px-3 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800/50"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      <span>Add Item Line</span>
-                    </button>
-                  </div>
-                </div>
+            <div className="rounded-2xl p-4 border border-emerald-500/30 bg-emerald-500/10 shadow-xs">
+              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Received Stock Value</span>
+              <div className="text-xl font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-1">
+                Rs. {(filteredPOs
+                  .filter((p) => p.status === 'RECEIVED')
+                  .reduce((s, p) => s + (p.totalAmount || 0), 0) ?? 0)
+                  .toLocaleString('en-IN')}
+              </div>
+            </div>
+          </div>
 
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-900/30 max-h-[360px] overflow-y-auto">
-                  <table className="w-full text-left text-xs relative">
-                    <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800 shadow-xs">
-                      <tr>
-                        <th className="p-3 w-10 text-center">#</th>
-                        <th className="p-3">Product / Item Name & SKU</th>
-                        <th className="p-3 w-28 text-center">Qty</th>
-                        <th className="p-3 w-36 text-right">Unit Rate</th>
-                        <th className="p-3 w-36 text-right">Total</th>
-                        <th className="p-3 w-12 text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                      {lines.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="p-8 text-center text-slate-500 text-xs">
-                            No items in this purchase order. Use the product search bar above or click "Add Item Line" to add products.
+          {/* PO Search & Filter Bar */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search PO # or Vendor Name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                  isDarkMode
+                    ? 'bg-slate-900 border-slate-800 text-slate-200'
+                    : 'bg-white border-slate-200 text-slate-800'
+                }`}
+              />
+            </div>
+
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Showing <strong className="text-slate-900 dark:text-white font-mono">{filteredPOs.length}</strong> purchase orders
+            </div>
+          </div>
+
+          {/* Purchase Orders Table */}
+          <div
+            className={`rounded-2xl border shadow-md overflow-hidden ${
+              isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead
+                  className={`sticky top-0 z-10 font-bold uppercase text-[10px] tracking-wider border-b ${
+                    isDarkMode
+                      ? 'bg-[#12161f] text-slate-400 border-slate-800'
+                      : 'bg-slate-100 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  <tr>
+                    <th className="p-3.5">PO Number</th>
+                    <th className="p-3.5">Vendor / Supplier</th>
+                    <th className="p-3.5">Branch</th>
+                    <th className="p-3.5">Order Date</th>
+                    <th className="p-3.5">Expected Delivery</th>
+                    <th className="p-3.5 text-center">Items</th>
+                    <th className="p-3.5 text-right">Subtotal</th>
+                    <th className="p-3.5 text-right">13% VAT</th>
+                    <th className="p-3.5 text-right">Total Amount</th>
+                    <th className="p-3.5 text-center">Status</th>
+                    <th className="p-3.5 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800/80' : 'divide-slate-200'}`}>
+                  {filteredPOs.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="p-10 text-center text-slate-400 italic">
+                        No purchase orders found matching the filter criteria. Click "Create Purchase Order" above to issue a new PO.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredPOs.map((po) => {
+                      const branch = branches.find((b) => b.id === po.branchId);
+                      const isPending =
+                        po.status === 'SENT' ||
+                        po.status === 'APPROVED' ||
+                        po.status === 'IN_PROGRESS' ||
+                        (po.status as string) === 'INPROGRESS';
+
+                      return (
+                        <tr
+                          key={po.id}
+                          className={`transition-colors ${
+                            isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <td className="p-3.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                            {po.poNumber}
                           </td>
-                        </tr>
-                      ) : (
-                        lines.map((line, idx) => {
-                          const prod = products.find((p) => p.id === line.productId);
-                          const lineTotal = line.quantity * line.unitPrice;
-                          return (
-                            <tr key={idx} className="hover:bg-white dark:hover:bg-slate-800/50 transition-colors">
-                              <td className="p-3 text-center font-mono font-bold text-slate-400 text-[11px]">
-                                {idx + 1}
-                              </td>
-                              <td className="p-3">
-                                <select
-                                  value={line.productId}
-                                  onChange={(e) => updateLine(idx, 'productId', e.target.value)}
-                                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs text-slate-900 dark:text-slate-100 font-medium"
-                                >
-                                  {products.map((p) => (
-                                    <option key={p.id} value={p.id}>
-                                      [{p.sku}] {p.name} ({p.unit})
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>
-                              <td className="p-3 text-center">
-                                <input
-                                  type="number"
-                                  min={1}
-                                  required
-                                  value={line.quantity}
-                                  onChange={(e) =>
-                                    updateLine(idx, 'quantity', Math.max(1, Number(e.target.value)))
-                                  }
-                                  className="w-20 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs text-center font-mono font-bold text-slate-900 dark:text-white"
-                                />
-                              </td>
-                              <td className="p-3 text-right">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  required
-                                  value={line.unitPrice}
-                                  onChange={(e) =>
-                                    updateLine(idx, 'unitPrice', Math.max(0, Number(e.target.value)))
-                                  }
-                                  className="w-28 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
-                                />
-                              </td>
-                              <td className="p-3 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                                {lineTotal.toLocaleString('en-IN')}
-                              </td>
-                              <td className="p-3 text-center">
+                          <td className="p-3.5 font-bold text-slate-900 dark:text-white">
+                            {po.supplierName}
+                          </td>
+                          <td className="p-3.5 text-slate-600 dark:text-slate-400">
+                            {branch?.name || po.branchId}
+                          </td>
+                          <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                            {formatDualDate(po.orderDateAD, dateMode)}
+                          </td>
+                          <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                            {formatDualDate(po.expectedDeliveryDateAD, dateMode)}
+                          </td>
+                          <td className="p-3.5 text-center font-mono font-semibold text-slate-700 dark:text-slate-300">
+                            {po.items.length} item(s)
+                          </td>
+                          <td className="p-3.5 text-right font-mono font-medium text-slate-600 dark:text-slate-400">
+                            {(po.subtotalAmount ?? 0).toLocaleString('en-IN')}
+                          </td>
+                          <td className="p-3.5 text-right font-mono font-medium text-indigo-600 dark:text-indigo-400">
+                            {(po.taxAmount ?? 0).toLocaleString('en-IN')}
+                          </td>
+                          <td className="p-3.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                            {(po.totalAmount ?? 0).toLocaleString('en-IN')}
+                          </td>
+                          <td className="p-3.5 text-center">
+                            <span
+                              className={`rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border ${
+                                po.status === 'RECEIVED'
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                  : po.status === 'CANCELLED'
+                                  ? 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                                  : po.status === 'IN_PROGRESS' || (po.status as string) === 'INPROGRESS'
+                                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                                  : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800'
+                              }`}
+                            >
+                              {po.status}
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {/* View Action */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewingPO(po);
+                                  setActiveTab('VIEW_PO');
+                                }}
+                                title="View Purchase Order Details"
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </button>
+
+                              {/* Edit Action */}
+                              {isPending && (
                                 <button
                                   type="button"
-                                  onClick={() => removeLine(idx)}
-                                  className="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer transition-colors"
-                                  title="Remove item line"
+                                  disabled={po.status === 'IN_PROGRESS' || (po.status as string) === 'INPROGRESS'}
+                                  onClick={() => handleOpenEditTab(po)}
+                                  title={
+                                    po.status === 'IN_PROGRESS' || (po.status as string) === 'INPROGRESS'
+                                      ? 'Cannot edit order in progress'
+                                      : 'Edit Purchase Order'
+                                  }
+                                  className={`p-1.5 rounded-lg border transition-colors ${
+                                    po.status === 'IN_PROGRESS' || (po.status as string) === 'INPROGRESS'
+                                      ? 'opacity-40 cursor-not-allowed text-slate-400 border-slate-300 dark:border-slate-800'
+                                      : 'border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950 text-indigo-600 dark:text-indigo-400 cursor-pointer'
+                                  }`}
                                 >
-                                  <Trash2 className="h-4 w-4" />
+                                  <Pencil className="h-3.5 w-3.5" />
                                 </button>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                              )}
 
-              {/* POS Summary Calculations & Notes */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-200 dark:border-slate-800 pt-4">
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
-                    Order Remarks / Terms & Conditions
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Enter dispatch instructions, warranty terms, or vendor agreement reference..."
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2.5 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
+                              {/* In Progress Quick Action */}
+                              {po.status === 'SENT' && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (onUpdatePOStatus) {
+                                      await onUpdatePOStatus(po.id, 'IN_PROGRESS');
+                                    }
+                                  }}
+                                  className="flex items-center gap-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/80 px-2 py-1 text-[11px] font-bold text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 transition-colors cursor-pointer"
+                                  title="Mark order as In Progress"
+                                >
+                                  <Clock className="h-3.5 w-3.5" />
+                                  <span>In Progress</span>
+                                </button>
+                              )}
 
-                {/* Bill-wise Discount Summary Box */}
-                <div className="rounded-xl bg-slate-50 dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 space-y-2.5 text-xs">
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>Gross Subtotal:</span>
-                    <span className="font-mono font-bold">{grossSubtotal.toLocaleString('en-IN')}</span>
-                  </div>
+                              {/* Receive Stock Action */}
+                              {isPending && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (window.confirm(`Mark PO #${po.poNumber} as Received? This records that items were physically delivered.`)) {
+                                      await onReceivePO(po.id);
+                                    }
+                                  }}
+                                  className="flex items-center gap-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/80 px-2 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-colors cursor-pointer"
+                                  title="Receive entire PO"
+                                >
+                                  <PackageCheck className="h-3.5 w-3.5" />
+                                  <span>Receive</span>
+                                </button>
+                              )}
 
-                  {/* Bill Wise Discount Input */}
-                  <div className="flex justify-between items-center text-amber-600 dark:text-amber-400 bg-amber-50/50 dark:bg-amber-950/30 p-2 rounded-lg border border-amber-200/50 dark:border-amber-800/40">
-                    <span className="font-bold">Bill Wise Discount:</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={billWiseDiscount}
-                      onChange={(e) => setBillWiseDiscount(Math.max(0, Number(e.target.value)))}
-                      className="w-28 text-right rounded-md border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 focus:ring-2 focus:ring-amber-500"
-                    />
-                  </div>
-
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>Taxable Subtotal:</span>
-                    <span className="font-mono font-bold">{taxableAfterDiscount.toLocaleString('en-IN')}</span>
-                  </div>
-
-                  <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-400 font-semibold border-t border-slate-200 dark:border-slate-800 pt-2">
-                    <span>13% Input VAT ({taxationType === 'TAXABLE_13' ? 'Applicable' : 'Exempt'}):</span>
-                    <span className="font-mono font-bold">{totalVAT.toLocaleString('en-IN')}</span>
-                  </div>
-
-                  <div className="flex justify-between items-center text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-300 dark:border-slate-700">
-                    <span>Grand Total Amount:</span>
-                    <span className="font-mono text-indigo-600 dark:text-indigo-400">
-                      {grandTotal.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Footer Actions */}
-              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={handleResetForm}
-                  className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-3.5 py-2 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
-                  title="Reset entire PO form to initial state"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  <span>Reset Form</span>
-                </button>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-2 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 cursor-pointer"
-                  >
-                    {editingPO ? 'Update & Save Purchase Order' : 'Confirm & Issue Purchase Order'}
-                  </button>
-                </div>
-              </div>
-            </form>
+                              {/* Cancel Action */}
+                              {isPending && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    if (window.confirm(`Are you sure you want to cancel PO #${po.poNumber}?`)) {
+                                      if (onUpdatePOStatus) {
+                                        await onUpdatePOStatus(po.id, 'CANCELLED');
+                                      }
+                                    }
+                                  }}
+                                  className="flex items-center gap-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/80 px-2 py-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30 transition-colors cursor-pointer"
+                                  title="Cancel PO"
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                  <span>Cancel</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
-      {/* PO Detail View Modal */}
-      {viewingPO && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-full max-w-3xl rounded-2xl bg-white dark:bg-[#0f1218] shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden text-slate-800 dark:text-slate-200 my-8">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 p-4">
-              <h3 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
-                <FileText className="h-4 w-4 text-indigo-500" />
-                <span>Purchase Order Summary — {viewingPO.poNumber}</span>
-              </h3>
-              <button
-                onClick={() => setViewingPO(null)}
-                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
+      {/* TAB 2: INLINE PURCHASE ORDER CREATION / EDIT FORM (FULL BODY VISIBLE) */}
+      {activeTab === 'CREATE_PO' && (
+        <div
+          id="po-inline-form-container"
+          className={`rounded-2xl border p-5 sm:p-7 shadow-lg space-y-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          {/* Form Banner Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                <ShoppingCart className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white text-base flex items-center gap-2">
+                  <span>{editingPO ? `Edit Purchase Order — ${editingPO.poNumber}` : 'New Purchase Order Entry (Full Page Inline Form)'}</span>
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Scan barcodes or search products, configure quantity & unit prices, and calculate 13% VAT with bill-wise discount.
+                </p>
+              </div>
             </div>
 
-            <div className="p-6 space-y-6">
-              {/* PO Header details */}
-              <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-                <div>
-                  <h4 className="text-lg font-serif font-bold text-slate-900 dark:text-white">
-                    IZONE NETWORKS PVT. LTD.
-                  </h4>
-                  <p className="text-xs text-slate-500">Official Purchase Order Document</p>
-                  <p className="text-xs text-slate-500">Branch: {branches.find(b => b.id === viewingPO.branchId)?.name || viewingPO.branchId}</p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleResetForm}
+                className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-3.5 py-2 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+                title="Reset entire PO form to initial state"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset Form</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleResetForm();
+                  setActiveTab('PO_LIST');
+                }}
+                className={`rounded-xl border px-3.5 py-2 text-xs font-semibold cursor-pointer transition-colors ${
+                  isDarkMode
+                    ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                    : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Back to Register
+              </button>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6" id="po-form-element">
+            {/* Top Form Fields: Vendor, Branch, Tax Mode, Expected Delivery */}
+            <div className={`grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 rounded-xl border ${
+              isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
+              {/* Vendor Autocomplete Input */}
+              <div className="relative">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Vendor / Supplier Name *
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    required
+                    id="po-supplier-input"
+                    value={supplierName}
+                    onFocus={() => setIsSupplierDropdownOpen(true)}
+                    onChange={(e) => {
+                      setSupplierName(e.target.value);
+                      setIsSupplierDropdownOpen(true);
+                    }}
+                    placeholder="Type or select Vendor Name / PAN"
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pr-8 pl-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
                 </div>
-                <div className="text-right">
-                  <div className="text-sm font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
-                    {viewingPO.poNumber}
+
+                {/* Autocomplete Dropdown */}
+                {isSupplierDropdownOpen && (
+                  <div className="absolute z-50 left-0 right-0 mt-1 max-h-52 overflow-y-auto rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl divide-y divide-slate-100 dark:divide-slate-800">
+                    {filteredSuppliers.length === 0 ? (
+                      <div className="p-2.5 text-xs text-slate-400 text-center">
+                        Press Enter to use "{supplierName}" as custom supplier
+                      </div>
+                    ) : (
+                      filteredSuppliers.map((s) => (
+                        <button
+                          key={s.id || s.name}
+                          type="button"
+                          onClick={() => {
+                            setSupplierName(s.name);
+                            setIsSupplierDropdownOpen(false);
+                          }}
+                          className="w-full text-left p-2.5 hover:bg-indigo-50 dark:hover:bg-slate-800/80 transition-colors cursor-pointer"
+                        >
+                          <div className="font-bold text-slate-900 dark:text-white text-xs">{s.name}</div>
+                          {s.panVatNumber && (
+                            <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                              PAN/VAT: {s.panVatNumber}
+                            </div>
+                          )}
+                        </button>
+                      ))
+                    )}
                   </div>
-                  <div className="text-xs text-slate-500">Order Date: {viewingPO.orderDateAD} ({viewingPO.orderDateBS})</div>
-                  <div className="text-xs text-slate-500">Delivery: {viewingPO.expectedDeliveryDateAD}</div>
-                </div>
+                )}
               </div>
 
-              {/* Vendor & Status info */}
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 dark:bg-slate-900/50 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs">
-                <div>
-                  <span className="font-bold text-slate-500 dark:text-slate-400 uppercase text-[10px]">Vendor Supplier</span>
-                  <div className="font-bold text-slate-900 dark:text-white text-sm mt-0.5">{viewingPO.supplierName}</div>
-                </div>
-                <div>
-                  <span className="font-bold text-slate-500 dark:text-slate-400 uppercase text-[10px]">Order Status</span>
-                  <div className="mt-0.5">
-                    <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 border border-indigo-300 dark:border-indigo-700">
-                      {viewingPO.status}
-                    </span>
-                  </div>
-                </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Destination Branch *
+                </label>
+                <select
+                  id="po-branch-select"
+                  value={branchId}
+                  onChange={(e) => setBranchId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-indigo-500"
+                >
+                  {getAllowedBranches(currentUser, branches).map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.location})
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {/* Line Items Table */}
-              <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
-                    <tr>
-                      <th className="p-3">#</th>
-                      <th className="p-3">Product Name</th>
-                      <th className="p-3">SKU</th>
-                      <th className="p-3 text-center">Qty</th>
-                      <th className="p-3 text-right">Unit Rate</th>
-                      <th className="p-3 text-right">Subtotal</th>
-                      <th className="p-3 text-right">13% VAT</th>
-                      <th className="p-3 text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                    {viewingPO.items.map((item, idx) => (
-                      <tr key={idx}>
-                        <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
-                        <td className="p-3 font-bold text-slate-800 dark:text-white">{item.productName}</td>
-                        <td className="p-3 font-mono text-slate-500">{item.sku}</td>
-                        <td className="p-3 text-center font-mono font-bold">{item.quantity} {item.unit || 'Pcs'}</td>
-                        <td className="p-3 text-right font-mono">{item.unitPrice.toLocaleString('en-IN')}</td>
-                        <td className="p-3 text-right font-mono">{item.subtotal.toLocaleString('en-IN')}</td>
-                        <td className="p-3 text-right font-mono text-indigo-600 dark:text-indigo-400">{item.taxAmount.toLocaleString('en-IN')}</td>
-                        <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-white">{item.total.toLocaleString('en-IN')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Taxation Term *
+                </label>
+                <select
+                  id="po-taxation-type"
+                  value={taxationType}
+                  onChange={(e) => {
+                    const val = e.target.value as 'TAXABLE_13' | 'TAX_EXEMPTED';
+                    setTaxationType(val);
+                    setLines(lines.map((l) => ({ ...l, isTaxExempt: val === 'TAX_EXEMPTED' })));
+                  }}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="TAXABLE_13">Billwise 13% VAT (Taxable)</option>
+                  <option value="TAX_EXEMPTED">Tax Exempted (0% Tax)</option>
+                </select>
               </div>
 
-              {/* Financial Totals */}
-              <div className="flex justify-between items-end border-t border-slate-200 dark:border-slate-800 pt-4">
-                <div className="text-xs text-slate-500 max-w-xs space-y-1">
-                  <p className="font-semibold text-slate-700 dark:text-slate-300">
-                    * Procurement Note:
-                  </p>
-                  <p>
-                    Marking status as PURCHASED or CANCELLED updates PO state. Actual stock increase with serial number tracking occurs during Purchase Invoice entry.
-                  </p>
-                </div>
-                <div className="w-64 space-y-1.5 text-xs font-mono">
-                  <div className="flex justify-between text-slate-500">
-                    <span>Subtotal:</span>
-                    <span>{(viewingPO.subtotalAmount ?? 0).toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold">
-                    <span>VAT 13%:</span>
-                    <span>{(viewingPO.taxAmount ?? 0).toLocaleString('en-IN')}</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
-                    <span>Grand Total:</span>
-                    <span>{(viewingPO.totalAmount ?? 0).toLocaleString('en-IN')}</span>
-                  </div>
-                </div>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Expected Delivery Date (AD) *
+                </label>
+                <input
+                  type="date"
+                  required
+                  id="po-delivery-date"
+                  value={expectedDeliveryDateAD}
+                  onChange={(e) => setExpectedDeliveryDateAD(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                />
               </div>
+            </div>
 
-              {/* View Modal Actions */}
-              <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+            {/* Product Search & Barcode Scan Bar */}
+            <div className="bg-indigo-50/70 dark:bg-indigo-950/40 p-4 rounded-xl border border-indigo-200 dark:border-indigo-800/60 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                <span className="flex items-center gap-1.5">
+                  <Search className="h-4 w-4" />
+                  <span>Scan Barcode or Search & Enter Product Name / SKU:</span>
+                </span>
+                <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 hidden sm:inline">
+                  Scan or type item name to instantly add or increment quantity
+                </span>
+              </div>
+              <ProductSearchBar
+                products={products}
+                onAddOrIncrementProduct={handleAddOrIncrementProduct}
+                placeholder="Scan Barcode or Search & Enter Product Name / SKU:"
+                inputId="po-product-search-input"
+              />
+            </div>
+
+            {/* POS Multi-Line Table */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Calculator className="h-4 w-4 text-indigo-500" />
+                  <span>Order Items Table ({lines.length} items)</span>
+                </h4>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => window.print()}
-                    className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                    id="btn-po-autofill-low-stock"
+                    onClick={handleAutoPopulateLowStock}
+                    className="flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline cursor-pointer bg-amber-50 dark:bg-amber-950/50 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-800/50"
+                    title="Automatically populate low stock products below reorder levels"
                   >
-                    <Printer className="h-4 w-4" />
-                    <span>Print Order</span>
+                    <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+                    <span>Auto-fill Low Stock Items</span>
                   </button>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] font-bold uppercase text-slate-400 mr-1">Order Actions:</span>
-
-                  {/* 1. Edit PO Button */}
                   <button
                     type="button"
-                    disabled={
-                      viewingPO.status === 'IN_PROGRESS' ||
-                      (viewingPO.status as string) === 'INPROGRESS' ||
-                      viewingPO.status === 'CANCELLED' ||
-                      viewingPO.status === 'RECEIVED'
-                    }
-                    onClick={() => handleOpenEditModal(viewingPO)}
-                    title={
-                      viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
-                        ? 'Disabled: Cannot edit PO when Order is In Progress'
-                        : viewingPO.status === 'CANCELLED'
-                        ? 'Disabled: Cannot edit a Cancelled PO'
-                        : viewingPO.status === 'RECEIVED'
-                        ? 'Disabled: Cannot edit a Received PO'
-                        : 'Edit this Purchase Order'
-                    }
-                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
-                      viewingPO.status === 'IN_PROGRESS' ||
-                      (viewingPO.status as string) === 'INPROGRESS' ||
-                      viewingPO.status === 'CANCELLED' ||
-                      viewingPO.status === 'RECEIVED'
-                        ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
-                        : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 hover:bg-indigo-100 cursor-pointer shadow-xs'
-                    }`}
+                    id="btn-po-add-line"
+                    onClick={addLine}
+                    className="flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer bg-indigo-50 dark:bg-indigo-950/50 px-3 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800/50"
                   >
-                    <Pencil className="h-4 w-4" />
-                    <span>Edit PO</span>
-                    {(viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS') && (
-                      <Lock className="h-3 w-3 ml-0.5 text-amber-500" />
-                    )}
-                  </button>
-
-                  {/* 2. Set InProgress Button */}
-                  <button
-                    type="button"
-                    disabled={
-                      viewingPO.status === 'IN_PROGRESS' ||
-                      (viewingPO.status as string) === 'INPROGRESS' ||
-                      viewingPO.status === 'CANCELLED' ||
-                      viewingPO.status === 'RECEIVED'
-                    }
-                    onClick={async () => {
-                      if (onUpdatePOStatus) {
-                        await onUpdatePOStatus(viewingPO.id, 'IN_PROGRESS');
-                      }
-                      setViewingPO({ ...viewingPO, status: 'IN_PROGRESS' });
-                    }}
-                    title={
-                      viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
-                        ? 'Order is currently In Progress'
-                        : viewingPO.status === 'CANCELLED'
-                        ? 'Disabled: Order is Cancelled'
-                        : viewingPO.status === 'RECEIVED'
-                        ? 'Disabled: Order is Received'
-                        : 'Mark status as In Progress'
-                    }
-                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
-                      viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
-                        ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30 ring-2 ring-amber-400 cursor-not-allowed opacity-90'
-                        : viewingPO.status === 'CANCELLED' || viewingPO.status === 'RECEIVED'
-                        ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
-                        : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 cursor-pointer shadow-xs'
-                    }`}
-                  >
-                    <Clock className="h-4 w-4" />
-                    <span>
-                      {viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
-                        ? 'In Progress'
-                        : 'Set InProgress'}
-                    </span>
-                  </button>
-
-                  {/* 3. Set Cancelled / Cancel Order Button */}
-                  <button
-                    type="button"
-                    disabled={viewingPO.status === 'CANCELLED' || viewingPO.status === 'RECEIVED'}
-                    onClick={async () => {
-                      if (onUpdatePOStatus) {
-                        await onUpdatePOStatus(viewingPO.id, 'CANCELLED');
-                      }
-                      setViewingPO({ ...viewingPO, status: 'CANCELLED' });
-                    }}
-                    title={
-                      viewingPO.status === 'CANCELLED'
-                        ? 'Order is already Cancelled'
-                        : viewingPO.status === 'RECEIVED'
-                        ? 'Disabled: Cannot cancel a Received PO'
-                        : 'Cancel Purchase Order'
-                    }
-                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
-                      viewingPO.status === 'CANCELLED'
-                        ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 ring-2 ring-rose-500 cursor-not-allowed opacity-90'
-                        : viewingPO.status === 'RECEIVED'
-                        ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
-                        : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700 hover:bg-rose-100 cursor-pointer shadow-xs'
-                    }`}
-                  >
-                    <XCircle className="h-4 w-4" />
-                    <span>
-                      {viewingPO.status === 'CANCELLED'
-                        ? 'Order Cancelled'
-                        : viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
-                        ? 'Cancel Order'
-                        : 'Set Cancelled'}
-                    </span>
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Add Item Line</span>
                   </button>
                 </div>
               </div>
+
+              <div
+                className={`border rounded-xl overflow-x-auto ${
+                  isDarkMode
+                    ? 'border-slate-800 bg-slate-900/30'
+                    : 'border-slate-200 bg-slate-50/50'
+                }`}
+              >
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead
+                    className={`font-bold uppercase text-[10px] tracking-wider border-b ${
+                      isDarkMode
+                        ? 'bg-slate-900 text-slate-400 border-slate-800'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    <tr>
+                      <th className="p-3 w-10 text-center">#</th>
+                      <th className="p-3 min-w-[220px]">Product / Item Name & SKU</th>
+                      <th className="p-3 w-28 text-center">Quantity</th>
+                      <th className="p-3 w-32 text-right">Unit Rate (NPR)</th>
+                      <th className="p-3 w-36 text-right">Line Total</th>
+                      <th className="p-3 w-14 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                    {lines.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-slate-400 italic">
+                          No items added yet. Use the barcode scanner / search bar above or click "Add Item Line" to begin.
+                        </td>
+                      </tr>
+                    ) : (
+                      lines.map((line, idx) => {
+                        const prod = products.find((p) => p.id === line.productId);
+                        const lineTotal = line.quantity * line.unitPrice;
+
+                        return (
+                          <tr
+                            key={idx}
+                            className={`transition-colors ${
+                              isDarkMode ? 'hover:bg-slate-800/50' : 'hover:bg-white'
+                            }`}
+                          >
+                            <td className="p-3 text-center font-mono font-bold text-slate-400">
+                              {idx + 1}
+                            </td>
+                            <td className="p-3">
+                              <select
+                                value={line.productId}
+                                onChange={(e) => updateLine(idx, 'productId', e.target.value)}
+                                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 text-xs font-semibold text-slate-900 dark:text-slate-100"
+                              >
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.name} ({p.sku}) — {p.category}
+                                  </option>
+                                ))}
+                              </select>
+                              <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                <span>Unit: <strong className="text-slate-700 dark:text-slate-300">{prod?.unit || 'Pcs'}</strong></span>
+                                <span>•</span>
+                                <span>Default Cost: <strong className="text-slate-700 dark:text-slate-300">Rs. {prod?.costPrice || 0}</strong></span>
+                              </div>
+                            </td>
+                            <td className="p-3 text-center">
+                              <input
+                                type="number"
+                                min={1}
+                                required
+                                value={line.quantity}
+                                onChange={(e) =>
+                                  updateLine(idx, 'quantity', Math.max(1, Number(e.target.value)))
+                                }
+                                className="w-20 text-center rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100"
+                              />
+                            </td>
+                            <td className="p-3 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                required
+                                value={line.unitPrice}
+                                onChange={(e) =>
+                                  updateLine(idx, 'unitPrice', Math.max(0, Number(e.target.value)))
+                                }
+                                className="w-28 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
+                              />
+                            </td>
+                            <td className="p-3 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                              Rs. {(lineTotal ?? 0).toLocaleString('en-IN')}
+                            </td>
+                            <td className="p-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => removeLine(idx)}
+                                className="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer transition-colors"
+                                title="Remove item line"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* POS Summary Calculations & Remarks */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 border-t border-slate-200 dark:border-slate-800 pt-5">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Order Remarks / Terms & Conditions
+                </label>
+                <textarea
+                  rows={5}
+                  id="po-remarks-input"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Enter dispatch instructions, payment terms, warranty terms, or vendor agreement reference..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Bill-wise Discount Summary Box */}
+              <div
+                className={`rounded-2xl p-5 border space-y-3 text-xs ${
+                  isDarkMode
+                    ? 'bg-slate-900/60 border-slate-800'
+                    : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                  <span className="font-semibold">Gross Subtotal:</span>
+                  <span className="font-mono font-bold text-sm text-slate-900 dark:text-white">
+                    Rs. {(grossSubtotal ?? 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                {/* Bill Wise Discount Input */}
+                <div className="flex justify-between items-center text-amber-600 dark:text-amber-400 bg-amber-50/70 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-200/60 dark:border-amber-800/40">
+                  <span className="font-bold">Bill Wise Discount (NPR):</span>
+                  <input
+                    type="number"
+                    min={0}
+                    id="po-bill-discount-input"
+                    value={billWiseDiscount}
+                    onChange={(e) => setBillWiseDiscount(Math.max(0, Number(e.target.value)))}
+                    className="w-32 text-right rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+
+                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                  <span>Taxable Base Subtotal:</span>
+                  <span className="font-mono font-bold">
+                    Rs. {(taxableAfterDiscount ?? 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center text-indigo-600 dark:text-indigo-400 font-semibold border-t border-slate-200 dark:border-slate-800 pt-2.5">
+                  <span>13% Input VAT ({taxationType === 'TAXABLE_13' ? 'Applicable' : 'Tax Exempt'}):</span>
+                  <span className="font-mono font-bold">
+                    Rs. {(totalVAT ?? 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center text-base font-extrabold text-slate-900 dark:text-white pt-2.5 border-t border-slate-300 dark:border-slate-700">
+                  <span>Grand Total Order Amount:</span>
+                  <span className="font-mono text-indigo-600 dark:text-indigo-400 text-lg">
+                    Rs. {(grandTotal ?? 0).toLocaleString('en-IN')}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Form Actions */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleResetForm}
+                className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-4 py-2.5 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span>Reset Form</span>
+              </button>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleResetForm();
+                    setActiveTab('PO_LIST');
+                  }}
+                  className={`rounded-xl border px-5 py-2.5 text-xs font-semibold cursor-pointer transition-colors ${
+                    isDarkMode
+                      ? 'border-slate-700 text-slate-400 hover:bg-slate-800'
+                      : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  id="btn-submit-po"
+                  className="rounded-xl bg-indigo-600 hover:bg-indigo-500 px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/30 cursor-pointer transition-all"
+                >
+                  {editingPO ? 'Update & Save Purchase Order' : 'Confirm & Issue Purchase Order'}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* TAB 3: PO DETAILED VIEWER (FULL PAGE INLINE DOCUMENT) */}
+      {activeTab === 'VIEW_PO' && viewingPO && (
+        <div
+          id="po-detail-view-container"
+          className={`rounded-2xl border p-6 sm:p-8 shadow-lg space-y-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          {/* Top Document Header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 mb-1">
+                <FileText className="h-4 w-4" />
+                <span>Official Purchase Order Document</span>
+              </div>
+              <h3 className="text-xl font-serif font-bold text-slate-900 dark:text-white">
+                IZONE NETWORKS PVT. LTD.
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Branch: {branches.find((b) => b.id === viewingPO.branchId)?.name || viewingPO.branchId}
+              </p>
+            </div>
+
+            <div className="text-left sm:text-right">
+              <div className="text-base font-mono font-extrabold text-indigo-600 dark:text-indigo-400">
+                PO #{viewingPO.poNumber}
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Order Date: {viewingPO.orderDateAD} ({viewingPO.orderDateBS})
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Expected Delivery: {viewingPO.expectedDeliveryDateAD}
+              </div>
+            </div>
+          </div>
+
+          {/* Vendor & Status info box */}
+          <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl border text-xs ${
+            isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'
+          }`}>
+            <div>
+              <span className="font-bold text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+                Vendor / Supplier
+              </span>
+              <div className="font-bold text-slate-900 dark:text-white text-sm mt-0.5">
+                {viewingPO.supplierName}
+              </div>
+            </div>
+
+            <div>
+              <span className="font-bold text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+                Order Status
+              </span>
+              <div className="mt-0.5">
+                <span
+                  className={`px-2.5 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                    viewingPO.status === 'RECEIVED'
+                      ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                      : viewingPO.status === 'CANCELLED'
+                      ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-700'
+                      : viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
+                      ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                      : 'bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700'
+                  }`}
+                >
+                  {viewingPO.status}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Line Items Table */}
+          <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
+                <tr>
+                  <th className="p-3.5">#</th>
+                  <th className="p-3.5">Product Name</th>
+                  <th className="p-3.5">SKU</th>
+                  <th className="p-3.5 text-center">Qty</th>
+                  <th className="p-3.5 text-right">Unit Rate</th>
+                  <th className="p-3.5 text-right">Subtotal</th>
+                  <th className="p-3.5 text-right">13% VAT</th>
+                  <th className="p-3.5 text-right">Total Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                {viewingPO.items.map((item, idx) => (
+                  <tr key={idx} className={isDarkMode ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50'}>
+                    <td className="p-3.5 font-mono text-slate-400">{idx + 1}</td>
+                    <td className="p-3.5 font-bold text-slate-800 dark:text-white">{item.productName}</td>
+                    <td className="p-3.5 font-mono text-slate-500">{item.sku}</td>
+                    <td className="p-3.5 text-center font-mono font-bold">
+                      {item.quantity} {item.unit || 'Pcs'}
+                    </td>
+                    <td className="p-3.5 text-right font-mono">
+                      Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN')}
+                    </td>
+                    <td className="p-3.5 text-right font-mono">
+                      Rs. {(item.subtotal ?? (item.quantity * item.unitPrice) ?? 0).toLocaleString('en-IN')}
+                    </td>
+                    <td className="p-3.5 text-right font-mono text-indigo-600 dark:text-indigo-400">
+                      Rs. {(item.taxAmount ?? 0).toLocaleString('en-IN')}
+                    </td>
+                    <td className="p-3.5 text-right font-mono font-bold text-slate-900 dark:text-white">
+                      Rs. {(item.total ?? (item.quantity * item.unitPrice) ?? 0).toLocaleString('en-IN')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Remarks & Financial Totals */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 border-t border-slate-200 dark:border-slate-800 pt-4">
+            <div className="text-xs text-slate-500 max-w-sm space-y-1">
+              <p className="font-semibold text-slate-700 dark:text-slate-300">
+                Remarks & Terms:
+              </p>
+              <p className="italic">{viewingPO.notes || 'No specific remarks entered for this order.'}</p>
+            </div>
+
+            <div className="w-full sm:w-72 space-y-2 text-xs font-mono">
+              <div className="flex justify-between text-slate-500">
+                <span>Subtotal:</span>
+                <span>Rs. {(viewingPO.subtotalAmount ?? 0).toLocaleString('en-IN')}</span>
+              </div>
+              <div className="flex justify-between text-indigo-600 dark:text-indigo-400 font-semibold">
+                <span>13% VAT:</span>
+                <span>Rs. {(viewingPO.taxAmount ?? 0).toLocaleString('en-IN')}</span>
+              </div>
+              <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
+                <span>Grand Total:</span>
+                <span className="text-indigo-600 dark:text-indigo-400">
+                  Rs. {(viewingPO.totalAmount ?? 0).toLocaleString('en-IN')}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Action Toolbar */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab('PO_LIST')}
+                className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold cursor-pointer ${
+                  isDarkMode
+                    ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                    : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span>Back to Register</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+              >
+                <Printer className="h-4 w-4" />
+                <span>Print Document</span>
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Edit Button */}
+              <button
+                type="button"
+                disabled={
+                  viewingPO.status === 'IN_PROGRESS' ||
+                  (viewingPO.status as string) === 'INPROGRESS' ||
+                  viewingPO.status === 'CANCELLED' ||
+                  viewingPO.status === 'RECEIVED'
+                }
+                onClick={() => handleOpenEditTab(viewingPO)}
+                className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+                  viewingPO.status === 'IN_PROGRESS' ||
+                  (viewingPO.status as string) === 'INPROGRESS' ||
+                  viewingPO.status === 'CANCELLED' ||
+                  viewingPO.status === 'RECEIVED'
+                    ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
+                    : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700 hover:bg-indigo-100 cursor-pointer shadow-xs'
+                }`}
+              >
+                <Pencil className="h-4 w-4" />
+                <span>Edit PO</span>
+              </button>
+
+              {/* Set In Progress */}
+              <button
+                type="button"
+                disabled={
+                  viewingPO.status === 'IN_PROGRESS' ||
+                  (viewingPO.status as string) === 'INPROGRESS' ||
+                  viewingPO.status === 'CANCELLED' ||
+                  viewingPO.status === 'RECEIVED'
+                }
+                onClick={async () => {
+                  if (onUpdatePOStatus) {
+                    await onUpdatePOStatus(viewingPO.id, 'IN_PROGRESS');
+                  }
+                  setViewingPO({ ...viewingPO, status: 'IN_PROGRESS' });
+                }}
+                className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+                  viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
+                    ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30 ring-2 ring-amber-400 cursor-not-allowed opacity-90'
+                    : viewingPO.status === 'CANCELLED' || viewingPO.status === 'RECEIVED'
+                    ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
+                    : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 cursor-pointer shadow-xs'
+                }`}
+              >
+                <Clock className="h-4 w-4" />
+                <span>
+                  {viewingPO.status === 'IN_PROGRESS' || (viewingPO.status as string) === 'INPROGRESS'
+                    ? 'In Progress'
+                    : 'Set InProgress'}
+                </span>
+              </button>
+
+              {/* Cancel PO */}
+              <button
+                type="button"
+                disabled={viewingPO.status === 'CANCELLED' || viewingPO.status === 'RECEIVED'}
+                onClick={async () => {
+                  if (onUpdatePOStatus) {
+                    await onUpdatePOStatus(viewingPO.id, 'CANCELLED');
+                  }
+                  setViewingPO({ ...viewingPO, status: 'CANCELLED' });
+                }}
+                className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+                  viewingPO.status === 'CANCELLED'
+                    ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30 ring-2 ring-rose-500 cursor-not-allowed opacity-90'
+                    : viewingPO.status === 'RECEIVED'
+                    ? 'bg-slate-100 dark:bg-slate-800/60 text-slate-400 border border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-60'
+                    : 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700 hover:bg-rose-100 cursor-pointer shadow-xs'
+                }`}
+              >
+                <XCircle className="h-4 w-4" />
+                <span>
+                  {viewingPO.status === 'CANCELLED'
+                    ? 'Order Cancelled'
+                    : 'Set Cancelled'}
+                </span>
+              </button>
             </div>
           </div>
         </div>

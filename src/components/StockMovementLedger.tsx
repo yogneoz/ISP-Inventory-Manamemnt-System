@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { TransactionLog, Product, Branch, InventoryStock, StockOperation, Shipment, PurchaseOrder } from '../types';
 import { exportToCSV } from '../utils/exportUtils';
-import { formatDualDate } from '../utils/nepaliCalendar';
+import { formatDualDate, formatBSDate } from '../utils/nepaliCalendar';
 import {
   BookOpen,
   Calendar,
@@ -277,7 +277,13 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
       { key: 'closingQty', label: 'Closing Qty' },
       { key: 'closingValue', label: 'Closing Cost Value (NPR)' },
     ];
-    exportToCSV('Stock_Movement_Ledger_Report', rows, columns);
+    exportToCSV({
+      filename: 'Stock_Movement_Ledger_Report',
+      reportTitle: 'Stock Movement Ledger Summary Matrix',
+      branchName: selectedBranchId && selectedBranchId !== 'ALL' ? branches.find((b) => b.id === selectedBranchId)?.name || `Branch ${selectedBranchId}` : 'All Branches (Consolidated)',
+      data: rows,
+      columns,
+    });
   };
 
   // Export Transaction Logs CSV
@@ -285,7 +291,11 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     const columns = [
       { key: 'transactionNumber', label: 'Transaction #' },
       { key: 'timestampAD', label: 'Timestamp (AD)' },
-      { key: 'timestampBS', label: 'Timestamp (BS)' },
+      {
+        key: 'timestampBS',
+        label: 'Timestamp (BS)',
+        formatter: (_: any, r: any) => formatBSDate(r.timestampAD || r.timestampBS),
+      },
       { key: 'productSku', label: 'SKU' },
       { key: 'productName', label: 'Product Name' },
       {
@@ -305,7 +315,13 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
       },
       { key: 'referenceDocId', label: 'Ref Document ID' },
     ];
-    exportToCSV('Stock_Movement_Logs_Detail', filteredLogs, columns);
+    exportToCSV({
+      filename: 'Stock_Movement_Logs_Detail',
+      reportTitle: 'Stock Movement Event & Transaction Logs Report',
+      branchName: selectedBranchId && selectedBranchId !== 'ALL' ? branches.find((b) => b.id === selectedBranchId)?.name || `Branch ${selectedBranchId}` : 'All Branches (Consolidated)',
+      data: filteredLogs,
+      columns,
+    });
   };
 
   return (
@@ -353,7 +369,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         }`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Opening Value</div>
           <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>
-            रु {totalOpeningVal.toLocaleString('en-IN')}
+            रु {(totalOpeningVal ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[10px] text-slate-400 font-mono">{totalOpeningQty} Units</div>
         </div>
@@ -364,7 +380,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         }`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Inbound Received</div>
           <div className="text-base font-bold font-mono mt-0.5 text-emerald-500">
-            +रु {totalReceivedVal.toLocaleString('en-IN')}
+            +रु {(totalReceivedVal ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 font-mono">+{totalReceivedQty} Units</div>
         </div>
@@ -375,7 +391,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         }`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Outbound Delivered</div>
           <div className="text-base font-bold font-mono mt-0.5 text-sky-500">
-            -रु {totalDeliveredVal.toLocaleString('en-IN')}
+            -रु {(totalDeliveredVal ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[10px] text-sky-600/80 dark:text-sky-400/80 font-mono">-{totalDeliveredQty} Units</div>
         </div>
@@ -386,7 +402,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         }`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Damaged Loss</div>
           <div className="text-base font-bold font-mono mt-0.5 text-rose-500">
-            -रु {totalDamagedVal.toLocaleString('en-IN')}
+            -रु {(totalDamagedVal ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[10px] text-rose-600/80 dark:text-rose-400/80 font-mono">-{totalDamagedQty} Units</div>
         </div>
@@ -397,7 +413,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
         }`}>
           <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Closing Value</div>
           <div className={`text-base font-bold font-mono mt-0.5 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
-            रु {totalClosingVal.toLocaleString('en-IN')}
+            रु {(totalClosingVal ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[10px] text-indigo-500 font-mono">{totalClosingQty} Units</div>
         </div>
@@ -588,7 +604,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                       </td>
 
                       <td className="p-2.5 text-center font-mono text-slate-500">
-                        रु {unitCost.toLocaleString('en-IN')}
+                        रु {(unitCost ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       {/* Opening */}
@@ -596,7 +612,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                         {openingQty} {prod.unit}
                       </td>
                       <td className="p-2.5 text-right font-mono border-r bg-slate-500/5 text-slate-500">
-                        रु {openingValue.toLocaleString('en-IN')}
+                        रु {(openingValue ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       {/* Received */}
@@ -604,7 +620,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                         +{receivedQty}
                       </td>
                       <td className="p-2.5 text-right font-mono border-r bg-emerald-500/5 text-emerald-500 font-semibold">
-                        +रु {receivedValue.toLocaleString('en-IN')}
+                        +रु {(receivedValue ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       {/* Delivered */}
@@ -612,7 +628,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                         -{deliveredQty}
                       </td>
                       <td className="p-2.5 text-right font-mono border-r bg-sky-500/5 text-sky-500 font-semibold">
-                        -रु {deliveredValue.toLocaleString('en-IN')}
+                        -रु {(deliveredValue ?? 0).toLocaleString('en-IN')}
                       </td>
 
                       {/* Damaged */}
@@ -627,7 +643,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                       <td className={`p-2.5 text-right font-mono font-bold bg-indigo-500/10 ${
                         isDarkMode ? 'text-indigo-400' : 'text-indigo-600'
                       }`}>
-                        रु {closingValue.toLocaleString('en-IN')}
+                        रु {(closingValue ?? 0).toLocaleString('en-IN')}
                       </td>
                     </tr>
                   ))
@@ -648,19 +664,19 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                     {totalOpeningQty}
                   </td>
                   <td className="p-2.5 text-right font-mono border-r bg-slate-500/10">
-                    रु {totalOpeningVal.toLocaleString('en-IN')}
+                    रु {(totalOpeningVal ?? 0).toLocaleString('en-IN')}
                   </td>
                   <td className="p-2.5 text-center font-mono font-bold bg-emerald-500/10 text-emerald-500">
                     +{totalReceivedQty}
                   </td>
                   <td className="p-2.5 text-right font-mono border-r bg-emerald-500/10 text-emerald-500">
-                    +रु {totalReceivedVal.toLocaleString('en-IN')}
+                    +रु {(totalReceivedVal ?? 0).toLocaleString('en-IN')}
                   </td>
                   <td className="p-2.5 text-center font-mono font-bold bg-sky-500/10 text-sky-500">
                     -{totalDeliveredQty}
                   </td>
                   <td className="p-2.5 text-right font-mono border-r bg-sky-500/10 text-sky-500">
-                    -रु {totalDeliveredVal.toLocaleString('en-IN')}
+                    -रु {(totalDeliveredVal ?? 0).toLocaleString('en-IN')}
                   </td>
                   <td className="p-2.5 text-center font-mono font-bold bg-rose-500/10 text-rose-500">
                     -{totalDamagedQty}
@@ -669,7 +685,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                     {totalClosingQty}
                   </td>
                   <td className="p-2.5 text-right font-mono font-extrabold bg-indigo-500/20 text-indigo-500">
-                    रु {totalClosingVal.toLocaleString('en-IN')}
+                    रु {(totalClosingVal ?? 0).toLocaleString('en-IN')}
                   </td>
                 </tr>
               </tfoot>
@@ -746,11 +762,11 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                           {isPositive ? `+${log.quantityChanged}` : log.quantityChanged}
                         </td>
                         <td className="p-2.5 text-center font-mono font-bold">{log.quantityAfter}</td>
-                        <td className="p-2.5 text-right font-mono text-slate-500">रु {log.unitCost.toLocaleString('en-IN')}</td>
+                        <td className="p-2.5 text-right font-mono text-slate-500">रु {(log.unitCost ?? 0).toLocaleString('en-IN')}</td>
                         <td className={`p-2.5 text-right font-mono font-bold ${
                           isPositive ? 'text-emerald-500' : 'text-sky-500'
                         }`}>
-                          रु {movementVal.toLocaleString('en-IN')}
+                          रु {(movementVal ?? 0).toLocaleString('en-IN')}
                         </td>
                       </tr>
                     );
@@ -772,7 +788,7 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>
                   <td className="p-2.5 text-center font-mono text-slate-400">-</td>
                   <td className="p-2.5 text-right font-mono font-extrabold text-indigo-500">
-                    रु {totalLogVal.toLocaleString('en-IN')}
+                    रु {(totalLogVal ?? 0).toLocaleString('en-IN')}
                   </td>
                 </tr>
               </tfoot>

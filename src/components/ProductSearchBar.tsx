@@ -134,7 +134,7 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
                 </div>
                 <div className="text-right">
                   <span className="text-xs font-bold font-mono text-slate-900">
-                    {prod.costPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {(prod.costPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <div className="text-[10px] text-blue-600 font-semibold flex items-center gap-1 justify-end">
                     <Plus className="h-3 w-3" /> Select / Add

@@ -50,12 +50,12 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
   >('AUDIT_TRAIL');
 
   // Compute Balance Sheet numbers
-  const inventoryAssetVal = financialSummary.totalInventoryAssetValue;
-  const fixedAssetNBV = assets.reduce((sum, a) => sum + a.netBookValue, 0);
+  const inventoryAssetVal = financialSummary?.totalInventoryAssetValue ?? 0;
+  const fixedAssetNBV = (assets || []).reduce((sum, a) => sum + (a.netBookValue ?? 0), 0);
   const totalAssets = inventoryAssetVal + fixedAssetNBV;
 
-  const accountsPayable = invoices.reduce(
-    (sum, inv) => sum + (inv.grandTotal - inv.amountPaid),
+  const accountsPayable = (invoices || []).reduce(
+    (sum, inv) => sum + ((inv.grandTotal ?? 0) - (inv.amountPaid ?? 0)),
     0
   );
   const netEquity = totalAssets - accountsPayable;
@@ -144,15 +144,15 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
               </div>
               <div className="flex justify-between p-2 rounded bg-slate-900/60 border border-slate-800/60">
                 <span>Inventory Stock Assets (At Cost Basis)</span>
-                <span className="font-mono font-bold text-white">रु {inventoryAssetVal.toLocaleString('en-IN')}</span>
+                <span className="font-mono font-bold text-white">रु {(inventoryAssetVal ?? 0).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between p-2 rounded bg-slate-900/60 border border-slate-800/60">
                 <span>Fixed Assets (Net Book Value)</span>
-                <span className="font-mono font-bold text-white">रु {fixedAssetNBV.toLocaleString('en-IN')}</span>
+                <span className="font-mono font-bold text-white">रु {(fixedAssetNBV ?? 0).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between p-2.5 rounded bg-indigo-950/60 border border-indigo-500/30 font-extrabold text-white text-sm">
                 <span>Total Calculated Assets</span>
-                <span className="font-mono">रु {totalAssets.toLocaleString('en-IN')}</span>
+                <span className="font-mono">रु {(totalAssets ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
               <div className="pt-2 font-bold text-indigo-400 uppercase text-[10px] tracking-wider">
@@ -160,15 +160,15 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
               </div>
               <div className="flex justify-between p-2 rounded bg-slate-900/60 border border-slate-800/60">
                 <span>Accounts Payable (Unpaid Purchase Invoices)</span>
-                <span className="font-mono font-bold text-rose-400">रु {accountsPayable.toLocaleString('en-IN')}</span>
+                <span className="font-mono font-bold text-rose-400">रु {(accountsPayable ?? 0).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between p-2 rounded bg-slate-900/60 border border-slate-800/60">
                 <span>Owner's Working Capital Equity</span>
-                <span className="font-mono font-bold text-white">रु {netEquity.toLocaleString('en-IN')}</span>
+                <span className="font-mono font-bold text-white">रु {(netEquity ?? 0).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between p-2.5 rounded bg-emerald-950/60 border border-emerald-500/30 font-extrabold text-emerald-300 text-sm">
                 <span>Total Liabilities & Equity</span>
-                <span className="font-mono">रु {(accountsPayable + netEquity).toLocaleString('en-IN')}</span>
+                <span className="font-mono">रु {((accountsPayable || 0) + (netEquity || 0)).toLocaleString('en-IN')}</span>
               </div>
             </div>
           </div>
@@ -188,15 +188,15 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
             <div className="space-y-3 text-xs">
               <div className="flex justify-between p-2 rounded bg-slate-900/60 border border-slate-800/60">
                 <span>Total Inventory Purchases</span>
-                <span className="font-mono font-bold text-white">रु {invoices.reduce((s, i) => s + i.taxableAmount, 0).toLocaleString('en-IN')}</span>
+                <span className="font-mono font-bold text-white">रु {(invoices || []).reduce((s, i) => s + (i.taxableAmount ?? 0), 0).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between p-2 rounded bg-rose-950/40 border border-rose-500/20 text-rose-300">
                 <span>Damage, Wastage & Pullout Write-off Value</span>
-                <span className="font-mono font-bold">रु {financialSummary.totalDamageLossValue.toLocaleString('en-IN')}</span>
+                <span className="font-mono font-bold">रु {(financialSummary?.totalDamageLossValue ?? 0).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between p-2 rounded bg-indigo-950/40 border border-indigo-500/20 text-indigo-300">
                 <span>Input VAT Claimable Credit</span>
-                <span className="font-mono font-bold">रु {financialSummary.totalVatInputTax.toLocaleString('en-IN')}</span>
+                <span className="font-mono font-bold">रु {(financialSummary?.totalVatInputTax ?? 0).toLocaleString('en-IN')}</span>
               </div>
             </div>
           </div>
@@ -241,7 +241,7 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {invoices.map((inv) => (
+                {(invoices || []).map((inv) => (
                   <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="p-3 font-mono font-bold text-indigo-400">
                       {inv.invoiceNumber}
@@ -251,13 +251,13 @@ export const AuditTrailReports: React.FC<AuditTrailReportsProps> = ({
                       {formatDualDate(inv.invoiceDateAD, dateMode)}
                     </td>
                     <td className="p-3 text-right font-mono font-medium text-slate-200">
-                      रु {inv.taxableAmount.toLocaleString('en-IN')}
+                      रु {(inv.taxableAmount ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3 text-right font-mono font-bold text-indigo-400">
-                      रु {inv.vatAmount.toLocaleString('en-IN')}
+                      रु {(inv.vatAmount ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3 text-right font-mono font-extrabold text-white">
-                      रु {inv.grandTotal.toLocaleString('en-IN')}
+                      रु {(inv.grandTotal ?? 0).toLocaleString('en-IN')}
                     </td>
                   </tr>
                 ))}

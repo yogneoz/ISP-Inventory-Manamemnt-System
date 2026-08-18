@@ -275,7 +275,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
             <Landmark className="h-4 w-4 text-emerald-500" />
           </div>
           <p className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
-            {totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {(totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
             Total capital expenditure across {filteredAssets.length} purchase lots
@@ -292,7 +292,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
             <TrendingDown className="h-4 w-4 text-rose-500" />
           </div>
           <p className="text-2xl font-bold font-mono text-rose-500">
-            {totalAccumDep.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
             Cumulative depreciation write-offs to date
@@ -309,7 +309,7 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
             <Calculator className="h-4 w-4 text-indigo-500" />
           </div>
           <p className="text-2xl font-bold font-mono text-indigo-500">
-            {totalNBV.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
             Carrying value on corporate balance sheet
@@ -438,13 +438,13 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 dark:text-white">
-                            {grp.totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {(grp.totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-rose-500 font-bold">
-                            {grp.totalAccumDep.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {(grp.totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="px-4 py-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                            {grp.totalNBV.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {(grp.totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                         </tr>
 
@@ -516,13 +516,13 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                     Total Fixed Asset Summary Schedule:
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-slate-900 dark:text-white">
-                    {totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {(totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-rose-500">
-                    {totalAccumDep.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-indigo-600 dark:text-indigo-400">
-                    {totalNBV.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>
               </tfoot>
@@ -618,14 +618,14 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
                     Total Datewise Purchase Lots Schedule:
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-slate-900 dark:text-white">
-                    {totalCost.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {(totalCost ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td></td>
                   <td className="px-4 py-3 text-right font-mono text-rose-500">
-                    {totalAccumDep.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {(totalAccumDep ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="px-4 py-3 text-right font-mono text-indigo-600 dark:text-indigo-400">
-                    {totalNBV.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {(totalNBV ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>
               </tfoot>

@@ -275,8 +275,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   );
 
   // Format number
-  const formatNPR = (val: number) =>
-    val.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  const formatNPR = (val?: number | null) =>
+    (val ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
   // Filter products for Special Hardware table (Router, Drop Cable, Tv Devices, Fiber)
   const specialProducts = products.filter((p) => {
@@ -670,11 +670,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         </td>
 
                         <td className="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400">
-                          {prod.costPrice.toLocaleString('en-IN')}
+                          {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                         </td>
 
                         <td className="p-3.5 text-right font-mono font-extrabold text-rose-600 text-sm">
-                          {totalAvailableStock.toLocaleString('en-IN')} {prod.unit}
+                          {(totalAvailableStock ?? 0).toLocaleString('en-IN')} {prod.unit}
                         </td>
 
                         <td className="p-3.5 text-right font-mono text-slate-500">
@@ -1020,11 +1020,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         </td>
 
                         <td className="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400">
-                          {prod.costPrice.toLocaleString('en-IN')}
+                          {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                         </td>
 
                         <td className="p-3.5 text-right font-mono font-extrabold text-indigo-600 text-sm">
-                          {totalAvailableStock.toLocaleString('en-IN')} {prod.unit}
+                          {(totalAvailableStock ?? 0).toLocaleString('en-IN')} {prod.unit}
                         </td>
 
                         <td className="p-3.5 text-right font-mono font-bold text-slate-800 dark:text-slate-200">

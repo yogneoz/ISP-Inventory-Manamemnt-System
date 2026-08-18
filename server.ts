@@ -834,7 +834,7 @@ let customerDeviceRecords: CustomerDeviceRecord[] = [
     contactPhone: '+977-9851029381',
     installationAddress: 'Urlabari Ward 3, Morang',
     branchId: 'URL01',
-    productName: 'ONU ROUTER 2.4G',
+    productName: 'ONU ROUTER DUAL BAND 2.4G/5G GPON',
     deviceSerial: 'SN-ONU24G-881923',
     ponSerial: 'HWTC-90A812C4',
     macAddress: '70:A8:E3:4B:91:10',
@@ -842,7 +842,7 @@ let customerDeviceRecords: CustomerDeviceRecord[] = [
     issuedDateAD: '2026-05-10',
     issuedDateBS: '2083-01-27 BS',
     purchaseBillRef: 'BILL-9021',
-    notes: 'Fiber FTTH connection 100Mbps setup with 2.4G ONU Router.',
+    notes: 'Fiber FTTH connection 100Mbps setup with Dual Band ONU Router.',
   },
   {
     id: 'cust-102',
@@ -852,7 +852,7 @@ let customerDeviceRecords: CustomerDeviceRecord[] = [
     contactPhone: '+977-9801928374',
     installationAddress: 'Itahari Ward 4, Sunsari',
     branchId: 'ITH01',
-    productName: 'ONU ROUTER 5G',
+    productName: 'ONU ROUTER DUAL BAND 2.4G/5G GPON',
     deviceSerial: 'SN-ONU5G-774019',
     ponSerial: 'ZTE-4481A290',
     macAddress: 'CC:12:34:56:78:9A',
@@ -870,7 +870,7 @@ let customerDeviceRecords: CustomerDeviceRecord[] = [
     contactPhone: '+977-9861234567',
     installationAddress: 'Chulachuli Ward 1, Ilam',
     branchId: 'CHU01',
-    productName: 'ONU ROUTER 2.4G',
+    productName: 'ONU ROUTER SINGLE BAND 2.4G XPON',
     deviceSerial: 'SN-ONU24G-990182',
     ponSerial: 'HWTC-8812B001',
     macAddress: '88:E2:00:11:22:33',
@@ -881,6 +881,43 @@ let customerDeviceRecords: CustomerDeviceRecord[] = [
     notes: 'Rental CPE ONU Router assigned at Chulachuli.',
   },
 ];
+
+// Dynamically seed unique serialized device records (Device SN, PON SN, MAC) for all on-hand stock of serialized products across all branches
+let snSeedCounter = 1000;
+products.filter((p) => p.requiresSerialTracking).forEach((prod, pIdx) => {
+  branches.forEach((branch, bIdx) => {
+    const stk = inventoryStock.find((s) => s.productId === prod.id && s.branchId === branch.id);
+    const qty = stk ? stk.quantityOnHand : 2;
+    const prefix = prod.sku?.includes('ONU001') ? 'ONU5G' : (prod.sku?.includes('ONU002') ? 'ONU24G' : 'OLT16');
+    const ponPrefix = pIdx % 2 === 0 ? 'HWTC' : 'ZTE';
+
+    for (let u = 1; u <= qty; u++) {
+      snSeedCounter++;
+      const snHex = (100000 + snSeedCounter).toString();
+      const ponHex = `${branch.code}${String(u).padStart(2, '0')}${snHex.slice(-4)}`;
+      const macHex = `70:${(10 + (bIdx % 80)).toString(16).padStart(2, '0').toUpperCase()}:${(20 + (u % 70)).toString(16).padStart(2, '0').toUpperCase()}:${snHex.slice(0, 2)}:${snHex.slice(2, 4)}:${snHex.slice(4, 6)}`;
+
+      customerDeviceRecords.push({
+        id: `dev-stk-${branch.id.toLowerCase()}-${prod.id}-${u}`,
+        customerId: `STOCK-${branch.id}`,
+        customerName: 'IN STORE (Available Stock)',
+        customerCode: `STORE-${branch.code}`,
+        contactPhone: branch.phone || '+977-9800000000',
+        installationAddress: `${branch.name} Storage Bin`,
+        branchId: branch.id,
+        productName: prod.name,
+        deviceSerial: `SN-${prefix}-${branch.code}-${snHex.slice(-5)}`,
+        ponSerial: `${ponPrefix}-${ponHex.toUpperCase()}`,
+        macAddress: macHex,
+        status: 'IN_STOCK',
+        issuedDateAD: '2026-07-15',
+        issuedDateBS: '2083-03-31 BS',
+        purchaseBillRef: `BATCH-2083-${branch.code}`,
+        notes: `Available on-hand serialized CPE stock in ${branch.name} inventory.`,
+      });
+    }
+  });
+});
 
 // Pre-seeded Approval Requests (Workflow Authorization Center)
 let approvalRequests: ApprovalRequest[] = [

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { CustomerDeviceRecord, CustomerRecord, Branch, Product, User, ApprovalRequest } from '../types';
-import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
+import { formatDualDate, convertADToBS, formatBSDate } from '../utils/nepaliCalendar';
 import { getWarrantyInfo } from '../utils/warranty';
 import { isOperationAllowed } from '../utils/permissions';
+import { exportToCSV } from '../utils/exportUtils';
 import { api } from '../services/api';
 import {
   Users,
@@ -31,6 +32,8 @@ import {
   Lock,
   ExternalLink,
   UserCheck,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 interface CustomersManagementProps {
@@ -324,6 +327,52 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     setTimeout(() => setCopiedText(null), 2000);
   };
 
+  const handleExportCSV = () => {
+    const branchName =
+      selectedBranchId === 'ALL'
+        ? 'All Branches (Consolidated)'
+        : branches.find((b) => b.id === selectedBranchId)?.name || `Branch ${selectedBranchId}`;
+
+    const columns = [
+      {
+        key: 'branchCode',
+        label: 'Branch Code',
+        formatter: (_: any, row: CustomerDeviceRecord) => branches.find((b) => b.id === row.branchId)?.code || row.branchId,
+      },
+      {
+        key: 'branchName',
+        label: 'Branch Location',
+        formatter: (_: any, row: CustomerDeviceRecord) => branches.find((b) => b.id === row.branchId)?.name || row.branchId,
+      },
+      { key: 'productName', label: 'Product / Model Name' },
+      { key: 'deviceSerial', label: 'Device Serial Number' },
+      { key: 'ponSerial', label: 'PON Serial Number' },
+      { key: 'macAddress', label: 'MAC Address', formatter: (val: string) => val || 'N/A' },
+      { key: 'status', label: 'Status' },
+      {
+        key: 'issuedDateBS',
+        label: 'Registered Date (BS)',
+        formatter: (_: any, row: CustomerDeviceRecord) => formatBSDate(row.issuedDateAD || row.issuedDateBS),
+      },
+      { key: 'issuedDateAD', label: 'Registered Date (AD)' },
+      { key: 'customerName', label: 'Customer / Holder Name' },
+      { key: 'customerCode', label: 'Customer Code' },
+      { key: 'contactPhone', label: 'Contact Phone' },
+      { key: 'installationAddress', label: 'Installation Address' },
+      { key: 'purchaseBillRef', label: 'Purchase Bill Ref', formatter: (val: string) => val || '-' },
+      { key: 'notes', label: 'Notes', formatter: (val: string) => val || '-' },
+    ];
+
+    exportToCSV({
+      filename: `Customer_Device_Serials_${selectedBranchId}`,
+      reportTitle: `Customer Hardware Devices & Serial Numbers Lookup Report (${selectedStatus})`,
+      branchName,
+      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
+      data: filteredRecords,
+      columns,
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customerName.trim() || !deviceSerial.trim() || !ponSerial.trim()) {
@@ -372,21 +421,35 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
           </p>
         </div>
 
-        {canManageCustomers && (
+        <div className="flex items-center gap-2.5">
           <button
-            onClick={() => {
-              setAssignType('RENTAL');
-              setCustomerCode(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
-              setDeviceSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
-              setPonSerial(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
-              setIsModalOpen(true);
-            }}
-            className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-all shrink-0"
+            onClick={handleExportCSV}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold border transition-all cursor-pointer shadow-xs ${
+              isDarkMode
+                ? 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700 hover:text-white'
+                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+            }`}
           >
-            <Plus className="h-4 w-4" />
-            <span>Assign Customer Device</span>
+            <Download className="h-4 w-4 text-blue-500" />
+            <span>Export CSV ({filteredRecords.length})</span>
           </button>
-        )}
+
+          {canManageCustomers && (
+            <button
+              onClick={() => {
+                setAssignType('RENTAL');
+                setCustomerCode(`CUST-${Math.floor(1000 + Math.random() * 9000)}`);
+                setDeviceSerial(`SN-ONU24G-${Math.floor(100000 + Math.random() * 900000)}`);
+                setPonSerial(`HWTC-${Math.floor(10000000 + Math.random() * 90000000).toString(16).toUpperCase()}`);
+                setIsModalOpen(true);
+              }}
+              className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 px-4 py-2.5 text-xs font-semibold text-white shadow-md shadow-blue-600/20 cursor-pointer transition-all shrink-0"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Assign Customer Device</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Overview Stat Cards */}

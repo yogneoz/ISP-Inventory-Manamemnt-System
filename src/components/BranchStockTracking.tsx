@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Product, Branch, InventoryStock, User } from '../types';
 import { isOperationAllowed } from '../utils/permissions';
+import { exportToCSV } from '../utils/exportUtils';
 import {
   Layers,
   Building2,
@@ -12,6 +13,8 @@ import {
   X,
   Search,
   Filter,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 interface BranchStockTrackingProps {
@@ -89,6 +92,66 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
 
   const hiddenZeroStockCount = productsWithStock.filter(({ totalQty }) => totalQty === 0).length;
 
+  const handleExportBranchStockCSV = () => {
+    // Dynamic columns including per-branch quantities
+    const dynamicBranchCols = activeBranches.map((b) => ({
+      key: `branch_${b.id}`,
+      label: `${b.name} (On-Hand)`,
+      formatter: (_: any, prod: Product) => {
+        const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+        return item ? item.quantityOnHand : 0;
+      },
+    }));
+
+    const columns = [
+      { key: 'sku', label: 'SKU Code' },
+      { key: 'barcode', label: 'Barcode' },
+      { key: 'name', label: 'Product Name' },
+      { key: 'productGroup', label: 'Product Group', formatter: (val: string) => val || 'Product Item' },
+      { key: 'category', label: 'Category' },
+      { key: 'unit', label: 'Unit (UoM)' },
+      { key: 'costPrice', label: 'Cost Price (NPR)', formatter: (val: number) => val || 0 },
+      { key: 'sellingPrice', label: 'Selling Price (NPR)', formatter: (val: number) => val || 0 },
+      ...dynamicBranchCols,
+      {
+        key: 'totalOnHand',
+        label: 'Total On-Hand (Visible Branches)',
+        formatter: (_: any, prod: Product) => {
+          return activeBranches.reduce((sum, b) => {
+            const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+            return sum + (item ? item.quantityOnHand : 0);
+          }, 0);
+        },
+      },
+      {
+        key: 'totalCostValuation',
+        label: 'Total Cost Valuation (NPR)',
+        formatter: (_: any, prod: Product) => {
+          const qty = activeBranches.reduce((sum, b) => {
+            const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+            return sum + (item ? item.quantityOnHand : 0);
+          }, 0);
+          return qty * (prod.costPrice || 0);
+        },
+      },
+      { key: 'minReorderLevel', label: 'Reorder Level' },
+    ];
+
+    const branchName =
+      selectedBranchId === 'ALL'
+        ? 'All Branches Matrix'
+        : branches.find((b) => b.id === selectedBranchId)?.name || `Branch ${selectedBranchId}`;
+
+    exportToCSV({
+      filename: 'Branch_Stock_Matrix_Report',
+      reportTitle: 'Branch Stock Matrix & Multi-Location Inventory Report',
+      branchName,
+      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
+      data: visibleProducts,
+      columns,
+    });
+  };
+
   const handleTransferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTransferError('');
@@ -125,6 +188,17 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={handleExportBranchStockCSV}
+            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+            title="Export full Branch Stock Matrix with uniform BS Date (YYYY-MM-DD)"
+          >
+            <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Export Matrix CSV (BS Date)</span>
+          </button>
+
           <button
             onClick={() => setShowZeroStock(!showZeroStock)}
             className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-semibold border transition-all cursor-pointer ${

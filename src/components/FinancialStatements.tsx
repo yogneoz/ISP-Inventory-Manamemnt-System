@@ -190,10 +190,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <Building className="h-4 w-4 text-emerald-500" />
               </div>
               <p className="text-2xl font-bold font-mono text-emerald-500">
-                NPR {totalAssets.toLocaleString('en-IN')}
+                NPR {(totalAssets ?? 0).toLocaleString('en-IN')}
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
-                Inventory (NPR {inventoryAssetVal.toLocaleString('en-IN')}) + Fixed Assets (NPR {fixedAssetNBV.toLocaleString('en-IN')})
+                Inventory (NPR {(inventoryAssetVal ?? 0).toLocaleString('en-IN')}) + Fixed Assets (NPR {(fixedAssetNBV ?? 0).toLocaleString('en-IN')})
               </p>
             </div>
 
@@ -207,7 +207,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <Receipt className="h-4 w-4 text-amber-500" />
               </div>
               <p className="text-2xl font-bold font-mono text-amber-500">
-                NPR {totalLiabilities.toLocaleString('en-IN')}
+                NPR {(totalLiabilities ?? 0).toLocaleString('en-IN')}
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
                 Accounts Payable to Suppliers ({invoices.length} Invoices)
@@ -224,7 +224,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <PieChart className="h-4 w-4 text-indigo-500" />
               </div>
               <p className="text-2xl font-bold font-mono text-indigo-500">
-                NPR {netEquity.toLocaleString('en-IN')}
+                NPR {(netEquity ?? 0).toLocaleString('en-IN')}
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
                 Assets minus Total Payables & Liabilities
@@ -245,7 +245,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                   <Building className="h-4 w-4" />
                   <span>ASSETS</span>
                 </h3>
-                <span className="text-xs font-mono font-bold text-slate-400">NPR {totalAssets.toLocaleString('en-IN')}</span>
+                <span className="text-xs font-mono font-bold text-slate-400">NPR {(totalAssets ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
               <div className="space-y-3 text-xs">
@@ -254,7 +254,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60">
                   <span className="text-slate-600 dark:text-slate-300">Merchandise Inventory (At Valuation)</span>
-                  <span className="font-mono font-semibold">NPR {inventoryAssetVal.toLocaleString('en-IN')}</span>
+                  <span className="font-mono font-semibold">NPR {(inventoryAssetVal ?? 0).toLocaleString('en-IN')}</span>
                 </div>
 
                 <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px] pt-2">
@@ -262,23 +262,23 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60">
                   <span className="text-slate-600 dark:text-slate-300">Fixed Assets Net Book Value (NBV)</span>
-                  <span className="font-mono font-semibold">NPR {fixedAssetNBV.toLocaleString('en-IN')}</span>
+                  <span className="font-mono font-semibold">NPR {(fixedAssetNBV ?? 0).toLocaleString('en-IN')}</span>
                 </div>
                 <div className="flex justify-between items-center py-1 text-slate-400 text-[11px] pl-3">
                   <span>Gross Property, Plant & Equipment</span>
-                  <span className="font-mono">NPR {(assets || []).reduce((sum, a) => sum + (a.acquisitionCost ?? 0), 0).toLocaleString('en-IN')}</span>
+                  <span className="font-mono">NPR {((assets || []).reduce((sum, a) => sum + (a.acquisitionCost ?? 0), 0) ?? 0).toLocaleString('en-IN')}</span>
                 </div>
                 <div className="flex justify-between items-center py-1 text-slate-400 text-[11px] pl-3">
                   <span>Less: Accumulated Depreciation</span>
                   <span className="font-mono text-rose-500">
-                    - NPR {(assets || []).reduce((sum, a) => sum + (a.accumulatedDepreciation ?? 0), 0).toLocaleString('en-IN')}
+                    - NPR {((assets || []).reduce((sum, a) => sum + (a.accumulatedDepreciation ?? 0), 0) ?? 0).toLocaleString('en-IN')}
                   </span>
                 </div>
               </div>
 
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center font-bold text-sm">
                 <span>TOTAL ASSETS</span>
-                <span className="font-mono text-emerald-500">NPR {totalAssets.toLocaleString('en-IN')}</span>
+                <span className="font-mono text-emerald-500">NPR {(totalAssets ?? 0).toLocaleString('en-IN')}</span>
               </div>
             </div>
 
@@ -293,7 +293,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                   <Scale className="h-4 w-4" />
                   <span>LIABILITIES & EQUITY</span>
                 </h3>
-                <span className="text-xs font-mono font-bold text-slate-400">NPR {totalAssets.toLocaleString('en-IN')}</span>
+                <span className="text-xs font-mono font-bold text-slate-400">NPR {(totalAssets ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
               <div className="space-y-3 text-xs">
@@ -302,7 +302,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60">
                   <span className="text-slate-600 dark:text-slate-300">Accounts Payable (Unpaid Supplier Invoices)</span>
-                  <span className="font-mono font-semibold text-amber-500">NPR {accountsPayable.toLocaleString('en-IN')}</span>
+                  <span className="font-mono font-semibold text-amber-500">NPR {(accountsPayable ?? 0).toLocaleString('en-IN')}</span>
                 </div>
 
                 <div className="font-bold uppercase tracking-wider text-slate-400 text-[10px] pt-2">
@@ -310,13 +310,13 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 </div>
                 <div className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800/60">
                   <span className="text-slate-600 dark:text-slate-300">Retained Earnings & Contributed Capital</span>
-                  <span className="font-mono font-semibold">NPR {netEquity.toLocaleString('en-IN')}</span>
+                  <span className="font-mono font-semibold">NPR {(netEquity ?? 0).toLocaleString('en-IN')}</span>
                 </div>
               </div>
 
               <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center font-bold text-sm">
                 <span>TOTAL LIABILITIES & EQUITY</span>
-                <span className="font-mono text-indigo-500">NPR {(totalLiabilities + netEquity).toLocaleString('en-IN')}</span>
+                <span className="font-mono text-indigo-500">NPR {((totalLiabilities || 0) + (netEquity || 0)).toLocaleString('en-IN')}</span>
               </div>
             </div>
           </div>
@@ -335,10 +335,10 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <ArrowUpRight className="h-4 w-4 text-emerald-500" />
               </div>
               <p className="text-2xl font-bold font-mono text-emerald-500">
-                NPR {netRevenue.toLocaleString('en-IN')}
+                NPR {(netRevenue ?? 0).toLocaleString('en-IN')}
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
-                Purchase Total (NPR {grossPurchaseValue.toLocaleString('en-IN')}) + Discounts
+                Purchase Total (NPR {(grossPurchaseValue ?? 0).toLocaleString('en-IN')}) + Discounts
               </p>
             </div>
 
@@ -352,7 +352,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <ArrowDownRight className="h-4 w-4 text-rose-500" />
               </div>
               <p className="text-2xl font-bold font-mono text-rose-500">
-                NPR {operatingExpenses.toLocaleString('en-IN')}
+                NPR {(operatingExpenses ?? 0).toLocaleString('en-IN')}
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
                 Logistics, Overhead & Maintenance Estimate
@@ -369,7 +369,7 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
                 <DollarSign className="h-4 w-4 text-indigo-500" />
               </div>
               <p className="text-2xl font-bold font-mono text-indigo-500">
-                NPR {netProfit.toLocaleString('en-IN')}
+                NPR {(netProfit ?? 0).toLocaleString('en-IN')}
               </p>
               <p className="text-[11px] text-slate-400 mt-1">
                 Gross Profit minus Operating Expenses
@@ -394,27 +394,27 @@ export const FinancialStatements: React.FC<FinancialStatementsProps> = ({
             <div className="space-y-3 text-xs">
               <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 font-medium">
                 <span>Gross Purchase & Stock Inflows</span>
-                <span className="font-mono">NPR {grossPurchaseValue.toLocaleString('en-IN')}</span>
+                <span className="font-mono">NPR {(grossPurchaseValue ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
               <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 text-emerald-600 dark:text-emerald-400">
                 <span>Add: Supplier Volume Discounts Received</span>
-                <span className="font-mono">+ NPR {totalDiscountReceived.toLocaleString('en-IN')}</span>
+                <span className="font-mono">+ NPR {(totalDiscountReceived ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
               <div className="flex justify-between items-center py-2.5 border-b border-slate-200 dark:border-slate-800 font-bold text-slate-900 dark:text-white">
                 <span>NET TRADING REVENUE</span>
-                <span className="font-mono">NPR {netRevenue.toLocaleString('en-IN')}</span>
+                <span className="font-mono">NPR {(netRevenue ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
               <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-800/80 text-rose-500">
                 <span>Less: Estimated Operating Overhead & Handling</span>
-                <span className="font-mono">- NPR {operatingExpenses.toLocaleString('en-IN')}</span>
+                <span className="font-mono">- NPR {(operatingExpenses ?? 0).toLocaleString('en-IN')}</span>
               </div>
 
               <div className="flex justify-between items-center py-3 border-t-2 border-indigo-500 font-bold text-base text-indigo-600 dark:text-indigo-400">
                 <span>NET OPERATING PROFIT / SURPLUS</span>
-                <span className="font-mono">NPR {netProfit.toLocaleString('en-IN')}</span>
+                <span className="font-mono">NPR {(netProfit ?? 0).toLocaleString('en-IN')}</span>
               </div>
             </div>
           </div>

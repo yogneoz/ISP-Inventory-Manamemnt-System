@@ -171,11 +171,11 @@ Timestamp:        ${new Date().toISOString()}
 -------------------------------------------------------------------
 FINANCIAL & INVENTORY CLOSING SNAPSHOT
 -------------------------------------------------------------------
-Closing Stock Inventory Valuation:   NPR ${closingMetrics.inventoryValue.toLocaleString()}
-Fixed Assets Gross Acquisition Cost: NPR ${closingMetrics.fixedAssetValue.toLocaleString()}
-Calculated Annual Tax Depreciation:  NPR ${closingMetrics.annualDepreciation.toLocaleString()}
-Net Fixed Asset Value Carrying:      NPR ${closingMetrics.netAssetValue.toLocaleString()}
-Reconciled VAT Input Tax Register:   NPR ${closingMetrics.vatInputTax.toLocaleString()}
+Closing Stock Inventory Valuation:   NPR ${(closingMetrics.inventoryValue ?? 0).toLocaleString()}
+Fixed Assets Gross Acquisition Cost: NPR ${(closingMetrics.fixedAssetValue ?? 0).toLocaleString()}
+Calculated Annual Tax Depreciation:  NPR ${(closingMetrics.annualDepreciation ?? 0).toLocaleString()}
+Net Fixed Asset Value Carrying:      NPR ${(closingMetrics.netAssetValue ?? 0).toLocaleString()}
+Reconciled VAT Input Tax Register:   NPR ${(closingMetrics.vatInputTax ?? 0).toLocaleString()}
 -------------------------------------------------------------------
 Compliance Status: Approved for Inland Revenue Department (IRD) Filing
 ===================================================================
@@ -366,7 +366,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Total VAT Input Tax calculated at NPR {closingMetrics.vatInputTax.toLocaleString()} for Ashadh end.
+                  Total VAT Input Tax calculated at NPR {(closingMetrics.vatInputTax ?? 0).toLocaleString()} for Ashadh end.
                 </p>
               </div>
             </div>
@@ -390,7 +390,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                 <p className="text-[10px] text-slate-400 uppercase font-sans font-bold">Closing Inventory Stock Value</p>
                 <p className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400 mt-1">
-                  NPR {closingMetrics.inventoryValue.toLocaleString()}
+                  NPR {(closingMetrics.inventoryValue ?? 0).toLocaleString()}
                 </p>
                 <p className="text-[10px] font-sans text-slate-500 mt-1">Evaluated at FIFO Cost Price</p>
               </div>
@@ -398,7 +398,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                 <p className="text-[10px] text-slate-400 uppercase font-sans font-bold">Gross Fixed Asset Acquisition</p>
                 <p className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mt-1">
-                  NPR {closingMetrics.fixedAssetValue.toLocaleString()}
+                  NPR {(closingMetrics.fixedAssetValue ?? 0).toLocaleString()}
                 </p>
                 <p className="text-[10px] font-sans text-slate-500 mt-1">{assets.length} Active Hardware Items</p>
               </div>
@@ -406,7 +406,7 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
                 <p className="text-[10px] text-slate-400 uppercase font-sans font-bold">Calculated Year Depreciation</p>
                 <p className="text-xl font-extrabold text-amber-500 mt-1">
-                  NPR {closingMetrics.annualDepreciation.toLocaleString()}
+                  NPR {(closingMetrics.annualDepreciation ?? 0).toLocaleString()}
                 </p>
                 <p className="text-[10px] font-sans text-slate-500 mt-1">Income Tax Act Rates Applied</p>
               </div>
@@ -430,20 +430,20 @@ Compliance Status: Approved for Inland Revenue Department (IRD) Filing
             <div className="p-5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 space-y-3 font-mono text-xs">
               <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
                 <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Total Billed Purchase Invoices (Gross)</span>
-                <span className="font-bold">NPR {(closingMetrics.inventoryValue * 1.15).toLocaleString()}</span>
+                <span className="font-bold">NPR {((closingMetrics.inventoryValue || 0) * 1.15).toLocaleString()}</span>
               </div>
               <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
                 <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Total Cost of Goods Sold (COGS)</span>
-                <span className="font-bold text-rose-500">-NPR {closingMetrics.totalCOGS.toLocaleString()}</span>
+                <span className="font-bold text-rose-500">-NPR {(closingMetrics.totalCOGS ?? 0).toLocaleString()}</span>
               </div>
               <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
                 <span className="font-sans font-semibold text-slate-600 dark:text-slate-400">Hardware Depreciation Expense</span>
-                <span className="font-bold text-rose-500">-NPR {closingMetrics.annualDepreciation.toLocaleString()}</span>
+                <span className="font-bold text-rose-500">-NPR {(closingMetrics.annualDepreciation ?? 0).toLocaleString()}</span>
               </div>
               <div className="flex justify-between pt-1 text-sm font-extrabold font-sans">
                 <span>Net Surplus Transferred to Retained Earnings</span>
                 <span className="text-emerald-500 font-mono">
-                  NPR {((closingMetrics.inventoryValue * 1.15) - closingMetrics.totalCOGS - closingMetrics.annualDepreciation).toLocaleString()}
+                  NPR {(((closingMetrics.inventoryValue || 0) * 1.15) - (closingMetrics.totalCOGS || 0) - (closingMetrics.annualDepreciation || 0)).toLocaleString()}
                 </span>
               </div>
             </div>

@@ -1,8 +1,17 @@
-import React, { useState } from 'react';
-import { PurchaseInvoice, PurchaseInvoiceItem, PurchaseOrder, Product, Branch, InventoryStock, DeviceSerialPair, User } from '../types';
+import React, { useState, useEffect } from 'react';
+import {
+  PurchaseInvoice,
+  PurchaseInvoiceItem,
+  PurchaseOrder,
+  Product,
+  Branch,
+  InventoryStock,
+  DeviceSerialPair,
+  User,
+} from '../types';
 import { formatDualDate, convertADToBS } from '../utils/nepaliCalendar';
 import { exportToCSV } from '../utils/exportUtils';
-import { isOperationAllowed } from '../utils/permissions';
+import { isOperationAllowed, getAllowedBranches } from '../utils/permissions';
 import { ProductSearchBar } from './ProductSearchBar';
 import {
   Receipt,
@@ -28,6 +37,10 @@ import {
   CheckSquare,
   AlertTriangle,
   Lock,
+  ArrowLeft,
+  RotateCcw,
+  Layers,
+  ChevronDown,
 } from 'lucide-react';
 
 interface PurchaseInvoicesProps {
@@ -40,16 +53,18 @@ interface PurchaseInvoicesProps {
   selectedBranchId: string;
   dateMode: 'BS' | 'AD';
   autoOpenModal?: boolean;
-  onCreateInvoice: (inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'> & { poReferenceId?: string }) => Promise<void>;
+  onCreateInvoice: (
+    inv: Omit<PurchaseInvoice, 'id' | 'invoiceNumber'> & { poReferenceId?: string }
+  ) => Promise<void>;
   onRecordPayment: (id: string, amount: number) => Promise<void>;
   isDarkMode?: boolean;
 }
 
 // Pre-seeded database vendors
 const DB_SUPPLIERS = [
+  'Apex Trade & Telecom Supplies Pvt. Ltd.',
   'Himalayan Tech Distributors Pvt. Ltd.',
   'Nepal Optical & Fiber Optics Importers',
-  'Apex Networking Hardware Traders',
   'IZone & Hardware Supplies Pvt. Ltd.',
   'WorldLink Telecom Equipment Corp',
 ];
@@ -79,9 +94,20 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   onRecordPayment,
   isDarkMode = false,
 }) => {
-  const [isModalOpen, setIsModalOpen] = useState(autoOpenModal);
+  // Navigation Sub-tabs: 'INVOICE_LIST' | 'CREATE_INVOICE' | 'VIEW_INVOICE'
+  const [activeTab, setActiveTab] = useState<'INVOICE_LIST' | 'CREATE_INVOICE' | 'VIEW_INVOICE'>(
+    autoOpenModal ? 'CREATE_INVOICE' : 'INVOICE_LIST'
+  );
+
   const [viewingInvoice, setViewingInvoice] = useState<PurchaseInvoice | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Sync active tab with autoOpenModal prop
+  useEffect(() => {
+    if (autoOpenModal) {
+      setActiveTab('CREATE_INVOICE');
+    }
+  }, [autoOpenModal]);
 
   // Link Purchase Order State
   const [selectedPoId, setSelectedPoId] = useState<string>('');
@@ -95,7 +121,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
   // Form State
   const [supplierName, setSupplierName] = useState(DB_SUPPLIERS[0]);
-  const [vendorBillNumber, setVendorBillNumber] = useState(`BILL-${Math.floor(10000 + Math.random() * 90000)}`);
+  const [vendorBillNumber, setVendorBillNumber] = useState(
+    `BILL-${Math.floor(10000 + Math.random() * 90000)}`
+  );
   const [vendorBillDateAD, setVendorBillDateAD] = useState(
     new Date().toISOString().split('T')[0]
   );
@@ -130,13 +158,28 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   });
 
   // Financial Metrics
-  const totalTaxable = filteredInvoices.reduce((s, i) => s + i.taxableAmount, 0);
-  const totalVAT = filteredInvoices.reduce((s, i) => s + i.vatAmount, 0);
-  const totalGrand = filteredInvoices.reduce((s, i) => s + i.grandTotal, 0);
+  const totalTaxable = filteredInvoices.reduce((s, i) => s + (i.taxableAmount ?? 0), 0);
+  const totalVAT = filteredInvoices.reduce((s, i) => s + (i.vatAmount ?? 0), 0);
+  const totalGrand = filteredInvoices.reduce((s, i) => s + (i.grandTotal ?? 0), 0);
   const totalUnpaid = filteredInvoices.reduce(
-    (s, i) => s + (i.grandTotal - i.amountPaid),
+    (s, i) => s + ((i.grandTotal ?? 0) - (i.amountPaid ?? 0)),
     0
   );
+
+  const handleResetForm = () => {
+    setLines([]);
+    setSelectedPoId('');
+    setBillDiscountValue(0);
+    setTaxationType('TAXABLE_13');
+    setNotes('');
+    setVendorBillNumber(`BILL-${Math.floor(10000 + Math.random() * 90000)}`);
+    setVendorBillDateAD(new Date().toISOString().split('T')[0]);
+  };
+
+  const handleOpenCreateTab = () => {
+    handleResetForm();
+    setActiveTab('CREATE_INVOICE');
+  };
 
   // Search/Scan Product Add or Duplicate Quantity Increment
   const handleAddOrIncrementProduct = (prod: Product) => {
@@ -251,12 +294,6 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
     setLines(updated);
   };
 
-  const updateLineDiscount = (index: number, newDisc: number) => {
-    const updated = [...lines];
-    updated[index].discount = Math.max(0, newDisc);
-    setLines(updated);
-  };
-
   // Bill-wise Calculations
   const calculatedLines = lines.map((l) => {
     const gross = l.quantity * l.unitPrice;
@@ -295,7 +332,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
     const targetBranch = branches.find((b) => b.id === branchId);
     if (targetBranch && targetBranch.allowProcurement === false) {
-      alert(`Procurement & Purchasing permission is disabled for branch "${targetBranch.name}". Please enable it in Branch Directory.`);
+      alert(
+        `Procurement & Purchasing permission is disabled for branch "${targetBranch.name}". Please enable it in Branch Directory.`
+      );
       return;
     }
 
@@ -320,7 +359,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       deviceSerials: l.deviceSerials,
     }));
 
-    // Default to CREDIT mode transaction as requested by user
+    // Default to CREDIT mode transaction as requested
     await onCreateInvoice({
       supplierName,
       vendorBillNumber,
@@ -343,445 +382,674 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       notes: `Vendor Bill Date: ${vendorBillDateAD} (${vendorBillBs.formattedBSShort}). ${notes}`,
     });
 
-    setIsModalOpen(false);
+    handleResetForm();
+    setActiveTab('INVOICE_LIST');
   };
 
   const handleExportCSV = () => {
     exportToCSV('IZone_Purchase_Invoices', filteredInvoices, [
-      { key: 'invoiceNumber', label: 'Invoice Ref #' },
-      { key: 'vendorBillNumber', label: 'Vendor Bill #' },
-      { key: 'supplierName', label: 'Supplier / Vendor' },
-      { key: 'invoiceDateAD', label: 'Invoice Date (AD)' },
-      { key: 'invoiceDateBS', label: 'Invoice Date (BS)' },
-      { key: 'taxableAmount', label: 'Taxable Base' },
-      { key: 'vatAmount', label: '13% VAT' },
-      { key: 'grandTotal', label: 'Grand Total' },
-      { key: 'paymentStatus', label: 'Status' },
+      { label: 'System Invoice #', key: 'invoiceNumber' },
+      { label: 'Vendor Bill #', key: 'vendorBillNumber' },
+      { label: 'Supplier Name', key: 'supplierName' },
+      {
+        label: 'Branch',
+        key: 'branchId',
+        formatter: (val, i) => branches.find((b) => b.id === i.branchId)?.name || val,
+      },
+      { label: 'Bill Date (AD)', key: 'invoiceDateAD' },
+      { label: 'Bill Date (BS)', key: 'invoiceDateBS' },
+      {
+        label: 'Taxable Amount',
+        key: 'taxableAmount',
+        formatter: (val) => Number(val || 0).toFixed(2),
+      },
+      {
+        label: '13% Input VAT',
+        key: 'vatAmount',
+        formatter: (val) => Number(val || 0).toFixed(2),
+      },
+      {
+        label: 'Grand Total',
+        key: 'grandTotal',
+        formatter: (val) => Number(val || 0).toFixed(2),
+      },
+      { label: 'Payment Status', key: 'paymentStatus' },
     ]);
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header & Controls */}
+    <div className="space-y-6" id="purchase-invoices-container">
+      {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
-            isDarkMode ? 'text-white' : 'text-slate-900'
-          }`}>
-            <Receipt className="h-5 w-5 text-blue-500" />
-            <span>Purchase Invoices & Vendor Bill Register</span>
+          <h2
+            className={`text-xl font-serif font-bold tracking-tight flex items-center gap-2 ${
+              isDarkMode ? 'text-white' : 'text-slate-900'
+            }`}
+          >
+            <Receipt className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            <span>Purchase Invoices & Vendor Bills</span>
           </h2>
           <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            Bill-wise tax purchase entry with barcode search, credit tracking, and vendor bill logs.
+            Full-width inline Vendor Bill entry with live barcode scanning, device & PON serial tracking, 13% Input VAT, and PO linking.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search Invoice #, Vendor Bill #, Supplier..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 w-44 sm:w-64 shadow-xs ${
-                isDarkMode ? 'bg-slate-900 border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+        {/* Top Actions */}
+        <div className="flex items-center gap-2">
+          {activeTab !== 'INVOICE_LIST' && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('INVOICE_LIST')}
+              className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-semibold shadow-xs transition-all cursor-pointer ${
+                isDarkMode
+                  ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                  : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
               }`}
-            />
-          </div>
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back to Bills Register</span>
+            </button>
+          )}
 
-          <button
-            onClick={handleExportCSV}
-            title="Export to CSV Spreadsheet"
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold shadow-xs transition-all cursor-pointer ${
-              isDarkMode
-                ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
-                : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-            }`}
-          >
-            <Download className="h-4 w-4 text-slate-500" />
-            <span className="hidden sm:inline">Export CSV</span>
-          </button>
-
-          {(() => {
-            const curBranch = branches.find((b) => b.id === branchId);
-            const canCreateInvoice = isOperationAllowed('inv-create', currentUser?.role, curBranch?.allowProcurement);
-
-            return (
+          {activeTab === 'INVOICE_LIST' && (
+            <>
               <button
-                disabled={!canCreateInvoice}
-                title={
-                  !canCreateInvoice
-                    ? curBranch?.allowProcurement === false
-                      ? 'Procurement is disabled for this branch in Branch Directory'
-                      : 'Purchase bill entry is disabled for your role permissions'
-                    : 'Create new Purchase Bill'
-                }
-                onClick={() => {
-                  if (!canCreateInvoice) {
-                    alert(
-                      curBranch?.allowProcurement === false
-                        ? `Procurement & Purchasing is disabled for branch "${curBranch?.name || branchId}". Please enable it in Branch Directory.`
-                        : 'Purchase Bill entry is disabled for your role permissions.'
-                    );
-                    return;
-                  }
-                  setLines([]);
-                  setIsModalOpen(true);
-                }}
-                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white shadow-md transition-all ${
-                  !canCreateInvoice
-                    ? 'bg-slate-400 dark:bg-slate-700 cursor-not-allowed opacity-60 shadow-none'
-                    : 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20 cursor-pointer'
+                type="button"
+                onClick={handleExportCSV}
+                className={`flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold shadow-xs transition-all cursor-pointer ${
+                  isDarkMode
+                    ? 'bg-slate-900 border-slate-800 text-slate-300 hover:bg-slate-800'
+                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                {!canCreateInvoice ? <Lock className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                <span>New Purchase Bill</span>
+                <Download className="h-4 w-4 text-slate-500" />
+                <span>Export CSV</span>
               </button>
-            );
-          })()}
+
+              {(() => {
+                const curBranch = branches.find((b) => b.id === branchId);
+                const canCreateInvoice = isOperationAllowed('purchase-create', currentUser?.role, curBranch?.allowProcurement);
+                if (!canCreateInvoice) return null;
+
+                return (
+                  <button
+                    type="button"
+                    id="btn-new-purchase-bill"
+                    onClick={handleOpenCreateTab}
+                    className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/20 cursor-pointer transition-all"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>New Purchase Bill</span>
+                  </button>
+                );
+              })()}
+            </>
+          )}
         </div>
       </div>
 
-      {/* Tax & Financial Summary Cards */}
-      <div className="flex-none grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className={`rounded-2xl p-4 border shadow-xs ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
-          <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Taxable Purchases</span>
-          <div className={`text-lg font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            {totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-        </div>
-        <div className="rounded-2xl p-4 border border-blue-500/30 bg-blue-500/10 shadow-xs">
-          <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">13% Input VAT</span>
-          <div className="text-lg font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-1">
-            {totalVAT.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-        </div>
-        <div className={`rounded-2xl p-4 border shadow-xs ${
-          isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-        }`}>
-          <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>Grand Total</span>
-          <div className={`text-lg font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            {totalGrand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-        </div>
-        <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/10 shadow-xs">
-          <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">Vendor Credit Payable</span>
-          <div className="text-lg font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1">
-            {totalUnpaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-        </div>
-      </div>
+      {/* Navigation Sub-Tabs (Branch Operations Style) */}
+      <div
+        className={`flex items-center gap-1.5 border-b pb-1 overflow-x-auto ${
+          isDarkMode ? 'border-slate-800' : 'border-slate-200'
+        }`}
+      >
+        <button
+          type="button"
+          id="tab-pi-register"
+          onClick={() => setActiveTab('INVOICE_LIST')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+            activeTab === 'INVOICE_LIST'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : isDarkMode
+              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+          }`}
+        >
+          <FileText className="h-4 w-4" />
+          <span>1. Purchase Bills Register</span>
+          <span
+            className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+              activeTab === 'INVOICE_LIST'
+                ? 'bg-blue-800 text-white'
+                : isDarkMode
+                ? 'bg-slate-800 text-slate-300'
+                : 'bg-slate-200 text-slate-700'
+            }`}
+          >
+            {filteredInvoices.length}
+          </span>
+        </button>
 
-      {/* Invoices Table */}
-      <div className={`rounded-2xl border shadow-lg overflow-hidden ${
-        isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
-      }`}>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className={`sticky top-0 z-20 font-bold uppercase text-[10px] tracking-wider border-b shadow-xs ${
-              isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
-            }`}>
-              <tr>
-                <th className="p-3.5 sticky top-0 bg-inherit">System Ref #</th>
-                <th className="p-3.5 sticky top-0 bg-inherit">Vendor Bill #</th>
-                <th className="p-3.5 sticky top-0 bg-inherit">Supplier / Vendor</th>
-                <th className="p-3.5 sticky top-0 bg-inherit">Branch</th>
-                <th className="p-3.5 sticky top-0 bg-inherit">Bill Date</th>
-                <th className="p-3.5 sticky top-0 bg-inherit text-right">Taxable</th>
-                <th className="p-3.5 sticky top-0 bg-inherit text-right">13% VAT</th>
-                <th className="p-3.5 sticky top-0 bg-inherit text-right">Total Amount</th>
-                <th className="p-3.5 sticky top-0 bg-inherit text-center">Payment Mode</th>
-                <th className="p-3.5 sticky top-0 bg-inherit text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {filteredInvoices.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="p-8 text-center text-slate-500 text-xs">
-                    No purchase bills recorded. Click "New Purchase Bill" to record vendor transactions.
-                  </td>
-                </tr>
-              ) : (
-                filteredInvoices.map((inv) => {
-                  const branch = branches.find((b) => b.id === inv.branchId);
-                  return (
-                    <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-3.5 font-mono font-bold text-blue-600">
-                        {inv.invoiceNumber}
-                      </td>
-                      <td className="p-3.5 font-mono font-bold text-slate-800">
-                        {inv.vendorBillNumber || '—'}
-                      </td>
-                      <td className="p-3.5 font-bold text-slate-900">
-                        {inv.supplierName}
-                      </td>
-                      <td className="p-3.5 text-slate-600">
-                        {branch?.name || inv.branchId}
-                      </td>
-                      <td className="p-3.5 text-slate-500 font-mono text-[11px]">
-                        {formatDualDate(inv.invoiceDateAD, dateMode)}
-                      </td>
-                      <td className="p-3.5 text-right font-mono font-medium text-slate-700">
-                        {inv.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3.5 text-right font-mono font-bold text-blue-600">
-                        {inv.vatAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3.5 text-right font-mono font-extrabold text-slate-900">
-                        {inv.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="p-3.5 text-center">
-                        <span className="rounded-md px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
-                          CREDIT MODE
-                        </span>
-                      </td>
-                      <td className="p-3.5 text-center">
-                        <button
-                          onClick={() => setViewingInvoice(inv)}
-                          title="View Bill Details"
-                          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-600 cursor-pointer"
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
+        {(() => {
+          const curBranch = branches.find((b) => b.id === branchId);
+          const canCreateInvoice = isOperationAllowed('purchase-create', currentUser?.role, curBranch?.allowProcurement);
+          return (
+            <button
+              type="button"
+              id="tab-pi-form"
+              disabled={!canCreateInvoice}
+              title={
+                !canCreateInvoice
+                  ? 'Purchase Bill creation is disabled for your role permissions'
+                  : 'Open full inline Purchase Bill entry form'
+              }
+              onClick={() => {
+                if (!canCreateInvoice) {
+                  alert('Purchase Invoice creation is disabled for your role permissions.');
+                  return;
+                }
+                if (activeTab !== 'CREATE_INVOICE') {
+                  handleOpenCreateTab();
+                }
+              }}
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap ${
+                !canCreateInvoice
+                  ? 'opacity-40 cursor-not-allowed text-slate-400'
+                  : activeTab === 'CREATE_INVOICE'
+                  ? 'bg-blue-600 text-white shadow-sm cursor-pointer'
+                  : isDarkMode
+                  ? 'text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 cursor-pointer'
+              }`}
+            >
+              {!canCreateInvoice ? <Lock className="h-3.5 w-3.5" /> : <Plus className="h-4 w-4" />}
+              <span>2. New Purchase Bill (Inline POS & Scan)</span>
+              {lines.length > 0 && (
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                    activeTab === 'CREATE_INVOICE'
+                      ? 'bg-blue-800 text-white'
+                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                  }`}
+                >
+                  {lines.length} items
+                </span>
               )}
-            </tbody>
-          </table>
-        </div>
+            </button>
+          );
+        })()}
+
+        {viewingInvoice && (
+          <button
+            type="button"
+            id="tab-pi-view"
+            onClick={() => setActiveTab('VIEW_INVOICE')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+              activeTab === 'VIEW_INVOICE'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : isDarkMode
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Eye className="h-4 w-4" />
+            <span>3. Invoice Document: {viewingInvoice.invoiceNumber}</span>
+          </button>
+        )}
       </div>
 
-      {/* Purchase Invoice Entry Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="w-full max-w-5xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden my-6 text-slate-800">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
-              <div>
-                <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                  <Receipt className="h-5 w-5 text-blue-600" />
-                  <span>Create Purchase Bill (Bill-Wise Taxation & Scan Entry)</span>
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Scan barcode or search product to add items. Duplicate items automatically increment quantity.
-                </p>
+      {/* TAB 1: PURCHASE BILLS REGISTER & METRICS */}
+      {activeTab === 'INVOICE_LIST' && (
+        <div className="space-y-6" id="pi-list-view">
+          {/* Summary Metrics */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div
+              className={`rounded-2xl p-4 border shadow-xs ${
+                isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+              }`}
+            >
+              <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                Taxable Purchases
+              </span>
+              <div className={`text-lg font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                Rs. {(totalTaxable ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-5">
-              {/* Bill Header Info */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    Supplier / Vendor (From Database) *
-                  </label>
-                  <select
-                    value={supplierName}
-                    onChange={(e) => setSupplierName(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 font-bold focus:ring-2 focus:ring-blue-500"
-                  >
-                    {DB_SUPPLIERS.map((sup) => (
-                      <option key={sup} value={sup}>
-                        {sup}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    Vendor Bill Number *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={vendorBillNumber}
-                    onChange={(e) => setVendorBillNumber(e.target.value)}
-                    placeholder="e.g. BILL-9021"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono text-slate-900 font-bold focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    Vendor Bill Date *
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={vendorBillDateAD}
-                    onChange={(e) => setVendorBillDateAD(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono text-slate-900 font-semibold focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+            <div className="rounded-2xl p-4 border border-blue-500/30 bg-blue-500/10 shadow-xs">
+              <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">13% Input VAT</span>
+              <div className="text-lg font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-1">
+                Rs. {(totalVAT ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
+            </div>
 
-              {/* Bill-Wise Taxation Radio Selection on Top */}
-              <div className="bg-blue-50/60 p-4 rounded-xl border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <span className="text-xs font-bold text-blue-900 block">
-                    Bill-Wise Taxation Terms (Whole Bill Application)
-                  </span>
-                  <span className="text-[11px] text-blue-700">
-                    Vendors supply bills either entirely 13% Taxable or Tax Exempted. Select for entire bill.
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-6">
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="taxationType"
-                      checked={taxationType === 'TAXABLE_13'}
-                      onChange={() => setTaxationType('TAXABLE_13')}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                    />
-                    <span>13% Taxable Bill</span>
-                  </label>
-
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="taxationType"
-                      checked={taxationType === 'TAX_EXEMPTED'}
-                      onChange={() => setTaxationType('TAX_EXEMPTED')}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                    />
-                    <span>Tax Exempted Bill</span>
-                  </label>
-                </div>
+            <div
+              className={`rounded-2xl p-4 border shadow-xs ${
+                isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+              }`}
+            >
+              <span className={`text-xs font-semibold ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                Grand Total
+              </span>
+              <div className={`text-lg font-mono font-bold mt-1 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                Rs. {(totalGrand ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
+            </div>
 
-              {/* Link Pending Purchase Order (Sleek Top Action Banner) */}
-              <div className="bg-gradient-to-r from-indigo-50 to-blue-50 p-3.5 rounded-xl border border-indigo-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                {!activePO ? (
-                  <div className="flex items-center justify-between w-full">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg">
-                        <ShoppingCart className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900">
-                          Purchase Order Reference (Optional)
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          {pendingPOs.length > 0
-                            ? `${pendingPOs.length} pending PO(s) available for receiving.`
-                            : 'No pending POs found. Direct bill mode active.'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsPoSelectModalOpen(true)}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-sm flex items-center gap-1.5 transition-colors cursor-pointer shrink-0"
-                    >
-                      <Link className="h-3.5 w-3.5" />
-                      <span>Link / Import PO</span>
-                      {pendingPOs.length > 0 && (
-                        <span className="ml-1 bg-indigo-800 text-white text-[10px] px-1.5 py-0.5 rounded-full font-mono">
-                          {pendingPOs.length}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-between w-full">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg">
-                        <CheckSquare className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
-                          <span>Linked PO: #{activePO.poNumber}</span>
-                          <span className="text-[10px] font-mono px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded font-bold border border-emerald-300">
-                            {activePO.supplierName}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          Expected Items: {activePO.items.length} product line(s)
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsPoChecklistOpen(true)}
-                        className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
-                      >
-                        <Eye className="h-3.5 w-3.5 text-indigo-600" />
-                        <span>PO Item Checklist</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedPoId('');
-                          setIsPoChecklistOpen(false);
-                        }}
-                        className="px-2.5 py-1.5 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-lg border border-rose-200 transition-colors cursor-pointer"
-                      >
-                        Unlink
-                      </button>
-                    </div>
-                  </div>
-                )}
+            <div className="rounded-2xl p-4 border border-amber-500/30 bg-amber-500/10 shadow-xs">
+              <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">Vendor Credit Payable</span>
+              <div className="text-lg font-mono font-extrabold text-amber-600 dark:text-amber-400 mt-1">
+                Rs. {(totalUnpaid ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
+            </div>
+          </div>
 
-              {/* Item Search Bar / Barcode Scan Input (No Add Button) */}
-              <div className="space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Product Item Search & Barcode Scan
+          {/* Search bar */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="relative w-full sm:w-80">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search Invoice #, Bill # or Supplier..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  isDarkMode
+                    ? 'bg-slate-900 border-slate-800 text-slate-200'
+                    : 'bg-white border-slate-200 text-slate-800'
+                }`}
+              />
+            </div>
+
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              Showing <strong className="text-slate-900 dark:text-white font-mono">{filteredInvoices.length}</strong> purchase bills
+            </div>
+          </div>
+
+          {/* Invoices Table */}
+          <div
+            className={`rounded-2xl border shadow-md overflow-hidden ${
+              isDarkMode ? 'bg-[#0f1218] border-slate-800' : 'bg-white border-slate-200'
+            }`}
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead
+                  className={`sticky top-0 z-10 font-bold uppercase text-[10px] tracking-wider border-b ${
+                    isDarkMode
+                      ? 'bg-[#12161f] text-slate-400 border-slate-800'
+                      : 'bg-slate-100 text-slate-700 border-slate-200'
+                  }`}
+                >
+                  <tr>
+                    <th className="p-3.5">System Ref #</th>
+                    <th className="p-3.5">Vendor Bill #</th>
+                    <th className="p-3.5">Supplier / Vendor</th>
+                    <th className="p-3.5">Branch</th>
+                    <th className="p-3.5">Bill Date</th>
+                    <th className="p-3.5 text-right">Taxable</th>
+                    <th className="p-3.5 text-right">13% VAT</th>
+                    <th className="p-3.5 text-right">Total Amount</th>
+                    <th className="p-3.5 text-center">Payment Mode</th>
+                    <th className="p-3.5 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800/80' : 'divide-slate-200'}`}>
+                  {filteredInvoices.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="p-10 text-center text-slate-400 italic">
+                        No purchase bills recorded. Click "New Purchase Bill" to record vendor transactions.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredInvoices.map((inv) => {
+                      const branch = branches.find((b) => b.id === inv.branchId);
+                      return (
+                        <tr
+                          key={inv.id}
+                          className={`transition-colors ${
+                            isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <td className="p-3.5 font-mono font-bold text-blue-600 dark:text-blue-400">
+                            {inv.invoiceNumber}
+                          </td>
+                          <td className="p-3.5 font-mono font-bold text-slate-800 dark:text-slate-200">
+                            {inv.vendorBillNumber || '—'}
+                          </td>
+                          <td className="p-3.5 font-bold text-slate-900 dark:text-white">
+                            {inv.supplierName}
+                          </td>
+                          <td className="p-3.5 text-slate-600 dark:text-slate-400">
+                            {branch?.name || inv.branchId}
+                          </td>
+                          <td className="p-3.5 text-slate-500 dark:text-slate-400 font-mono text-[11px]">
+                            {formatDualDate(inv.invoiceDateAD, dateMode)}
+                          </td>
+                          <td className="p-3.5 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
+                            Rs. {(inv.taxableAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="p-3.5 text-right font-mono font-bold text-blue-600 dark:text-blue-400">
+                            Rs. {(inv.vatAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="p-3.5 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                            Rs. {(inv.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="p-3.5 text-center">
+                            <span className="rounded-md px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                              CREDIT MODE
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setViewingInvoice(inv);
+                                setActiveTab('VIEW_INVOICE');
+                              }}
+                              title="View Bill Details & Print Voucher"
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: INLINE PURCHASE BILL CREATION FORM (FULL BODY VISIBLE) */}
+      {activeTab === 'CREATE_INVOICE' && (
+        <div
+          id="pi-inline-form-container"
+          className={`rounded-2xl border p-5 sm:p-7 shadow-lg space-y-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          {/* Form Banner Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800">
+                <Receipt className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                  Record Vendor Purchase Bill (Inline POS Entry)
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Scan barcode / enter items, assign Serial & PON numbers, calculate 13% VAT, and record credit transaction.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleResetForm}
+                className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-3.5 py-2 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+                title="Reset invoice form"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset Form</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleResetForm();
+                  setActiveTab('INVOICE_LIST');
+                }}
+                className={`rounded-xl border px-3.5 py-2 text-xs font-semibold cursor-pointer transition-colors ${
+                  isDarkMode
+                    ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                    : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Back to Register
+              </button>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-6" id="pi-form-element">
+            {/* Top Form Fields: Vendor, Vendor Bill #, Vendor Bill Date, Branch */}
+            <div className={`grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 rounded-xl border ${
+              isDarkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Supplier / Vendor *
                 </label>
-                <ProductSearchBar
-                  products={products}
-                  onAddOrIncrementProduct={handleAddOrIncrementProduct}
-                  placeholder="Scan barcode or type code/item name and press Enter to add..."
-                  inputId="purchase-product-search-input"
+                <select
+                  id="pi-supplier-select"
+                  value={supplierName}
+                  onChange={(e) => setSupplierName(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+                >
+                  {DB_SUPPLIERS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Vendor Bill / Invoice # *
+                </label>
+                <input
+                  type="text"
+                  required
+                  id="pi-vendor-bill-number"
+                  value={vendorBillNumber}
+                  onChange={(e) => setVendorBillNumber(e.target.value)}
+                  placeholder="e.g. BILL-99201"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-mono font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
-              {/* Items Table */}
-              <div className="overflow-x-auto border border-slate-200 rounded-xl bg-slate-50">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Vendor Bill Date (AD) *
+                </label>
+                <input
+                  type="date"
+                  required
+                  id="pi-vendor-bill-date"
+                  value={vendorBillDateAD}
+                  onChange={(e) => setVendorBillDateAD(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Destination Branch *
+                </label>
+                <select
+                  id="pi-branch-select"
+                  value={branchId}
+                  onChange={(e) => setBranchId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+                >
+                  {getAllowedBranches(currentUser, branches).map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.location})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Whole Bill Taxation Terms Selection */}
+            <div className={`p-4 rounded-xl border ${
+              isDarkMode ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
+              <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                Whole-Bill Taxation Mode
+              </span>
+              <div className="flex flex-wrap items-center gap-6 text-xs">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pi-tax-mode"
+                    value="TAXABLE_13"
+                    checked={taxationType === 'TAXABLE_13'}
+                    onChange={() => setTaxationType('TAXABLE_13')}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    13% Taxable Bill (Standard VAT Applicable)
+                  </span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="pi-tax-mode"
+                    value="TAX_EXEMPTED"
+                    checked={taxationType === 'TAX_EXEMPTED'}
+                    onChange={() => setTaxationType('TAX_EXEMPTED')}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    Tax Exempted Bill (0% Tax / Non-Taxable)
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            {/* Purchase Order Linking Banner */}
+            <div className="rounded-xl border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/70 dark:bg-indigo-950/40 p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                    <ShoppingCart className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-indigo-950 dark:text-indigo-200">
+                      Link Existing Purchase Order Reference (Optional)
+                    </div>
+                    <div className="text-[11px] text-indigo-800/80 dark:text-indigo-400">
+                      {activePO ? (
+                        <span className="font-semibold">
+                          Linked to <strong className="text-indigo-950 dark:text-white">PO #{activePO.poNumber}</strong> ({activePO.supplierName} • {activePO.items.length} item lines)
+                        </span>
+                      ) : (
+                        'Link a PO to verify items against order and track fulfillment in real-time.'
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsPoSelectModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Link className="h-3.5 w-3.5" />
+                    <span>{activePO ? 'Change Linked PO' : 'Link / Import PO'}</span>
+                  </button>
+
+                  {activePO && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setIsPoChecklistOpen(true)}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-100 dark:bg-indigo-900/60 hover:bg-indigo-200 text-indigo-800 dark:text-indigo-200 font-bold text-xs border border-indigo-300 dark:border-indigo-700 transition-colors cursor-pointer"
+                      >
+                        <CheckSquare className="h-3.5 w-3.5" />
+                        <span>PO Item Checklist</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPoId('')}
+                        className="p-1.5 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950 transition-colors cursor-pointer"
+                        title="Unlink PO"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Product Search & Barcode Scan Bar */}
+            <div className="bg-blue-50/70 dark:bg-blue-950/40 p-4 rounded-xl border border-blue-200 dark:border-blue-800/60 space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-blue-700 dark:text-blue-300">
+                <span className="flex items-center gap-1.5">
+                  <Search className="h-4 w-4" />
+                  <span>Scan Barcode or Search & Enter Product Name / SKU:</span>
+                </span>
+                <span className="text-[11px] font-normal text-slate-500 dark:text-slate-400 hidden sm:inline">
+                  Scan barcode to add item row and autofocus Device Serial number
+                </span>
+              </div>
+              <ProductSearchBar
+                products={products}
+                onAddOrIncrementProduct={handleAddOrIncrementProduct}
+                placeholder="Scan barcode or type code/item name and press Enter to add..."
+                inputId="purchase-product-search-input"
+              />
+            </div>
+
+            {/* POS Multi-Line Table */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Calculator className="h-4 w-4 text-blue-500" />
+                  <span>Bill Items Table ({lines.length} items)</span>
+                </h4>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Transaction Mode: <strong className="text-amber-600 dark:text-amber-400">CREDIT</strong>
+                </span>
+              </div>
+
+              <div
+                className={`border rounded-xl overflow-x-auto ${
+                  isDarkMode
+                    ? 'border-slate-800 bg-slate-900/30'
+                    : 'border-slate-200 bg-slate-50/50'
+                }`}
+              >
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead
+                    className={`font-bold uppercase text-[10px] tracking-wider border-b ${
+                      isDarkMode
+                        ? 'bg-slate-900 text-slate-400 border-slate-800'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}
+                  >
                     <tr>
-                      <th className="p-2.5 w-8 text-center">#</th>
-                      <th className="p-2.5">Product Name</th>
-                      <th className="p-2.5 w-24">SKU</th>
-                      <th className="p-2.5 w-24 text-center">Qty</th>
-                      <th className="p-2.5 w-28 text-right">Cost Rate</th>
-                      <th className="p-2.5 w-32 text-right">Line Subtotal</th>
-                      <th className="p-2.5 w-10 text-center">Action</th>
+                      <th className="p-3 w-10 text-center">#</th>
+                      <th className="p-3 min-w-[220px]">Product Name</th>
+                      <th className="p-3 w-28">SKU</th>
+                      <th className="p-3 w-28 text-center">Qty</th>
+                      <th className="p-3 w-32 text-right">Cost Rate (NPR)</th>
+                      <th className="p-3 w-36 text-right">Line Subtotal</th>
+                      <th className="p-3 w-14 text-center">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200">
+                  <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
                     {lines.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="p-8 text-center text-slate-400 text-xs italic">
-                          No items added yet. Use the product search bar above to scan or search items.
+                        <td colSpan={7} className="p-8 text-center text-slate-400 italic">
+                          No items added yet. Use the product search & barcode scan bar above to scan or enter items.
                         </td>
                       </tr>
                     ) : (
                       calculatedLines.map((line, idx) => (
                         <React.Fragment key={line.productId}>
-                          <tr className="hover:bg-white transition-colors">
-                            <td className="p-2.5 text-center font-mono font-bold text-slate-400">
+                          <tr
+                            className={`transition-colors ${
+                              isDarkMode ? 'hover:bg-slate-800/50' : 'hover:bg-white'
+                            }`}
+                          >
+                            <td className="p-3 text-center font-mono font-bold text-slate-400">
                               {idx + 1}
                             </td>
-                            <td className="p-2.5 font-bold text-slate-900">
+                            <td className="p-3 font-bold text-slate-900 dark:text-white">
                               <div>{line.productName}</div>
                               {activePO && (() => {
                                 const poItem = activePO.items.find((p) => p.productId === line.productId);
@@ -789,20 +1057,22 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                   const isExact = line.quantity === poItem.quantity;
                                   const isExceed = line.quantity > poItem.quantity;
                                   return (
-                                    <div className={`mt-1 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                      isExact
-                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                        : isExceed
-                                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                                        : 'bg-amber-100 text-amber-800 border border-amber-200'
-                                    }`}>
+                                    <div
+                                      className={`mt-1 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                        isExact
+                                          ? 'bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                                          : isExceed
+                                          ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-700'
+                                          : 'bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700'
+                                      }`}
+                                    >
                                       <CheckCircle2 className="h-3 w-3" />
                                       <span>In PO #{activePO.poNumber} (Ordered: {poItem.quantity})</span>
                                     </div>
                                   );
                                 } else {
                                   return (
-                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                                    <div className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
                                       <AlertTriangle className="h-3 w-3 text-amber-600" />
                                       <span>⚠️ Extra / Not in PO #{activePO.poNumber}</span>
                                     </div>
@@ -813,45 +1083,45 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                 const prod = products.find((p) => p.id === line.productId);
                                 const isSerialized = prod ? prod.requiresSerialTracking !== false : true;
                                 return isSerialized ? (
-                                  <div className="text-[10px] text-blue-600 font-medium mt-0.5">
+                                  <div className="text-[10px] text-blue-600 dark:text-blue-400 font-medium mt-0.5">
                                     Device & PON Serial Tracking ({line.quantity} Unit{line.quantity > 1 ? 's' : ''})
                                   </div>
                                 ) : (
-                                  <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
+                                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">
                                     Bulk Consumable Item ({line.quantity} {line.unit})
                                   </div>
                                 );
                               })()}
                             </td>
-                            <td className="p-2.5 font-mono text-slate-500">
+                            <td className="p-3 font-mono text-slate-500 dark:text-slate-400">
                               {line.sku}
                             </td>
-                            <td className="p-2.5 text-center">
+                            <td className="p-3 text-center">
                               <input
                                 type="number"
                                 min={1}
                                 value={line.quantity}
                                 onChange={(e) => updateLineQty(idx, Number(e.target.value))}
-                                className="w-16 rounded-lg border border-slate-300 bg-white p-1 text-xs text-center font-mono font-bold text-slate-900"
+                                className="w-20 text-center rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-bold text-slate-900 dark:text-slate-100"
                               />
                             </td>
-                            <td className="p-2.5 text-right">
+                            <td className="p-3 text-right">
                               <input
                                 type="number"
                                 min={0}
                                 value={line.unitPrice}
                                 onChange={(e) => updateLinePrice(idx, Number(e.target.value))}
-                                className="w-24 text-right rounded-lg border border-slate-300 bg-white p-1 text-xs font-mono font-medium text-slate-900"
+                                className="w-28 text-right rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-xs font-mono font-medium text-slate-900 dark:text-slate-100"
                               />
                             </td>
-                            <td className="p-2.5 text-right font-mono font-extrabold text-slate-900">
-                              {line.netSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <td className="p-3 text-right font-mono font-extrabold text-slate-900 dark:text-white">
+                              Rs. {(line.netSubtotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </td>
-                            <td className="p-2.5 text-center">
+                            <td className="p-3 text-center">
                               <button
                                 type="button"
                                 onClick={() => removeLine(idx)}
-                                className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                className="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer transition-colors"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
@@ -865,9 +1135,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
                             if (!isSerialized) {
                               return (
-                                <tr className="bg-slate-100/50 border-b border-slate-200">
+                                <tr className="bg-slate-100/50 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800">
                                   <td colSpan={7} className="px-4 py-2">
-                                    <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500">
+                                    <div className="flex items-center gap-2 text-[11px] font-medium text-slate-500 dark:text-slate-400">
                                       <Tag className="h-3.5 w-3.5 text-slate-400" />
                                       <span>Bulk Consumable Item — Serial & MAC tracking skipped ({line.quantity} {line.unit})</span>
                                     </div>
@@ -877,17 +1147,20 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             }
 
                             return (
-                              <tr className="bg-blue-50/40 border-b border-slate-200">
-                                <td colSpan={7} className="px-4 py-2.5">
-                                  <div className="text-[11px] font-bold text-blue-900 mb-1.5 flex items-center gap-1.5">
-                                    <Barcode className="h-3.5 w-3.5 text-blue-600" />
-                                    <span>Serial Numbers for {line.productName} (Qty: {line.quantity})</span>
+                              <tr className="bg-blue-50/40 dark:bg-blue-950/30 border-b border-slate-200 dark:border-slate-800">
+                                <td colSpan={7} className="px-4 py-3">
+                                  <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-2 flex items-center gap-1.5">
+                                    <Barcode className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                                    <span>Serial Numbers for {line.productName} ({line.quantity} Units)</span>
                                   </div>
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                     {Array.from({ length: line.quantity }).map((_, sIdx) => (
-                                      <div key={sIdx} className="bg-white p-2 rounded-lg border border-blue-200 flex items-center gap-2 text-xs">
+                                      <div
+                                        key={sIdx}
+                                        className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200 dark:border-blue-800 flex items-center gap-2 text-xs shadow-xs"
+                                      >
                                         <span className="font-mono text-[10px] font-bold text-slate-400">#{sIdx + 1}</span>
-                                        
+
                                         <div className="flex-1 min-w-0">
                                           <input
                                             id={`serial-device-${idx}-${sIdx}`}
@@ -898,14 +1171,16 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                             onKeyDown={(e) => {
                                               if (e.key === 'Enter') {
                                                 e.preventDefault();
-                                                const nextEl = document.getElementById(`serial-pon-${idx}-${sIdx}`) as HTMLInputElement;
+                                                const nextEl = document.getElementById(
+                                                  `serial-pon-${idx}-${sIdx}`
+                                                ) as HTMLInputElement;
                                                 if (nextEl) {
                                                   nextEl.focus();
                                                   if ('select' in nextEl) nextEl.select();
                                                 }
                                               }
                                             }}
-                                            className="w-full px-2 py-1 text-[11px] font-mono font-bold text-blue-900 bg-blue-50/50 rounded border border-blue-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            className="w-full px-2.5 py-1 text-[11px] font-mono font-bold text-blue-900 dark:text-blue-200 bg-blue-50/50 dark:bg-blue-950/50 rounded-lg border border-blue-200 dark:border-blue-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                           />
                                         </div>
 
@@ -919,14 +1194,16 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                                             onKeyDown={(e) => {
                                               if (e.key === 'Enter') {
                                                 e.preventDefault();
-                                                const searchInput = document.getElementById('purchase-product-search-input') as HTMLInputElement;
+                                                const searchInput = document.getElementById(
+                                                  'purchase-product-search-input'
+                                                ) as HTMLInputElement;
                                                 if (searchInput) {
                                                   searchInput.focus();
                                                   if ('select' in searchInput) searchInput.select();
                                                 }
                                               }
                                             }}
-                                            className="w-full px-2 py-1 text-[11px] font-mono font-bold text-indigo-900 bg-indigo-50/50 rounded border border-indigo-200 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                            className="w-full px-2.5 py-1 text-[11px] font-mono font-bold text-indigo-900 dark:text-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/50 rounded-lg border border-indigo-200 dark:border-indigo-800 focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                           />
                                         </div>
                                       </div>
@@ -942,174 +1219,236 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   </tbody>
                 </table>
               </div>
+            </div>
 
-              {/* Bill Totals Summary */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-200 pt-4">
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-                    Bill Remarks / Notes
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Enter vendor bill remarks..."
-                    className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-xs text-slate-900 focus:ring-2 focus:ring-blue-500"
+            {/* Bill Totals Summary & Remarks */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 border-t border-slate-200 dark:border-slate-800 pt-5">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">
+                  Bill Remarks / Vendor Terms
+                </label>
+                <textarea
+                  rows={4}
+                  id="pi-remarks-input"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Enter vendor invoice terms, delivery challan reference, or ledger notes..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div
+                className={`rounded-2xl p-5 border space-y-2.5 text-xs ${
+                  isDarkMode
+                    ? 'bg-slate-900/60 border-slate-800'
+                    : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>Gross Amount:</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    Rs. {(grossSubtotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center text-amber-600 dark:text-amber-400 bg-amber-50/70 dark:bg-amber-950/40 p-2 rounded-xl border border-amber-200/60 dark:border-amber-800/40">
+                  <span className="font-bold">Bill Discount (NPR):</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={billDiscountValue}
+                    onChange={(e) => setBillDiscountValue(Math.max(0, Number(e.target.value)))}
+                    className="w-28 text-right rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-mono font-bold text-amber-600 dark:text-amber-400 focus:ring-2 focus:ring-amber-500"
                   />
                 </div>
 
-                <div className="rounded-xl bg-slate-50 p-4 border border-slate-200 space-y-2 text-xs">
-                  <div className="flex justify-between text-slate-600">
-                    <span>Gross Amount:</span>
-                    <span className="font-mono font-bold">
-                      {grossSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  {totalDiscount > 0 && (
-                    <div className="flex justify-between text-amber-600">
-                      <span>Total Discounts:</span>
-                      <span className="font-mono font-bold">
-                        - {totalDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-slate-600">
-                    <span>Taxation Status:</span>
-                    <span className="font-bold text-blue-700">
-                      {isBillTaxable ? '13% Taxable Bill' : 'Tax Exempted Bill'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-blue-700 font-semibold border-t border-slate-200 pt-2">
-                    <span>13% VAT Amount:</span>
-                    <span className="font-mono font-bold">
-                      {billVatAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-base font-extrabold text-slate-900 pt-2 border-t border-slate-300">
-                    <span>Grand Total (Credit Mode):</span>
-                    <span className="font-mono text-blue-600">
-                      {grandTotalCalculated.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>Taxation Status:</span>
+                  <span className="font-bold text-blue-600 dark:text-blue-400">
+                    {isBillTaxable ? '13% Taxable Bill' : 'Tax Exempted Bill'}
+                  </span>
+                </div>
+
+                <div className="flex justify-between text-blue-600 dark:text-blue-400 font-semibold border-t border-slate-200 dark:border-slate-800 pt-2">
+                  <span>13% Input VAT:</span>
+                  <span className="font-mono font-bold">
+                    Rs. {(billVatAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-300 dark:border-slate-700">
+                  <span>Grand Total (Credit Mode):</span>
+                  <span className="font-mono text-blue-600 dark:text-blue-400 text-lg">
+                    Rs. {(grandTotalCalculated ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
                 </div>
               </div>
+            </div>
 
-              {/* Actions */}
-              <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-3">
+            {/* Bottom Actions */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleResetForm}
+                className="flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/60 bg-amber-50 dark:bg-amber-950/40 px-4 py-2.5 text-xs font-bold text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="h-4 w-4" />
+                <span>Reset Form</span>
+              </button>
+
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+                  onClick={() => {
+                    handleResetForm();
+                    setActiveTab('INVOICE_LIST');
+                  }}
+                  className={`rounded-xl border px-5 py-2.5 text-xs font-semibold cursor-pointer transition-colors ${
+                    isDarkMode
+                      ? 'border-slate-700 text-slate-400 hover:bg-slate-800'
+                      : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                  }`}
                 >
                   Cancel
                 </button>
+
                 <button
                   type="submit"
-                  className="rounded-xl bg-blue-600 hover:bg-blue-700 px-5 py-2 text-xs font-bold text-white shadow-md shadow-blue-600/20 cursor-pointer"
+                  id="btn-submit-purchase-invoice"
+                  className="rounded-xl bg-blue-600 hover:bg-blue-500 px-6 py-2.5 text-xs font-bold text-white shadow-lg shadow-blue-600/30 cursor-pointer transition-all"
                 >
                   Save Vendor Bill (Credit Mode)
                 </button>
               </div>
-            </form>
-          </div>
+            </div>
+          </form>
         </div>
       )}
 
-      {/* Bill Document Modal */}
-      {viewingInvoice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden text-slate-800 my-8">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <Receipt className="h-4 w-4 text-blue-600" />
-                <span>Vendor Purchase Bill — {viewingInvoice.invoiceNumber}</span>
+      {/* TAB 3: INVOICE DOCUMENT & VOUCHER VIEWER */}
+      {activeTab === 'VIEW_INVOICE' && viewingInvoice && (
+        <div
+          id="pi-detail-view-container"
+          className={`rounded-2xl border p-6 sm:p-8 shadow-lg space-y-6 ${
+            isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+          }`}
+        >
+          {/* Top Document Header */}
+          <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 mb-1">
+                <Receipt className="h-4 w-4" />
+                <span>Vendor Purchase Bill Document</span>
+              </div>
+              <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                {viewingInvoice.supplierName}
               </h3>
-              <button
-                onClick={() => setViewingInvoice(null)}
-                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Vendor Bill #: <strong className="text-slate-800 dark:text-slate-200">{viewingInvoice.vendorBillNumber || 'N/A'}</strong>
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Target Branch: {branches.find((b) => b.id === viewingInvoice.branchId)?.name || viewingInvoice.branchId}
+              </p>
             </div>
 
-            <div className="p-6 space-y-6">
-              <div className="flex justify-between items-start pb-4 border-b border-slate-200">
-                <div>
-                  <h4 className="text-lg font-bold text-slate-900">
-                    {viewingInvoice.supplierName}
-                  </h4>
-                  <p className="text-xs text-slate-500">Vendor Bill #: <strong className="text-slate-800">{viewingInvoice.vendorBillNumber || 'N/A'}</strong></p>
-                  <p className="text-xs text-slate-500">Target Branch: {branches.find(b => b.id === viewingInvoice.branchId)?.name || viewingInvoice.branchId}</p>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-mono font-extrabold text-blue-600">
-                    {viewingInvoice.invoiceNumber}
-                  </div>
-                  <div className="text-xs text-slate-500">Bill Date: {viewingInvoice.invoiceDateAD} ({viewingInvoice.invoiceDateBS})</div>
-                </div>
+            <div className="text-left sm:text-right">
+              <div className="text-base font-mono font-extrabold text-blue-600 dark:text-blue-400">
+                {viewingInvoice.invoiceNumber}
               </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                Bill Date: {viewingInvoice.invoiceDateAD} ({viewingInvoice.invoiceDateBS})
+              </div>
+            </div>
+          </div>
 
-              {viewingInvoice.items && viewingInvoice.items.length > 0 && (
-                <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-100 text-slate-600 font-bold uppercase text-[10px]">
-                      <tr>
-                        <th className="p-3">#</th>
-                        <th className="p-3">Product Name</th>
-                        <th className="p-3 text-center">Qty</th>
-                        <th className="p-3 text-right">Rate</th>
-                        <th className="p-3 text-right">Line Total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200">
-                      {viewingInvoice.items.map((item, idx) => (
-                        <tr key={idx}>
-                          <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
-                          <td className="p-3 font-bold text-slate-900">{item.productName}</td>
-                          <td className="p-3 text-center font-mono font-bold">{item.quantity} {item.unit || 'Pcs'}</td>
-                          <td className="p-3 text-right font-mono">{item.unitPrice.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                          <td className="p-3 text-right font-mono font-bold text-slate-900">{item.total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+          {/* Items Table */}
+          {viewingInvoice.items && viewingInvoice.items.length > 0 && (
+            <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-100 dark:bg-slate-900 text-slate-500 font-bold uppercase text-[10px] border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="p-3.5">#</th>
+                    <th className="p-3.5">Product Name</th>
+                    <th className="p-3.5 text-center">Qty</th>
+                    <th className="p-3.5 text-right">Rate</th>
+                    <th className="p-3.5 text-right">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {viewingInvoice.items.map((item, idx) => (
+                    <tr key={idx} className={isDarkMode ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50'}>
+                      <td className="p-3.5 font-mono text-slate-400">{idx + 1}</td>
+                      <td className="p-3.5 font-bold text-slate-900 dark:text-white">{item.productName}</td>
+                      <td className="p-3.5 text-center font-mono font-bold">
+                        {item.quantity} {item.unit || 'Pcs'}
+                      </td>
+                      <td className="p-3.5 text-right font-mono">
+                        Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="p-3.5 text-right font-mono font-bold text-slate-900 dark:text-white">
+                        Rs. {(item.total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Totals & Voucher Footer */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-t border-slate-200 dark:border-slate-800 pt-4">
+            <div className="text-xs text-slate-500 dark:text-slate-400 space-y-1">
+              <div>
+                Transaction Mode: <span className="font-bold text-amber-600 dark:text-amber-400">CREDIT MODE</span>
+              </div>
+              <div>
+                Status: <span className="font-bold text-amber-600 dark:text-amber-400">UNPAID (Pending Accounting Settlement)</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
+              <div className="w-64 space-y-1.5 text-xs font-mono text-right">
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>Taxable Base:</span>
+                  <span>Rs. {(viewingInvoice.taxableAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
-              )}
-
-              <div className="flex justify-between items-center border-t border-slate-200 pt-4">
-                <div className="text-xs text-slate-500 space-y-1">
-                  <div>Transaction Mode: <span className="font-bold text-amber-700">CREDIT MODE</span></div>
-                  <div>Status: <span className="font-bold text-amber-600">UNPAID (Pending Accounting App Settlement)</span></div>
+                <div className="flex justify-between text-blue-600 dark:text-blue-400 font-semibold">
+                  <span>13% VAT:</span>
+                  <span>Rs. {(viewingInvoice.vatAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 font-semibold text-xs transition-all cursor-pointer"
-                    title="Print Vendor Bill or Save as PDF"
-                  >
-                    <Printer className="h-4 w-4 text-slate-600" />
-                    <span>Print Bill (PDF)</span>
-                  </button>
-
-                  <div className="w-56 space-y-1.5 text-xs font-mono text-right">
-                    <div className="flex justify-between text-slate-600">
-                      <span>Taxable Base:</span>
-                      <span>{viewingInvoice.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-blue-600 font-semibold">
-                      <span>13% VAT:</span>
-                      <span>{viewingInvoice.vatAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-2 border-t border-slate-200">
-                      <span>Grand Total:</span>
-                      <span>{viewingInvoice.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                  </div>
+                <div className="flex justify-between text-base font-extrabold text-slate-900 dark:text-white pt-2 border-t border-slate-200 dark:border-slate-800">
+                  <span>Grand Total:</span>
+                  <span className="text-blue-600 dark:text-blue-400">
+                    Rs. {(viewingInvoice.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Actions Toolbar */}
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setActiveTab('INVOICE_LIST')}
+              className={`flex items-center gap-1.5 rounded-xl border px-4 py-2 text-xs font-semibold cursor-pointer ${
+                isDarkMode
+                  ? 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                  : 'border-slate-300 text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back to Bills Register</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-xs transition-all cursor-pointer"
+            >
+              <Printer className="h-4 w-4" />
+              <span>Print Bill Voucher (PDF)</span>
+            </button>
           </div>
         </div>
       )}
@@ -1117,18 +1456,24 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       {/* Modal 1: Searchable PO Selection Dialog */}
       {isPoSelectModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden text-slate-800">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
+          <div
+            className={`w-full max-w-xl rounded-2xl shadow-2xl border overflow-hidden ${
+              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className={`flex items-center justify-between border-b p-4 ${
+              isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
               <div className="flex items-center gap-2">
-                <ShoppingCart className="h-5 w-5 text-indigo-600" />
-                <h3 className="font-bold text-slate-900 text-sm">
+                <ShoppingCart className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                <h3 className="font-bold text-slate-900 dark:text-white text-sm">
                   Select Purchase Order to Link / Receive
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsPoSelectModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -1142,7 +1487,11 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                   placeholder="Search by PO Number or Vendor Name..."
                   value={poSearchQuery}
                   onChange={(e) => setPoSearchQuery(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 pl-9 pr-3 py-2 text-xs text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                  className={`w-full rounded-xl border pl-9 pr-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500 ${
+                    isDarkMode
+                      ? 'bg-slate-900 border-slate-800 text-slate-200'
+                      : 'bg-white border-slate-300 text-slate-900'
+                  }`}
                 />
               </div>
 
@@ -1159,26 +1508,30 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                         key={po.id}
                         className={`p-3.5 rounded-xl border transition-all flex items-center justify-between gap-3 ${
                           isCurrent
-                            ? 'bg-indigo-50/80 border-indigo-300 shadow-xs'
-                            : 'bg-white border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                            ? 'bg-indigo-50/80 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-700 shadow-xs'
+                            : isDarkMode
+                            ? 'bg-slate-900/50 border-slate-800 hover:bg-slate-800/80'
+                            : 'bg-white border-slate-200 hover:bg-slate-50'
                         }`}
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-mono font-extrabold text-xs text-indigo-900">
+                            <span className="font-mono font-extrabold text-xs text-indigo-600 dark:text-indigo-400">
                               PO #{po.poNumber}
                             </span>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200 uppercase">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 uppercase">
                               {po.status}
                             </span>
                           </div>
-                          <div className="text-xs font-bold text-slate-800 truncate mt-0.5">
+                          <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate mt-0.5">
                             {po.supplierName}
                           </div>
-                          <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-3">
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-3">
                             <span>📅 {po.orderDateAD}</span>
                             <span>📦 {po.items.length} item line(s)</span>
-                            <span className="font-mono font-semibold text-slate-700">{po.totalAmount.toLocaleString('en-IN')}</span>
+                            <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                              Rs. {(po.totalAmount ?? 0).toLocaleString('en-IN')}
+                            </span>
                           </div>
                         </div>
 
@@ -1193,7 +1546,7 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                           className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0 ${
                             isCurrent
                               ? 'bg-indigo-700 text-white shadow-xs'
-                              : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-600 hover:text-white border border-indigo-200'
+                              : 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-600 hover:text-white border border-indigo-200 dark:border-indigo-800'
                           }`}
                         >
                           {isCurrent ? 'Linked ✓' : 'Select PO'}
@@ -1205,21 +1558,23 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               </div>
             </div>
 
-            <div className="p-3 bg-slate-50 border-t border-slate-200 flex justify-between items-center text-xs">
+            <div className={`p-3 border-t flex justify-between items-center text-xs ${
+              isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
               <button
                 type="button"
                 onClick={() => {
                   setSelectedPoId('');
                   setIsPoSelectModalOpen(false);
                 }}
-                className="text-slate-500 hover:text-slate-800 font-medium"
+                className="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-medium"
               >
                 Clear Selection (Direct Purchase)
               </button>
               <button
                 type="button"
                 onClick={() => setIsPoSelectModalOpen(false)}
-                className="px-4 py-1.5 bg-slate-200 text-slate-700 font-bold rounded-lg hover:bg-slate-300"
+                className="px-4 py-1.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700"
               >
                 Close
               </button>
@@ -1231,28 +1586,34 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
       {/* Modal 2: Active PO Item Checklist Dialog */}
       {isPoChecklistOpen && activePO && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden text-slate-800">
-            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
+          <div
+            className={`w-full max-w-2xl rounded-2xl shadow-2xl border overflow-hidden ${
+              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className={`flex items-center justify-between border-b p-4 ${
+              isDarkMode ? 'bg-slate-900/80 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
               <div className="flex items-center gap-2">
-                <CheckSquare className="h-5 w-5 text-indigo-600" />
+                <CheckSquare className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
                 <div>
-                  <h3 className="font-bold text-slate-900 text-sm">
+                  <h3 className="font-bold text-slate-900 dark:text-white text-sm">
                     PO Verification Checklist — #{activePO.poNumber}
                   </h3>
-                  <div className="text-[11px] text-slate-500">Supplier: {activePO.supplierName}</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400">Supplier: {activePO.supplierName}</div>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setIsPoChecklistOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             <div className="p-4 space-y-3 max-h-96 overflow-y-auto">
-              <div className="text-xs text-slate-600 bg-blue-50 p-3 rounded-xl border border-blue-200">
+              <div className="text-xs text-slate-600 dark:text-slate-300 bg-blue-50 dark:bg-blue-950/50 p-3 rounded-xl border border-blue-200 dark:border-blue-800">
                 💡 <strong>How receiving works:</strong> As you scan or search product items into the Purchase Invoice form below, this checklist automatically updates received counts.
               </div>
 
@@ -1269,29 +1630,45 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                       key={poItem.id}
                       className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
                         isComplete
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-700 text-emerald-950 dark:text-emerald-200'
                           : isOver
-                          ? 'bg-rose-50 border-rose-300 text-rose-950'
+                          ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-700 text-rose-950 dark:text-rose-200'
                           : isStarted
-                          ? 'bg-amber-50 border-amber-300 text-amber-950'
+                          ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700 text-amber-950 dark:text-amber-200'
+                          : isDarkMode
+                          ? 'bg-slate-900 border-slate-800 text-slate-400'
                           : 'bg-slate-50 border-slate-200 text-slate-600'
                       }`}
                     >
                       <div>
-                        <div className="font-bold text-slate-900">{poItem.productName}</div>
-                        <div className="text-[11px] text-slate-500">
-                          Ordered Quantity: <strong className="text-slate-800">{poItem.quantity} {poItem.unit}</strong> @ {poItem.unitPrice.toLocaleString('en-IN')}
+                        <div className="font-bold text-slate-900 dark:text-white">{poItem.productName}</div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Ordered Quantity: <strong className="text-slate-800 dark:text-slate-200">{poItem.quantity} {poItem.unit}</strong> @ Rs. {(poItem.unitPrice ?? 0).toLocaleString('en-IN')}
                         </div>
                       </div>
 
                       <div className="text-right font-mono">
-                        <div className={`font-extrabold text-sm ${
-                          isComplete ? 'text-emerald-700' : isOver ? 'text-rose-700' : isStarted ? 'text-amber-700' : 'text-slate-400'
-                        }`}>
+                        <div
+                          className={`font-extrabold text-sm ${
+                            isComplete
+                              ? 'text-emerald-700 dark:text-emerald-400'
+                              : isOver
+                              ? 'text-rose-700 dark:text-rose-400'
+                              : isStarted
+                              ? 'text-amber-700 dark:text-amber-400'
+                              : 'text-slate-400'
+                          }`}
+                        >
                           {scannedQty} / {poItem.quantity}
                         </div>
                         <div className="text-[10px] font-bold">
-                          {isComplete ? '✓ Fully Scanned' : isOver ? '⚠️ Exceeds Order' : isStarted ? '⏳ Partially Scanned' : 'Not Scanned Yet'}
+                          {isComplete
+                            ? '✓ Fully Scanned'
+                            : isOver
+                            ? '⚠️ Exceeds Order'
+                            : isStarted
+                            ? '⏳ Partially Scanned'
+                            : 'Not Scanned Yet'}
                         </div>
                       </div>
                     </div>
@@ -1300,11 +1677,13 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               </div>
             </div>
 
-            <div className="p-3 bg-slate-50 border-t border-slate-200 text-right">
+            <div className={`p-3 border-t text-right ${
+              isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-slate-50 border-slate-200'
+            }`}>
               <button
                 type="button"
                 onClick={() => setIsPoChecklistOpen(false)}
-                className="px-4 py-1.5 bg-indigo-600 text-white font-bold text-xs rounded-lg hover:bg-indigo-700"
+                className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-lg"
               >
                 Done Inspecting
               </button>

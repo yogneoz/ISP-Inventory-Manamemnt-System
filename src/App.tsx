@@ -823,7 +823,9 @@ export default function App() {
                   products={products}
                   branches={branches}
                   stock={stock}
+                  customerDevices={customerDevices}
                   selectedBranchId={selectedBranchId}
+                  dateMode={dateMode}
                   isDarkMode={isDarkMode}
                 />
               )}
@@ -1004,6 +1006,7 @@ export default function App() {
 
               {activeTab === 'create-po' && (
                 <PurchaseOrders
+                  currentUser={currentUser}
                   purchaseOrders={purchaseOrders}
                   products={products}
                   branches={branches}
@@ -1022,6 +1025,7 @@ export default function App() {
 
               {activeTab === 'po-list' && (
                 <PurchaseOrders
+                  currentUser={currentUser}
                   purchaseOrders={purchaseOrders}
                   products={products}
                   branches={branches}
@@ -1040,6 +1044,7 @@ export default function App() {
 
               {activeTab === 'create-purchase' && (
                 <PurchaseInvoices
+                  currentUser={currentUser}
                   invoices={purchaseInvoices}
                   products={products}
                   branches={branches}
@@ -1056,6 +1061,7 @@ export default function App() {
 
               {activeTab === 'purchase-list' && (
                 <PurchaseInvoices
+                  currentUser={currentUser}
                   invoices={purchaseInvoices}
                   products={products}
                   branches={branches}
@@ -1519,6 +1525,8 @@ export default function App() {
                   purchaseOrders={purchaseOrders}
                   invoices={purchaseInvoices}
                   shipments={shipments}
+                  customerDevices={customerDevices}
+                  products={products}
                   branches={branches}
                   suppliers={suppliers}
                   dateMode={dateMode}

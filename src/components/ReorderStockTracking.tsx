@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Product, Branch, InventoryStock, User } from '../types';
 import { NavTab } from './Sidebar';
 import { isOperationAllowed } from '../utils/permissions';
+import { exportToCSV } from '../utils/exportUtils';
 import {
   AlertTriangle,
   Building2,
@@ -19,6 +20,8 @@ import {
   Info,
   Check,
   Lock,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 interface ReorderStockTrackingProps {
@@ -82,11 +85,20 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
     return prod.minReorderLevel;
   };
 
-  // Calculate reorder deficit per product across visible branches using PER-BRANCH thresholds!
+  // Calculate reorder deficit per product across visible branches using PER-BRANCH thresholds & consolidated reorder calculations
   const productsReorderData = products.map((prod) => {
     let totalOnHand = 0;
+    let totalConsolidatedReorderLevel = 0;
     let totalDeficit = 0;
     let lowBranchesCount = 0;
+    const branchData: {
+      branch: Branch;
+      qty: number;
+      minReorder: number;
+      deficit: number;
+      isLow: boolean;
+      stockItem?: InventoryStock;
+    }[] = [];
 
     activeBranches.forEach((b) => {
       const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
@@ -94,26 +106,46 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
       totalOnHand += onHand;
 
       const branchMinReorder = getBranchReorderThreshold(prod, item);
+      totalConsolidatedReorderLevel += branchMinReorder;
 
+      let deficit = 0;
+      let isLow = false;
       if (branchMinReorder > 0 && onHand <= branchMinReorder) {
         lowBranchesCount++;
-        totalDeficit += Math.max(1, branchMinReorder - onHand);
+        deficit = Math.max(1, branchMinReorder - onHand);
+        totalDeficit += deficit;
+        isLow = true;
       } else if (branchMinReorder === 0 && onHand < 0) {
         lowBranchesCount++;
-        totalDeficit += Math.abs(onHand);
+        deficit = Math.abs(onHand);
+        totalDeficit += deficit;
+        isLow = true;
       }
+
+      branchData.push({
+        branch: b,
+        qty: onHand,
+        minReorder: branchMinReorder,
+        deficit,
+        isLow,
+        stockItem: item,
+      });
     });
 
-    const totalReorderValuation = totalDeficit * prod.costPrice;
-    const isBelowMinOverall = lowBranchesCount > 0;
+    const totalReorderValuation = totalDeficit * (prod.costPrice || 0);
+    const isBelowMinOverall = lowBranchesCount > 0 || (totalConsolidatedReorderLevel > 0 && totalOnHand <= totalConsolidatedReorderLevel);
 
     return {
       prod,
       totalOnHand,
+      totalStockOnHand: totalOnHand,
+      totalConsolidatedReorderLevel,
       totalDeficit,
       lowBranchesCount,
+      lowStockBranchCount: lowBranchesCount,
       totalReorderValuation,
       isBelowMinOverall,
+      branchData,
     };
   });
 
@@ -137,6 +169,61 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
   const lowStockSKUCount = productsReorderData.filter((p) => p.isBelowMinOverall).length;
   const grandTotalDeficitUnits = productsReorderData.reduce((sum, p) => sum + p.totalDeficit, 0);
   const grandTotalReorderCost = productsReorderData.reduce((sum, p) => sum + p.totalReorderValuation, 0);
+
+  const handleExportReorderReport = () => {
+    // Dynamic branch threshold & deficit columns
+    const dynamicCols = activeBranches.flatMap((b) => [
+      {
+        key: `branch_stock_${b.id}`,
+        label: `${b.name} (Stock / Min)`,
+        formatter: (_: any, item: (typeof visibleProducts)[0]) => {
+          const bd = item.branchData.find((x) => x.branch.id === b.id);
+          return bd ? `${bd.qty} / ${bd.minReorder}` : '0 / 0';
+        },
+      },
+      {
+        key: `branch_deficit_${b.id}`,
+        label: `${b.name} (Deficit)`,
+        formatter: (_: any, item: (typeof visibleProducts)[0]) => {
+          const bd = item.branchData.find((x) => x.branch.id === b.id);
+          return bd ? bd.deficit : 0;
+        },
+      },
+    ]);
+
+    const columns = [
+      { key: 'sku', label: 'SKU Code', formatter: (_: any, item: (typeof visibleProducts)[0]) => item.prod.sku },
+      { key: 'barcode', label: 'Barcode', formatter: (_: any, item: (typeof visibleProducts)[0]) => item.prod.barcode },
+      { key: 'name', label: 'Product Name', formatter: (_: any, item: (typeof visibleProducts)[0]) => item.prod.name },
+      { key: 'category', label: 'Category', formatter: (_: any, item: (typeof visibleProducts)[0]) => item.prod.category },
+      { key: 'unit', label: 'Unit', formatter: (_: any, item: (typeof visibleProducts)[0]) => item.prod.unit },
+      { key: 'costPrice', label: 'Unit Cost Price (NPR)', formatter: (_: any, item: (typeof visibleProducts)[0]) => item.prod.costPrice || 0 },
+      { key: 'totalStockOnHand', label: 'Total Stock On-Hand', formatter: (_: any, item: (typeof visibleProducts)[0]) => item.totalStockOnHand },
+      { key: 'lowStockBranchCount', label: 'Low Stock Branches Count', formatter: (_: any, item: (typeof visibleProducts)[0]) => item.lowStockBranchCount },
+      { key: 'totalDeficit', label: 'Total Reorder Deficit Qty', formatter: (_: any, item: (typeof visibleProducts)[0]) => item.totalDeficit },
+      { key: 'totalReorderValuation', label: 'Total Reorder Deficit Valuation (NPR)', formatter: (_: any, item: (typeof visibleProducts)[0]) => item.totalReorderValuation },
+      {
+        key: 'status',
+        label: 'Reorder Health Status',
+        formatter: (_: any, item: (typeof visibleProducts)[0]) => (item.isBelowMinOverall ? 'CRITICAL DEFICIT (Action Required)' : 'OPTIMAL STOCK'),
+      },
+      ...dynamicCols,
+    ];
+
+    const branchName =
+      selectedBranchId === 'ALL'
+        ? 'All Branches (Consolidated)'
+        : branches.find((b) => b.id === selectedBranchId)?.name || `Branch ${selectedBranchId}`;
+
+    exportToCSV({
+      filename: 'Reorder_Level_Manager_Report',
+      reportTitle: 'Inventory Reorder Level & Deficit Manager Report',
+      branchName,
+      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
+      data: visibleProducts,
+      columns,
+    });
+  };
 
   // Permission Check: Stock Manager and Super Admin only
   const isStockManager = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
@@ -210,6 +297,17 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={handleExportReorderReport}
+            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+            title="Export Reorder Levels & Deficits report with uniform BS Date (YYYY-MM-DD)"
+          >
+            <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Export Reorder CSV (BS Date)</span>
+          </button>
+
           {isStockManager && onBulkUpdateStockReorderLevels && (
             <button
               type="button"
@@ -269,7 +367,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-indigo-400' : 'text-indigo-600'}`}>
-            {grandTotalDeficitUnits.toLocaleString('en-IN')} Units
+            {(grandTotalDeficitUnits ?? 0).toLocaleString('en-IN')} Units
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
             Calculated against branch minimum levels
@@ -286,7 +384,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-            रु {grandTotalReorderCost.toLocaleString('en-IN')}
+            रु {(grandTotalReorderCost ?? 0).toLocaleString('en-IN')}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
             Procurement cost to achieve min levels
@@ -366,6 +464,12 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                 </th>
                 <th className="px-3 py-2 text-center sticky top-0 bg-inherit">Cat</th>
                 <th className="px-3 py-2 text-right sticky top-0 bg-inherit">Catalog Default</th>
+                <th className="px-3 py-2 text-right sticky top-0 bg-inherit font-bold text-indigo-600 dark:text-indigo-400">
+                  Consolidated Min
+                </th>
+                <th className="px-3 py-2 text-right sticky top-0 bg-inherit font-bold">
+                  Total On-Hand
+                </th>
                 <th className={`px-3 py-2 text-center sticky top-0 border-l border-r font-extrabold ${
                   isDarkMode ? 'bg-rose-950/60 text-rose-300 border-slate-800' : 'bg-rose-100/90 text-rose-900 border-slate-200'
                 }`}>
@@ -394,7 +498,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
             <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
               {visibleProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={4 + activeBranches.length} className="p-12 text-center text-slate-500 text-xs">
+                  <td colSpan={6 + activeBranches.length} className="p-12 text-center text-slate-500 text-xs">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <CheckCircle2 className="h-8 w-8 text-emerald-500 opacity-80" />
                       <span className="font-semibold text-slate-700 dark:text-slate-300">All branch stock levels meet or exceed reorder thresholds!</span>
@@ -403,7 +507,7 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                   </td>
                 </tr>
               ) : (
-                visibleProducts.map(({ prod, totalOnHand, totalDeficit, isBelowMinOverall }) => (
+                visibleProducts.map(({ prod, totalOnHand, totalConsolidatedReorderLevel, totalDeficit, isBelowMinOverall }) => (
                   <tr key={prod.id} className={`transition-colors ${
                     isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                   }`}>
@@ -430,6 +534,18 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
                       isDarkMode ? 'text-slate-400' : 'text-slate-600'
                     }`}>
                       {prod.minReorderLevel} {prod.unit}
+                    </td>
+
+                    <td className={`px-3 py-2 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400`}>
+                      {totalConsolidatedReorderLevel} {prod.unit}
+                    </td>
+
+                    <td className={`px-3 py-2 text-right font-mono font-bold ${
+                      totalOnHand <= totalConsolidatedReorderLevel
+                        ? 'text-rose-600 dark:text-rose-400'
+                        : 'text-emerald-600 dark:text-emerald-400'
+                    }`}>
+                      {totalOnHand} {prod.unit}
                     </td>
 
                     {/* Total Required Deficit Column */}

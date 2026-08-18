@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { InventoryStock, Product, User } from '../types';
 import { isOperationAllowed } from '../utils/permissions';
+import { exportToCSV } from '../utils/exportUtils';
 import {
   Package,
   Plus,
@@ -19,6 +20,8 @@ import {
   TrendingDown,
   Lock,
   Wrench,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 const CODE39_MAP: Record<string, string> = {
@@ -211,6 +214,53 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     return matchesCat && matchesGroup && matchesSearch && matchesStockFilter;
   });
 
+  const handleExportStockCSV = () => {
+    const isAllStock = mode === 'all-stock';
+    const reportTitle = isAllStock
+      ? 'All Available Stock Inventory Matrix'
+      : 'Product Master Catalog Directory';
+    const filename = isAllStock ? 'All_Available_Stock_Matrix' : 'Product_Master_Catalog';
+
+    const columns = [
+      { key: 'sku', label: 'Product Code / SKU' },
+      { key: 'barcode', label: 'Barcode' },
+      { key: 'name', label: 'Product Name' },
+      { key: 'productGroup', label: 'Product Group', formatter: (val: string) => val || 'Product Item' },
+      { key: 'category', label: 'Category' },
+      {
+        key: 'trackingType',
+        label: 'Tracking Mode',
+        formatter: (_: any, row: Product) => (row.requiresSerialTracking !== false ? 'Serial / MAC / PON' : 'Quantity Only'),
+      },
+      { key: 'stockQty', label: 'Available Stock', formatter: (_: any, row: Product) => getProductStockQty(row.id) },
+      { key: 'unit', label: 'Unit (UoM)' },
+      { key: 'costPrice', label: 'Cost Price (NPR)', formatter: (val: number) => val || 0 },
+      { key: 'sellingPrice', label: 'Selling Price (NPR)', formatter: (val: number) => val || 0 },
+      { key: 'taxRate', label: 'VAT Rate (%)', formatter: (val: number) => `${val || 0}%` },
+      {
+        key: 'costValuation',
+        label: 'Cost Valuation (NPR)',
+        formatter: (_: any, row: Product) => getProductStockQty(row.id) * (row.costPrice || 0),
+      },
+      {
+        key: 'sellingValuation',
+        label: 'Selling Valuation (NPR)',
+        formatter: (_: any, row: Product) => getProductStockQty(row.id) * (row.sellingPrice || 0),
+      },
+      { key: 'minReorderLevel', label: 'Reorder Level' },
+      { key: 'description', label: 'Description', formatter: (val: string) => val || '-' },
+    ];
+
+    exportToCSV({
+      filename,
+      reportTitle,
+      branchName: selectedBranchId && selectedBranchId !== 'ALL' ? `Branch ID: ${selectedBranchId}` : 'All Branches (Consolidated)',
+      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
+      data: filteredProducts,
+      columns,
+    });
+  };
+
   const canEditProduct = isOperationAllowed('prod-edit', currentUser?.role);
 
   const openCreateModal = () => {
@@ -383,6 +433,17 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={handleExportStockCSV}
+            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+            title="Export full stock matrix with uniform BS date YYYY-MM-DD"
+          >
+            <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Export Stock CSV (BS Date)</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsBulkBarcodeModalOpen(true)}
@@ -679,10 +740,10 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                       </td>
                       <td className={`px-2.5 py-1.5 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>{p.unit}</td>
                       <td className={`px-2.5 py-1.5 text-right font-mono font-medium ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
-                        रु {p.costPrice.toLocaleString('en-IN')}
+                        रु {(p.costPrice ?? 0).toLocaleString('en-IN')}
                       </td>
                       <td className={`px-2.5 py-1.5 text-right font-mono font-bold ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-                        रु {p.sellingPrice.toLocaleString('en-IN')}
+                        रु {(p.sellingPrice ?? 0).toLocaleString('en-IN')}
                       </td>
                       <td className="px-2.5 py-1.5 text-center">
                         <span className="rounded bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20">
@@ -821,7 +882,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
 
                       {showPriceOnLabel && (
                         <div className="text-xs font-mono font-extrabold text-slate-900 mt-0.5">
-                          NPR {printingProduct.sellingPrice.toLocaleString('en-IN')}
+                          NPR {(printingProduct.sellingPrice ?? 0).toLocaleString('en-IN')}
                         </div>
                       )}
                     </div>
@@ -1473,7 +1534,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                             <span className="font-bold text-indigo-700">{lbl.product.sku}</span>
                             {bulkShowPrice && (
                               <span className="font-extrabold text-slate-900">
-                                NPR {lbl.product.sellingPrice.toLocaleString('en-IN')}
+                                NPR {(lbl.product.sellingPrice ?? 0).toLocaleString('en-IN')}
                               </span>
                             )}
                           </div>

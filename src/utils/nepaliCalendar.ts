@@ -601,7 +601,105 @@ export function formatDualDate(adDateStr: string, mode: 'BS' | 'AD' = 'BS'): str
   const bsObj = convertADToBS(adFormatted);
 
   if (mode === 'BS') {
-    return `${bsObj.formattedBS} (${adFormatted})`;
+    return `${bsObj.formattedBSShort.replace(' BS', '')} (${adFormatted})`;
   }
-  return `${adFormatted} (${bsObj.formattedBSShort})`;
+  return `${adFormatted} (${bsObj.formattedBSShort.replace(' BS', '')})`;
 }
+
+/**
+ * Standard uniform BS Date formatter in (YYYY-MM-DD) format.
+ * Accepts either ISO AD date strings or existing BS strings.
+ */
+export function formatBSDate(dateStr?: string | null): string {
+  if (!dateStr) return '-';
+  const cleaned = String(dateStr).trim();
+  if (!cleaned || cleaned === '-') return '-';
+
+  // If already in BS format like "2081-05-12 BS" or "2081-05-12" or "2083-04-22"
+  const bsMatch = cleaned.match(/^(20[6-9]\d)[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (bsMatch) {
+    const yr = bsMatch[1];
+    const mo = bsMatch[2].padStart(2, '0');
+    const da = bsMatch[3].padStart(2, '0');
+    return `${yr}-${mo}-${da}`;
+  }
+
+  // Otherwise assume AD date (e.g. ISO string "2026-08-17T..." or "2026-08-17")
+  try {
+    const adOnly = cleaned.split('T')[0].split(' ')[0];
+    const bs = convertADToBS(adOnly);
+    const padMonth = bs.monthBS < 10 ? `0${bs.monthBS}` : `${bs.monthBS}`;
+    const padDay = bs.dayBS < 10 ? `0${bs.dayBS}` : `${bs.dayBS}`;
+    return `${bs.yearBS}-${padMonth}-${padDay}`;
+  } catch {
+    return cleaned;
+  }
+}
+
+/**
+ * Standard uniform BS Date & Time formatter in (YYYY-MM-DD HH:mm:ss) format.
+ */
+export function formatBSDateTime(dateStr?: string | null): string {
+  if (!dateStr) return '-';
+  const cleaned = String(dateStr).trim();
+  if (!cleaned || cleaned === '-') return '-';
+
+  try {
+    const d = new Date(cleaned);
+    let timePart = '';
+    if (!isNaN(d.getTime())) {
+      const hours = String(d.getHours()).padStart(2, '0');
+      const mins = String(d.getMinutes()).padStart(2, '0');
+      const secs = String(d.getSeconds()).padStart(2, '0');
+      timePart = ` ${hours}:${mins}:${secs}`;
+    }
+    const bsDate = formatBSDate(cleaned);
+    return bsDate !== '-' ? `${bsDate}${timePart}` : '-';
+  } catch {
+    return formatBSDate(cleaned);
+  }
+}
+
+/**
+ * Gets today's BS date string in uniform (YYYY-MM-DD) format.
+ */
+export function getTodayBS(): string {
+  const todayAD = new Date().toISOString().split('T')[0];
+  return formatBSDate(todayAD);
+}
+
+/**
+ * Gets current timestamp in uniform BS (YYYY-MM-DD HH:mm:ss) format.
+ */
+export function getTodayBSDateTime(): string {
+  const now = new Date();
+  const todayAD = now.toISOString().split('T')[0];
+  const bsDate = formatBSDate(todayAD);
+  const hours = String(now.getHours()).padStart(2, '0');
+  const mins = String(now.getMinutes()).padStart(2, '0');
+  const secs = String(now.getSeconds()).padStart(2, '0');
+  return `${bsDate} ${hours}:${mins}:${secs}`;
+}
+
+/**
+ * Generates uniform export report metadata including BS & AD timestamps.
+ */
+export function getExportMetadata(reportName: string, branchName?: string, generatedBy?: string) {
+  const now = new Date();
+  const bsDateTime = getTodayBSDateTime();
+  const bsDate = getTodayBS();
+  const adDateTime = now.toISOString().replace('T', ' ').substring(0, 19);
+  const adDate = now.toISOString().split('T')[0];
+
+  return {
+    reportName,
+    branchName: branchName || 'All Branches',
+    generatedBy: generatedBy || 'System User',
+    exportedDateBS: bsDate,
+    exportedDateTimeBS: bsDateTime,
+    exportedDateAD: adDate,
+    exportedDateTimeAD: adDateTime,
+    filenameSuffix: `_BS_${bsDate}`,
+  };
+}
+

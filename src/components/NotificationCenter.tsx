@@ -142,7 +142,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
       id: `po-${po.id}`,
       type: 'PO' as const,
       title: `Purchase Order #${po.poNumber} (${po.status})`,
-      subtitle: `Supplier: ${po.supplierName} • Total: Rs. ${po.grandTotal?.toLocaleString() || 0}`,
+      subtitle: `Supplier: ${po.supplierName} • Total: Rs. ${(po.grandTotal ?? po.totalAmount ?? 0).toLocaleString('en-IN')}`,
       branchName: branches.find((b) => b.id === po.branchId)?.name || 'Branch',
       date: po.poDateAD,
       severity: 'INFO' as const,

@@ -3,6 +3,7 @@ import { Product, Branch, InventoryStock, User, StockOperation } from '../types'
 import { NavTab } from './Sidebar';
 import { api } from '../services/api';
 import { canUserDisposeDamagedStock, isOperationAllowed } from '../utils/permissions';
+import { exportToCSV } from '../utils/exportUtils';
 import {
   AlertTriangle,
   Building2,
@@ -27,7 +28,9 @@ import {
   ShieldCheck,
   Layers,
   Sparkles,
-  Lock
+  Lock,
+  Download,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 interface DamagedStockTrackingProps {
@@ -130,6 +133,60 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
   const grandTotalLossValuation = displayProducts.reduce((sum, item) => sum + item.totalLossValuation, 0);
   const affectedSKUsCount = displayProducts.filter((item) => item.totalDamagedQty > 0).length;
 
+  const handleExportDamagedStockReport = () => {
+    // Dynamic branch damaged qty columns
+    const dynamicCols = activeBranches.flatMap((b) => [
+      {
+        key: `branch_damaged_${b.id}`,
+        label: `${b.name} (Damaged Qty)`,
+        formatter: (_: any, item: (typeof displayProducts)[0]) => {
+          const bd = item.branchData.find((x) => x.branch.id === b.id);
+          return bd ? bd.damagedQty : 0;
+        },
+      },
+      {
+        key: `branch_usable_${b.id}`,
+        label: `${b.name} (Usable Stock)`,
+        formatter: (_: any, item: (typeof displayProducts)[0]) => {
+          const bd = item.branchData.find((x) => x.branch.id === b.id);
+          return bd ? bd.usableQty : 0;
+        },
+      },
+    ]);
+
+    const columns = [
+      { key: 'sku', label: 'SKU Code', formatter: (_: any, item: (typeof displayProducts)[0]) => item.prod.sku },
+      { key: 'barcode', label: 'Barcode', formatter: (_: any, item: (typeof displayProducts)[0]) => item.prod.barcode },
+      { key: 'name', label: 'Product Name', formatter: (_: any, item: (typeof displayProducts)[0]) => item.prod.name },
+      { key: 'category', label: 'Category', formatter: (_: any, item: (typeof displayProducts)[0]) => item.prod.category },
+      { key: 'unit', label: 'Unit', formatter: (_: any, item: (typeof displayProducts)[0]) => item.prod.unit },
+      { key: 'costPrice', label: 'Unit Cost Price (NPR)', formatter: (_: any, item: (typeof displayProducts)[0]) => item.prod.costPrice || 0 },
+      { key: 'totalUsableQty', label: 'Total Usable Stock', formatter: (_: any, item: (typeof displayProducts)[0]) => item.totalUsableQty },
+      { key: 'totalDamagedQty', label: 'Total Damaged Qty', formatter: (_: any, item: (typeof displayProducts)[0]) => item.totalDamagedQty },
+      { key: 'totalLossValuation', label: 'Total Loss Valuation (NPR)', formatter: (_: any, item: (typeof displayProducts)[0]) => item.totalLossValuation },
+      {
+        key: 'quarantineStatus',
+        label: 'Loss Risk Status',
+        formatter: (_: any, item: (typeof displayProducts)[0]) => (item.totalDamagedQty > 0 ? 'QUARANTINE / LOSS WRITE-OFF NEEDED' : 'NORMAL (NO DAMAGE)'),
+      },
+      ...dynamicCols,
+    ];
+
+    const branchName =
+      selectedBranchId === 'ALL'
+        ? 'All Branches (Consolidated)'
+        : branches.find((b) => b.id === selectedBranchId)?.name || `Branch ${selectedBranchId}`;
+
+    exportToCSV({
+      filename: 'Damaged_Stock_Matrix_Report',
+      reportTitle: 'Damaged Stock Matrix & Financial Loss Valuation Report',
+      branchName,
+      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || 'System User',
+      data: displayProducts,
+      columns,
+    });
+  };
+
   // Permission checks
   const canDispose = canUserDisposeDamagedStock(currentUser);
   const canAdjustDamageCount = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
@@ -204,7 +261,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         salvageRecoveryAmount: salvageVal,
         netWriteOffLoss: netLoss,
         glAccountCode,
-        reason: `[${disposalMethod}] ${disposalNotes} (Gross: NPR ${grossCost.toLocaleString('en-IN')}, Salvage: NPR ${salvageVal.toLocaleString('en-IN')}, Net Loss: NPR ${netLoss.toLocaleString('en-IN')})`,
+        reason: `[${disposalMethod}] ${disposalNotes} (Gross: NPR ${(grossCost ?? 0).toLocaleString('en-IN')}, Salvage: NPR ${(salvageVal ?? 0).toLocaleString('en-IN')}, Net Loss: NPR ${(netLoss ?? 0).toLocaleString('en-IN')})`,
         inspectorName: currentUser?.name || 'Inventory Quality Auditor',
         dateAD: new Date().toISOString().split('T')[0],
         dateBS: '2083-04-16 BS',
@@ -280,6 +337,17 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExportDamagedStockReport}
+            className="flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/80 border border-emerald-300 dark:border-emerald-700/60 cursor-pointer shadow-xs transition-all"
+            title="Export full Damaged Stock Matrix & Financial Loss with uniform BS Date (YYYY-MM-DD)"
+          >
+            <Download className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Export Damage CSV (BS Date)</span>
+          </button>
+
           <button
             onClick={() => setShowWriteOffGuide(!showWriteOffGuide)}
             className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold border transition-all cursor-pointer ${
@@ -415,7 +483,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-            {grandTotalDamagedUnits.toLocaleString('en-IN')} Pcs
+            {(grandTotalDamagedUnits ?? 0).toLocaleString('en-IN')} Pcs
           </div>
           <p className="text-[11px] text-slate-400 mt-1">Across all filtered branch stores</p>
         </div>
@@ -430,7 +498,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
             </div>
           </div>
           <div className={`text-2xl font-bold font-mono mt-1 ${isDarkMode ? 'text-rose-400' : 'text-rose-600'}`}>
-            रु {grandTotalLossValuation.toLocaleString('en-IN')}
+            रु {(grandTotalLossValuation ?? 0).toLocaleString('en-IN')}
           </div>
           <p className="text-[11px] text-slate-400 mt-1">Estimated gross cost inventory impairment</p>
         </div>
@@ -553,7 +621,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                       <div className="text-[10px] text-slate-400">{prod.barcode}</div>
                     </td>
                     <td className="p-3 text-right font-mono text-slate-600 dark:text-slate-300">
-                      रु {prod.costPrice.toLocaleString('en-IN')}
+                      रु {(prod.costPrice ?? 0).toLocaleString('en-IN')}
                     </td>
                     <td className="p-3 text-center">
                       {totalDamagedQty > 0 ? (
@@ -566,7 +634,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                       )}
                     </td>
                     <td className="p-3 text-right font-mono font-bold text-rose-600 dark:text-rose-400">
-                      {totalLossValuation > 0 ? `रु ${totalLossValuation.toLocaleString('en-IN')}` : '-'}
+                      {totalLossValuation > 0 ? `रु ${(totalLossValuation ?? 0).toLocaleString('en-IN')}` : '-'}
                     </td>
 
                     {/* Branch Cells */}
@@ -801,7 +869,7 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
                     {disposalStock.stockItem.damagedQty || 0} {disposalStock.product.unit} Available Damaged
                   </div>
                   <div className="text-slate-400 text-[11px]">
-                    Cost: NPR {disposalStock.product.costPrice.toLocaleString('en-IN')} / unit
+                    Cost: NPR {(disposalStock.product.costPrice ?? 0).toLocaleString('en-IN')} / unit
                   </div>
                 </div>
               </div>
@@ -945,9 +1013,9 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
               {/* Financial Write-Off Accounting Summary Card */}
               <div className="p-3.5 rounded-xl bg-slate-900 text-slate-200 border border-slate-800 space-y-2 text-xs font-mono">
                 <div className="flex justify-between text-slate-400">
-                  <span>Gross Inventory Cost Value ({disposalQty} × NPR {disposalStock.product.costPrice.toLocaleString('en-IN')}):</span>
+                  <span>Gross Inventory Cost Value ({disposalQty} × NPR {(disposalStock.product.costPrice ?? 0).toLocaleString('en-IN')}):</span>
                   <span className="font-bold text-slate-200">
-                    रु {(disposalQty * disposalStock.product.costPrice).toLocaleString('en-IN')}
+                    रु {((disposalQty || 0) * (disposalStock.product.costPrice || 0)).toLocaleString('en-IN')}
                   </span>
                 </div>
                 <div className="flex justify-between text-slate-400">

@@ -36,8 +36,9 @@ import {
   Sliders,
   Edit3,
 } from 'lucide-react';
-import { convertADToBS, formatDualDate } from '../utils/nepaliCalendar';
+import { convertADToBS, formatDualDate, formatBSDate } from '../utils/nepaliCalendar';
 import { getAllowedBranches, canUserSeeAllBranches, isOperationAllowed } from '../utils/permissions';
+import { exportToCSV } from '../utils/exportUtils';
 
 interface PhysicalStockAuditProps {
   currentUser: User | null;
@@ -461,7 +462,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         branchName: activeBranch?.name,
         reason:
           approvalNotes.trim() ||
-          `Physical inventory stock count audit completed for ${activeBranch?.name}. Found ${stats.discrepancyCount} discrepancies (Shortage: -${stats.shortageQty}, Excess: +${stats.excessQty}, Net Impact: NPR ${stats.netValueVariance.toLocaleString()}). Requesting authorization to adjust physical inventory book balances.`,
+          `Physical inventory stock count audit completed for ${activeBranch?.name}. Found ${stats.discrepancyCount} discrepancies (Shortage: -${stats.shortageQty}, Excess: +${stats.excessQty}, Net Impact: NPR ${(stats.netValueVariance ?? 0).toLocaleString()}). Requesting authorization to adjust physical inventory book balances.`,
         auditData: {
           auditRefNumber,
           branchId: activeBranchId,
@@ -605,67 +606,51 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
   // 5. Export Branch-wise Audit CSV
   const handleExportBranchCSV = () => {
-    const headers = [
-      'Branch Code',
-      'Branch Name',
-      'Audit Ref Number',
-      'Date AD',
-      'Date BS',
-      'Auditor Name',
-      'SKU',
-      'Barcode',
-      'Product Name',
-      'Category',
-      'Unit',
-      'Unit Cost (NPR)',
-      'Book System Qty',
-      'Physical Counted Qty',
-      'Variance Qty',
-      'Variance Value (NPR)',
-      'Discrepancy Reason',
-      'Custom Notes',
+    const columns = [
+      { key: 'branchCode', label: 'Branch Code', formatter: () => activeBranch?.code || activeBranchId },
+      { key: 'branchName', label: 'Branch Name', formatter: () => activeBranch?.name || activeBranchId },
+      { key: 'auditRef', label: 'Audit Ref Number', formatter: () => auditRefNumber },
+      { key: 'auditor', label: 'Auditor Name', formatter: () => auditorName },
+      { key: 'sku', label: 'SKU' },
+      { key: 'barcode', label: 'Barcode', formatter: (val: string) => val || '' },
+      { key: 'productName', label: 'Product Name' },
+      { key: 'category', label: 'Category' },
+      { key: 'unit', label: 'Unit' },
+      { key: 'unitCost', label: 'Unit Cost (NPR)' },
+      { key: 'bookQty', label: 'Book System Qty' },
+      {
+        key: 'countedQty',
+        label: 'Physical Counted Qty',
+        formatter: (val: any) => (typeof val === 'number' ? val : 0),
+      },
+      {
+        key: 'varianceQty',
+        label: 'Variance Qty',
+        formatter: (_: any, r: AuditRow) => {
+          const counted = typeof r.countedQty === 'number' ? r.countedQty : 0;
+          return counted - r.bookQty;
+        },
+      },
+      {
+        key: 'varianceValue',
+        label: 'Variance Value (NPR)',
+        formatter: (_: any, r: AuditRow) => {
+          const counted = typeof r.countedQty === 'number' ? r.countedQty : 0;
+          return (counted - r.bookQty) * r.unitCost;
+        },
+      },
+      { key: 'varianceReason', label: 'Discrepancy Reason' },
+      { key: 'customReason', label: 'Custom Notes', formatter: (val: string) => val || '' },
     ];
 
-    const todayAD = new Date().toISOString().split('T')[0];
-    const todayBS = convertADToBS(todayAD).formattedBS;
-
-    const csvContent = [
-      headers.join(','),
-      ...auditRows.map((r) => {
-        const counted = typeof r.countedQty === 'number' ? r.countedQty : 0;
-        const variance = counted - r.bookQty;
-        const value = variance * r.unitCost;
-        return [
-          `"${activeBranch?.code || activeBranchId}"`,
-          `"${activeBranch?.name || activeBranchId}"`,
-          `"${auditRefNumber}"`,
-          `"${todayAD}"`,
-          `"${todayBS}"`,
-          `"${auditorName}"`,
-          `"${r.sku}"`,
-          `"${r.barcode || ''}"`,
-          `"${r.productName.replace(/"/g, '""')}"`,
-          `"${r.category}"`,
-          `"${r.unit}"`,
-          r.unitCost,
-          r.bookQty,
-          counted,
-          variance,
-          value,
-          `"${r.varianceReason}"`,
-          `"${(r.customReason || '').replace(/"/g, '""')}"`,
-        ].join(',');
-      }),
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `Stock_Audit_${activeBranch?.code || 'BRANCH'}_${auditRefNumber}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportToCSV({
+      filename: `Stock_Audit_${activeBranch?.code || 'BRANCH'}_${auditRefNumber}`,
+      reportTitle: `Physical Stock Count & Variance Audit Report (#${auditRefNumber})`,
+      branchName: activeBranch?.name || `Branch ${activeBranchId}`,
+      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || auditorName,
+      data: auditRows,
+      columns,
+    });
   };
 
   // 6. Consolidated Multi-Branch Matrix Data & Export
@@ -754,59 +739,46 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   }, [consolidatedMatrix]);
 
   const handleExportConsolidatedCSV = () => {
-    const branchHeaders = branches.flatMap((b) => [
-      `"${b.name} (${b.code}) Book"`,
-      `"${b.name} (${b.code}) Count"`,
-      `"${b.name} (${b.code}) Diff"`,
+    const branchCols = branches.flatMap((b) => [
+      {
+        key: `branch_${b.id}_book`,
+        label: `${b.name} (${b.code}) Book`,
+        formatter: (_: any, m: (typeof consolidatedMatrix)[0]) => m.branches.find((x) => x.branchId === b.id)?.bookQty || 0,
+      },
+      {
+        key: `branch_${b.id}_count`,
+        label: `${b.name} (${b.code}) Count`,
+        formatter: (_: any, m: (typeof consolidatedMatrix)[0]) => m.branches.find((x) => x.branchId === b.id)?.countedQty || 0,
+      },
+      {
+        key: `branch_${b.id}_diff`,
+        label: `${b.name} (${b.code}) Diff`,
+        formatter: (_: any, m: (typeof consolidatedMatrix)[0]) => m.branches.find((x) => x.branchId === b.id)?.variance || 0,
+      },
     ]);
 
-    const headers = [
-      'SKU',
-      'Barcode',
-      'Product Name',
-      'Category',
-      'Unit',
-      'Cost (NPR)',
-      ...branchHeaders,
-      'Company Total Book',
-      'Company Total Count',
-      'Net Variance Qty',
-      'Net Variance Value (NPR)',
+    const columns = [
+      { key: 'sku', label: 'SKU' },
+      { key: 'barcode', label: 'Barcode', formatter: (val: string) => val || '' },
+      { key: 'productName', label: 'Product Name' },
+      { key: 'category', label: 'Category' },
+      { key: 'unit', label: 'Unit' },
+      { key: 'unitCost', label: 'Cost (NPR)' },
+      ...branchCols,
+      { key: 'companyTotalBookQty', label: 'Company Total Book' },
+      { key: 'companyTotalCountedQty', label: 'Company Total Count' },
+      { key: 'companyTotalVarianceQty', label: 'Net Variance Qty' },
+      { key: 'totalVarianceVal', label: 'Net Variance Value (NPR)' },
     ];
 
-    const csvContent = [
-      headers.join(','),
-      ...consolidatedMatrix.map((m) => {
-        const branchCells = m.branches.flatMap((b) => [
-          b.bookQty,
-          b.countedQty,
-          b.variance,
-        ]);
-
-        return [
-          `"${m.sku}"`,
-          `"${m.barcode || ''}"`,
-          `"${m.productName.replace(/"/g, '""')}"`,
-          `"${m.category}"`,
-          `"${m.unit}"`,
-          m.unitCost,
-          ...branchCells,
-          m.companyTotalBookQty,
-          m.companyTotalCountedQty,
-          m.companyTotalVarianceQty,
-          m.totalVarianceVal,
-        ].join(',');
-      }),
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `Consolidated_Stock_Audit_All_Branches_${auditRefNumber}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportToCSV({
+      filename: `Consolidated_Stock_Audit_All_Branches_${auditRefNumber}`,
+      reportTitle: `Consolidated Multi-Branch Stock Audit & Discrepancy Matrix (#${auditRefNumber})`,
+      branchName: 'All Branches (Consolidated Matrix)',
+      generatedBy: currentUser?.name ? `${currentUser.name} (${currentUser.role})` : currentUser?.email || auditorName,
+      data: consolidatedMatrix,
+      columns,
+    });
   };
 
   const todayAD = new Date().toISOString().split('T')[0];
@@ -892,16 +864,16 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             </div>
             <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-rose-200 dark:border-rose-900/40">
               <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold block">Total Shortage</span>
-              <span className="font-extrabold font-mono text-rose-600">-{stats.shortageQty} Units (-NPR {stats.shortageValue.toLocaleString()})</span>
+              <span className="font-extrabold font-mono text-rose-600">-{stats.shortageQty} Units (-NPR {(stats.shortageValue ?? 0).toLocaleString()})</span>
             </div>
             <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-emerald-200 dark:border-emerald-900/40">
               <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block">Total Excess</span>
-              <span className="font-extrabold font-mono text-emerald-600">+{stats.excessQty} Units (+NPR {stats.excessValue.toLocaleString()})</span>
+              <span className="font-extrabold font-mono text-emerald-600">+{stats.excessQty} Units (+NPR {(stats.excessValue ?? 0).toLocaleString()})</span>
             </div>
             <div className="p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 border border-purple-200 dark:border-purple-800">
               <span className="text-[10px] text-purple-600 dark:text-purple-400 font-bold block">Net Valuation Impact</span>
               <span className={`font-extrabold font-mono ${stats.netValueVariance >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                {stats.netValueVariance >= 0 ? '+' : ''}NPR {stats.netValueVariance.toLocaleString()}
+                {stats.netValueVariance >= 0 ? '+' : ''}NPR {(stats.netValueVariance ?? 0).toLocaleString()}
               </span>
             </div>
           </div>
@@ -1141,10 +1113,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             Book System Qty
           </p>
           <p className="text-xl font-extrabold font-mono mt-1 text-slate-700 dark:text-slate-300">
-            {stats.totalBookQty.toLocaleString()}
+            {(stats.totalBookQty ?? 0).toLocaleString()}
           </p>
           <p className="text-[10px] text-slate-400 mt-0.5">
-            Physical: {stats.totalCountedQty.toLocaleString()}
+            Physical: {(stats.totalCountedQty ?? 0).toLocaleString()}
           </p>
         </div>
 
@@ -1163,10 +1135,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             <span>Shortage (-)</span>
           </p>
           <p className="text-xl font-extrabold font-mono mt-1 text-rose-600 dark:text-rose-400">
-            -{stats.shortageQty.toLocaleString()}
+            -{(stats.shortageQty ?? 0).toLocaleString()}
           </p>
           <p className="text-[10px] text-rose-500/80 font-mono mt-0.5">
-            -NPR {stats.shortageValue.toLocaleString()}
+            -NPR {(stats.shortageValue ?? 0).toLocaleString()}
           </p>
         </div>
 
@@ -1185,10 +1157,10 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             <span>Excess / Surplus (+)</span>
           </p>
           <p className="text-xl font-extrabold font-mono mt-1 text-emerald-600 dark:text-emerald-400">
-            +{stats.excessQty.toLocaleString()}
+            +{(stats.excessQty ?? 0).toLocaleString()}
           </p>
           <p className="text-[10px] text-emerald-600/80 font-mono mt-0.5">
-            +NPR {stats.excessValue.toLocaleString()}
+            +NPR {(stats.excessValue ?? 0).toLocaleString()}
           </p>
         </div>
 
@@ -1216,7 +1188,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                 : 'text-slate-500'
             }`}
           >
-            {stats.netValueVariance >= 0 ? '+' : ''}NPR {stats.netValueVariance.toLocaleString()}
+            {stats.netValueVariance >= 0 ? '+' : ''}NPR {(stats.netValueVariance ?? 0).toLocaleString()}
           </p>
           <p className="text-[10px] text-slate-400 mt-0.5">
             Discrepancies: {stats.discrepancyCount} items
@@ -1357,7 +1329,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
                       {/* Unit Cost */}
                       <td className="p-3.5 text-right font-mono text-slate-600 dark:text-slate-400">
-                        NPR {row.unitCost.toLocaleString()}
+                        NPR {(row.unitCost ?? 0).toLocaleString()}
                       </td>
 
                       {/* Book System Qty */}
@@ -1434,7 +1406,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       >
                         {varianceVal === 0
                           ? 'NPR 0'
-                          : `${varianceVal > 0 ? '+' : ''}NPR ${varianceVal.toLocaleString()}`}
+                          : `${varianceVal > 0 ? '+' : ''}NPR ${(varianceVal ?? 0).toLocaleString()}`}
                       </td>
 
                       {/* Discrepancy Reason Input & Selection */}
@@ -1525,13 +1497,13 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               </div>
               <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 text-xs">
                 <span className="text-[10px] uppercase font-bold text-rose-500 block">Shortages (-)</span>
-                <span className="font-extrabold text-base text-rose-600 font-mono">-{stats.shortageQty} Units</span>
-                <span className="text-[10px] text-rose-500 block font-mono">-NPR {stats.shortageValue.toLocaleString()}</span>
+                <span className="font-extrabold text-base text-rose-600 font-mono">-{(stats.shortageQty ?? 0)} Units</span>
+                <span className="text-[10px] text-rose-500 block font-mono">-NPR {(stats.shortageValue ?? 0).toLocaleString()}</span>
               </div>
               <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40 text-xs">
                 <span className="text-[10px] uppercase font-bold text-emerald-500 block">Excess (+)</span>
-                <span className="font-extrabold text-base text-emerald-600 font-mono">+{stats.excessQty} Units</span>
-                <span className="text-[10px] text-emerald-500 block font-mono">+NPR {stats.excessValue.toLocaleString()}</span>
+                <span className="font-extrabold text-base text-emerald-600 font-mono">+{(stats.excessQty ?? 0)} Units</span>
+                <span className="text-[10px] text-emerald-500 block font-mono">+NPR {(stats.excessValue ?? 0).toLocaleString()}</span>
               </div>
             </div>
 
@@ -1577,7 +1549,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                             val < 0 ? 'text-rose-500' : 'text-emerald-500'
                           }`}
                         >
-                          {val.toLocaleString()}
+                          {(val ?? 0).toLocaleString()}
                         </td>
                         <td className="p-2.5 text-[11px] font-sans text-slate-600 dark:text-slate-300 truncate max-w-[150px]">
                           {reason}
@@ -1606,7 +1578,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             <div className="flex items-center justify-between p-3 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 font-semibold">
               <span>Net Financial Impact:</span>
               <span className="font-extrabold font-mono text-sm">
-                {stats.netValueVariance >= 0 ? '+' : ''}NPR {stats.netValueVariance.toLocaleString()}
+                {stats.netValueVariance >= 0 ? '+' : ''}NPR {(stats.netValueVariance ?? 0).toLocaleString()}
               </span>
             </div>
 
@@ -1720,7 +1692,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                             val < 0 ? 'text-rose-500' : 'text-emerald-500'
                           }`}
                         >
-                          {val.toLocaleString()}
+                          {(val ?? 0).toLocaleString()}
                         </td>
                       </tr>
                     );
@@ -1732,7 +1704,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
             <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-xs font-semibold">
               <span>Total Financial Adjustment:</span>
               <span className="font-extrabold font-mono text-sm text-slate-900 dark:text-slate-100">
-                {stats.netValueVariance >= 0 ? '+' : ''}NPR {stats.netValueVariance.toLocaleString()}
+                {stats.netValueVariance >= 0 ? '+' : ''}NPR {(stats.netValueVariance ?? 0).toLocaleString()}
               </span>
             </div>
 
@@ -1848,7 +1820,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
             <div className="flex items-center justify-between p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300">
               <span>Total Discrepancies: <strong>{stats.discrepancyCount} items</strong></span>
-              <span>Net Financial Impact: <strong>NPR {stats.netValueVariance.toLocaleString()}</strong></span>
+              <span>Net Financial Impact: <strong>NPR {(stats.netValueVariance ?? 0).toLocaleString()}</strong></span>
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -1930,28 +1902,28 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
               <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border text-xs">
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Company Book Stock</span>
                 <span className="text-lg font-extrabold font-mono text-slate-900 dark:text-slate-100">
-                  {consolidatedSummary.totalBook.toLocaleString()} Units
+                  {(consolidatedSummary.totalBook ?? 0).toLocaleString()} Units
                 </span>
               </div>
               <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border text-xs">
                 <span className="text-[10px] font-bold text-slate-400 uppercase block">Physical Counted Stock</span>
                 <span className="text-lg font-extrabold font-mono text-indigo-600 dark:text-indigo-400">
-                  {consolidatedSummary.totalCounted.toLocaleString()} Units
+                  {(consolidatedSummary.totalCounted ?? 0).toLocaleString()} Units
                 </span>
               </div>
               <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-xs">
                 <span className="text-[10px] font-bold text-rose-500 uppercase block">Consolidated Shortage</span>
                 <span className="text-lg font-extrabold font-mono text-rose-600">
-                  -{consolidatedSummary.totalShortage.toLocaleString()} Units
+                  -{(consolidatedSummary.totalShortage ?? 0).toLocaleString()} Units
                 </span>
-                <span className="text-[10px] text-rose-500 font-mono block">-NPR {consolidatedSummary.totalShortageVal.toLocaleString()}</span>
+                <span className="text-[10px] text-rose-500 font-mono block">-NPR {(consolidatedSummary.totalShortageVal ?? 0).toLocaleString()}</span>
               </div>
               <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 text-xs">
                 <span className="text-[10px] font-bold text-emerald-500 uppercase block">Consolidated Excess</span>
                 <span className="text-lg font-extrabold font-mono text-emerald-600">
-                  +{consolidatedSummary.totalExcess.toLocaleString()} Units
+                  +{(consolidatedSummary.totalExcess ?? 0).toLocaleString()} Units
                 </span>
-                <span className="text-[10px] text-emerald-500 font-mono block">+NPR {consolidatedSummary.totalExcessVal.toLocaleString()}</span>
+                <span className="text-[10px] text-emerald-500 font-mono block">+NPR {(consolidatedSummary.totalExcessVal ?? 0).toLocaleString()}</span>
               </div>
             </div>
 
@@ -2013,7 +1985,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
                         {/* Unit Cost */}
                         <td className="p-2.5 text-right border-r border-slate-200 dark:border-slate-700">
-                          {item.unitCost.toLocaleString()}
+                          {(item.unitCost ?? 0).toLocaleString()}
                         </td>
 
                         {/* Branch by Branch Columns */}
@@ -2068,7 +2040,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                               : 'text-emerald-500'
                           }`}
                         >
-                          {item.totalVarianceVal.toLocaleString()}
+                          {(item.totalVarianceVal ?? 0).toLocaleString()}
                         </td>
                       </tr>
                     );

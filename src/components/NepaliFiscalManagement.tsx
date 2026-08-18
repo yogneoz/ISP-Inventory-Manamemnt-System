@@ -368,7 +368,7 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
               <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full border font-bold ${
                 isDarkMode ? 'bg-emerald-950 text-emerald-400 border-emerald-500/30' : 'bg-emerald-100 text-emerald-800 border-emerald-200'
               }`}>
-                {bounds.totalDaysMapped.toLocaleString()} Days Pre-Mapped
+                {(bounds.totalDaysMapped ?? 0).toLocaleString()} Days Pre-Mapped
               </span>
             </div>
             <p className={`text-xs font-mono mt-0.5 ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
