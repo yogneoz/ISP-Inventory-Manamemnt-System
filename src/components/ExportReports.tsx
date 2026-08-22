@@ -126,9 +126,9 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
     if (poStatusFilter !== 'ALL' && po.status !== poStatusFilter) return false;
 
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const matchNum = po.orderNumber.toLowerCase().includes(q);
-      const matchSup = po.supplierName.toLowerCase().includes(q);
+      const q = (searchQuery || '').toLowerCase().trim();
+      const matchNum = (po?.orderNumber || '').toLowerCase().includes(q);
+      const matchSup = (po?.supplierName || '').toLowerCase().includes(q);
       const matchNotes = po.notes?.toLowerCase().includes(q);
       if (!matchNum && !matchSup && !matchNotes) return false;
     }
@@ -187,10 +187,10 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
     if (piPaymentStatusFilter !== 'ALL' && pi.paymentStatus !== piPaymentStatusFilter) return false;
 
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const matchInv = pi.invoiceNumber.toLowerCase().includes(q);
+      const q = (searchQuery || '').toLowerCase().trim();
+      const matchInv = (pi?.invoiceNumber || '').toLowerCase().includes(q);
       const matchBill = pi.vendorBillNumber?.toLowerCase().includes(q);
-      const matchSup = pi.supplierName.toLowerCase().includes(q);
+      const matchSup = (pi?.supplierName || '').toLowerCase().includes(q);
       if (!matchInv && !matchBill && !matchSup) return false;
     }
     return true;
@@ -266,8 +266,8 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
     if (shipmentStatusFilter !== 'ALL' && sh.status !== shipmentStatusFilter) return false;
 
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const matchCode = sh.trackingCode.toLowerCase().includes(q);
+      const q = (searchQuery || '').toLowerCase().trim();
+      const matchCode = (sh?.trackingCode || '').toLowerCase().includes(q);
       const matchSrc = sh.sourceBranchName?.toLowerCase().includes(q);
       const matchDest = sh.destinationBranchName?.toLowerCase().includes(q);
       if (!matchCode && !matchSrc && !matchDest) return false;
@@ -329,7 +329,7 @@ export const ExportReports: React.FC<ExportReportsProps> = ({
     if (endDateAD && dev.issuedDateAD && dev.issuedDateAD > endDateAD) return false;
 
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
+      const q = (searchQuery || '').toLowerCase().trim();
       const br = branches.find((b) => b.id === dev.branchId);
       const matchSN = dev.deviceSerial?.toLowerCase().includes(q);
       const matchPON = dev.ponSerial?.toLowerCase().includes(q);

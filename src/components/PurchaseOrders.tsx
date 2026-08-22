@@ -119,13 +119,14 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
   );
   const [billWiseDiscount, setBillWiseDiscount] = useState<number>(0);
   const [notes, setNotes] = useState('');
+  const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('ALL');
 
   // Filtered suppliers for autocomplete
   const filteredSuppliers = availableSuppliers.filter((s) => {
     if (!supplierName.trim()) return true;
-    const q = supplierName.toLowerCase();
+    const q = (supplierName || '').toLowerCase();
     return (
-      s.name.toLowerCase().includes(q) ||
+      (s?.name || '').toLowerCase().includes(q) ||
       (s.panVatNumber && s.panVatNumber.includes(q))
     );
   });
@@ -271,10 +272,14 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
   const filteredPOs = purchaseOrders.filter((po) => {
     const matchesBranch = selectedBranchId === 'ALL' || po.branchId === selectedBranchId;
+    const matchesSupplier =
+      selectedSupplierFilter === 'ALL' ||
+      po.supplierId === selectedSupplierFilter ||
+      (po?.supplierName || '').toLowerCase() === (selectedSupplierFilter || '').toLowerCase();
     const matchesSearch =
-      po.poNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      po.supplierName.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesBranch && matchesSearch;
+      (po?.poNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      (po?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
+    return matchesBranch && matchesSupplier && matchesSearch;
   });
 
   const addLine = () => {
@@ -593,22 +598,46 @@ export const PurchaseOrders: React.FC<PurchaseOrdersProps> = ({
 
           {/* PO Search & Filter Bar */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search PO # or Vendor Name..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                  isDarkMode
-                    ? 'bg-slate-900 border-slate-800 text-slate-200'
-                    : 'bg-white border-slate-200 text-slate-800'
-                }`}
-              />
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto flex-1">
+              <div className="relative w-full sm:w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search PO # or Vendor Name..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                    isDarkMode
+                      ? 'bg-slate-900 border-slate-800 text-slate-200'
+                      : 'bg-white border-slate-200 text-slate-800'
+                  }`}
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                <span className={`text-xs font-semibold whitespace-nowrap ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Filter Vendor:
+                </span>
+                <select
+                  value={selectedSupplierFilter}
+                  onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                  className={`px-3 py-2 text-xs font-medium rounded-xl border focus:outline-none transition-all cursor-pointer ${
+                    isDarkMode
+                      ? 'bg-slate-900 border-slate-800 text-slate-200 focus:border-indigo-500'
+                      : 'bg-white border-slate-200 text-slate-800 focus:border-indigo-500'
+                  }`}
+                >
+                  <option value="ALL">All Vendors / Suppliers ({availableSuppliers.length})</option>
+                  {availableSuppliers.map((supp) => (
+                    <option key={supp.id} value={supp.id}>
+                      🏢 {supp.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <div className="text-xs text-slate-500 dark:text-slate-400">
+            <div className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
               Showing <strong className="text-slate-900 dark:text-white font-mono">{filteredPOs.length}</strong> purchase orders
             </div>
           </div>

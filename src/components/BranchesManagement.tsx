@@ -35,9 +35,9 @@ export const BranchesManagement: React.FC<BranchesManagementProps> = ({
 
   const filtered = branches.filter(
     (b) =>
-      b.name.toLowerCase().includes(search.toLowerCase()) ||
-      b.code.toLowerCase().includes(search.toLowerCase()) ||
-      b.location.toLowerCase().includes(search.toLowerCase())
+      (b?.name || '').toLowerCase().includes((search || '').toLowerCase()) ||
+      (b?.code || '').toLowerCase().includes((search || '').toLowerCase()) ||
+      (b?.location || '').toLowerCase().includes((search || '').toLowerCase())
   );
 
   const handleOpenAddModal = () => {

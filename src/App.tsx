@@ -18,7 +18,7 @@ import {
   CustomerRecord,
   ApprovalRequest,
 } from './types';
-import { api } from './services/api';
+import { api, setUserContext } from './services/api';
 import { Header } from './components/Header';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { LoginModal } from './components/LoginModal';
@@ -35,6 +35,7 @@ import { PurchaseOrders, OrderFormLine } from './components/PurchaseOrders';
 import { PurchaseInvoices } from './components/PurchaseInvoices';
 import { Shipments } from './components/Shipments';
 import { StockOperations } from './components/StockOperations';
+import { ReceiveInboundWarehouse } from './components/ReceiveInboundWarehouse';
 import { NepaliFiscalManagement } from './components/NepaliFiscalManagement';
 import { AuditTrailReports } from './components/AuditTrailReports';
 import { BranchesManagement } from './components/BranchesManagement';
@@ -105,6 +106,10 @@ export default function App() {
 
   // Synchronize permissions live across components
   useEffect(() => {
+    setUserContext(currentUser);
+  }, [currentUser]);
+
+  useEffect(() => {
     const handlePermissionsUpdated = () => {
       setPermissionsVersion((v) => v + 1);
     };
@@ -115,7 +120,7 @@ export default function App() {
   // Global search keyboard shortcut (Ctrl+K or Cmd+K)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      if ((e.ctrlKey || e.metaKey) && (e?.key || '').toLowerCase() === 'k') {
         e.preventDefault();
         setIsGlobalSearchOpen((prev) => !prev);
       }
@@ -278,22 +283,22 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Alt + H -> In-App Help & Documentation Center
-      if (e.altKey && e.key.toLowerCase() === 'h') {
+      if (e.altKey && (e?.key || '').toLowerCase() === 'h') {
         e.preventDefault();
         setActiveTab('help-documentation');
       }
       // Alt + B -> Barcode Scanner
-      if (e.altKey && e.key.toLowerCase() === 'b') {
+      if (e.altKey && (e?.key || '').toLowerCase() === 'b') {
         e.preventDefault();
         setIsBarcodeModalOpen((prev) => !prev);
       }
       // Alt + S or Ctrl + K -> Global Search
-      if ((e.altKey && e.key.toLowerCase() === 's') || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+      if ((e.altKey && (e?.key || '').toLowerCase() === 's') || ((e.ctrlKey || e.metaKey) && (e?.key || '').toLowerCase() === 'k')) {
         e.preventDefault();
         setIsGlobalSearchOpen((prev) => !prev);
       }
       // Alt + D -> Date Mode Toggle (BS / AD)
-      if (e.altKey && e.key.toLowerCase() === 'd') {
+      if (e.altKey && (e?.key || '').toLowerCase() === 'd') {
         e.preventDefault();
         setDateMode((prev) => (prev === 'BS' ? 'AD' : 'BS'));
       }
@@ -563,52 +568,98 @@ export default function App() {
     refreshAllData();
   };
 
-  // Badge calculations
-  const lowStockCount = stock.filter((s) => {
-    const prod = products.find((p) => p.id === s.productId);
-    if (!prod) return false;
-    return prod.minReorderLevel > 0
-      ? s.quantityOnHand <= prod.minReorderLevel
-      : s.quantityOnHand < 0;
+  // Badge calculations (Consolidated Low Stock SKU Count respecting selected branch context & per-branch thresholds)
+  const lowStockCount = products.filter((prod) => {
+    const activeBr =
+      selectedBranchId === 'ALL'
+        ? branches
+        : branches.filter((b) => b.id === selectedBranchId);
+
+    let totalOnHand = 0;
+    let totalConsolidatedReorder = 0;
+    let isAnyBranchLow = false;
+
+    activeBr.forEach((b) => {
+      const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+      const onHand = item ? item.quantityOnHand : 0;
+      totalOnHand += onHand;
+
+      const threshold =
+        item?.minReorderLevel !== undefined && item?.minReorderLevel !== null
+          ? item.minReorderLevel
+          : prod.minReorderLevel;
+      totalConsolidatedReorder += threshold;
+
+      if (threshold > 0 && onHand <= threshold) {
+        isAnyBranchLow = true;
+      } else if (threshold === 0 && onHand < 0) {
+        isAnyBranchLow = true;
+      }
+    });
+
+    return isAnyBranchLow || (totalConsolidatedReorder > 0 && totalOnHand <= totalConsolidatedReorder);
   }).length;
 
   const pendingPoCount = purchaseOrders.filter(
     (po) => po.status === 'SENT' || po.status === 'APPROVED'
   ).length;
 
-  const inTransitShipmentCount = shipments.filter(
-    (sh) => sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED'
+  const activeBranchContext =
+    selectedBranchId && selectedBranchId !== 'ALL'
+      ? selectedBranchId
+      : currentUser?.branchId && currentUser.branchId !== 'ALL'
+      ? currentUser.branchId
+      : 'ALL';
+
+  const pendingPulloutsCount = stockOperations.filter(
+    (op) =>
+      op.type === 'PULLOUT' &&
+      op.status !== 'RECEIVED' &&
+      (activeBranchContext === 'ALL' || op.branchId === activeBranchContext)
   ).length;
+
+  const inTransitShipmentCount =
+    shipments.filter(
+      (sh) =>
+        (sh.status === 'IN_TRANSIT' || sh.status === 'DISPATCHED') &&
+        (activeBranchContext === 'ALL' ||
+          sh.destinationBranchId === activeBranchContext ||
+          sh.sourceBranchId === activeBranchContext)
+    ).length + pendingPulloutsCount;
 
   const activeFy =
     fiscalYears.find((f) => f.isCurrent)?.code || financialSummary.currentFiscalYear;
 
   const handleGroupLowStockPO = () => {
-    const lowStockItems = stock.filter((item) => {
-      const product = products.find((p) => p.id === item.productId);
-      if (!product) return false;
-      return product.minReorderLevel > 0
-        ? item.quantityOnHand <= product.minReorderLevel
-        : item.quantityOnHand < 0;
-    });
+    const activeBr =
+      selectedBranchId === 'ALL'
+        ? branches
+        : branches.filter((b) => b.id === selectedBranchId);
 
     const lowStockProductMap = new Map<string, { product: Product; qty: number }>();
 
-    lowStockItems.forEach((item) => {
-      const prod = products.find((p) => p.id === item.productId);
-      if (!prod) return;
+    products.forEach((prod) => {
+      let productTotalDeficit = 0;
 
-      const deficit = prod.minReorderLevel > 0
-        ? Math.max(1, prod.minReorderLevel - item.quantityOnHand)
-        : (item.quantityOnHand < 0 ? Math.abs(item.quantityOnHand) : 0);
+      activeBr.forEach((b) => {
+        const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+        const onHand = item ? item.quantityOnHand : 0;
+        const threshold =
+          item?.minReorderLevel !== undefined && item?.minReorderLevel !== null
+            ? item.minReorderLevel
+            : prod.minReorderLevel;
 
-      if (deficit <= 0) return;
+        if (threshold > 0 && onHand <= threshold) {
+          const deficit = Math.max(1, threshold - onHand);
+          productTotalDeficit += deficit;
+        } else if (threshold === 0 && onHand < 0) {
+          const deficit = Math.abs(onHand);
+          productTotalDeficit += deficit;
+        }
+      });
 
-      if (lowStockProductMap.has(prod.id)) {
-        const curr = lowStockProductMap.get(prod.id)!;
-        curr.qty += deficit;
-      } else {
-        lowStockProductMap.set(prod.id, { product: prod, qty: deficit });
+      if (productTotalDeficit > 0) {
+        lowStockProductMap.set(prod.id, { product: prod, qty: productTotalDeficit });
       }
     });
 
@@ -633,7 +684,19 @@ export default function App() {
       }`}
     >
       {/* Login Overlay if Logged Out */}
-      {!currentUser && <LoginModal onLoginSuccess={handleLogin} />}
+      {!currentUser && (
+        <LoginModal
+          onLoginSuccess={handleLogin}
+          branches={branches}
+          onSetupSuperAdmin={async (data) => {
+            const res = await api.setupSuperAdmin(data);
+            setCurrentUser(res.user);
+            setRootUser(res.user);
+            localStorage.setItem('izone_root_user', JSON.stringify(res.user));
+            refreshAllData();
+          }}
+        />
+      )}
 
       {/* Top App Header (Fixed at top) */}
       <Header
@@ -1131,7 +1194,24 @@ export default function App() {
                 />
               )}
 
-              {(activeTab === 'receive-shipment' || activeTab === 'receive-branch-transfer') && (
+              {activeTab === 'receive-shipment' && (
+                <ReceiveInboundWarehouse
+                  currentUser={currentUser}
+                  operations={stockOperations}
+                  shipments={shipments}
+                  products={products}
+                  branches={branches}
+                  stock={stock}
+                  approvalRequests={approvalRequests}
+                  isDarkMode={isDarkMode}
+                  dateMode={dateMode}
+                  onReceiveOperation={handleReceiveOperation}
+                  onReceiveShipment={handleReceiveShipment}
+                  onCancelReceiveShipment={handleCancelReceiveShipment}
+                />
+              )}
+
+              {activeTab === 'receive-branch-transfer' && (
                 <StockOperations
                   operations={stockOperations}
                   products={products}
@@ -1197,7 +1277,7 @@ export default function App() {
                   selectedBranchId={selectedBranchId}
                   dateMode={dateMode}
                   initialType="PULLOUT"
-                  autoOpenModal={false}
+                  autoOpenModal={true}
                   isDarkMode={isDarkMode}
                   currentUser={currentUser}
                   shipments={shipments}
@@ -1437,6 +1517,10 @@ export default function App() {
                     await api.updateUser(id, u);
                     refreshAllData();
                   }}
+                  onResetPassword={async (id, newPass) => {
+                    await api.resetUserPassword(id, newPass);
+                    refreshAllData();
+                  }}
                   onDeleteUser={async (id) => {
                     await api.deleteUser(id);
                     refreshAllData();
@@ -1541,7 +1625,15 @@ export default function App() {
                   onOpenAiAssistant={() => setIsAiModalOpen(true)}
                   onOpenBarcodeModal={() => setIsBarcodeModalOpen(true)}
                   onOpenSearchModal={() => setIsGlobalSearchOpen(true)}
-                  onNavigateTab={(tab) => setActiveTab(tab as NavTab)}
+                  onNavigateTab={(tab) => {
+                    if (tab === 'barcode-scanner') {
+                      setIsBarcodeModalOpen(true);
+                    } else if (tab === 'users-management' || tab === 'login') {
+                      setActiveTab('users');
+                    } else {
+                      setActiveTab(tab as NavTab);
+                    }
+                  }}
                 />
               )}
             </>

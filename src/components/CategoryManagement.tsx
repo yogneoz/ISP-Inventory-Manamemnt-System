@@ -36,14 +36,14 @@ export const CategoryManagement: React.FC<CategoryManagementProps> = ({
 
   // Calculate live product counts per category
   const getProductCountForCategory = (catName: string) => {
-    return products.filter((p) => p.category.toLowerCase().trim() === catName.toLowerCase().trim()).length;
+    return products.filter((p) => (p?.category || '').toLowerCase().trim() === catName.toLowerCase().trim()).length;
   };
 
   const filteredCategories = categories.filter(
     (c) =>
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (c.description && c.description.toLowerCase().includes(searchQuery.toLowerCase()))
+      (c?.name || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      (c?.code || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      (c.description && (c?.description || '').toLowerCase().includes((searchQuery || '').toLowerCase()))
   );
 
   const openCreateModal = () => {

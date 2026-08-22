@@ -132,6 +132,10 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
       });
     });
 
+    if (totalDeficit === 0 && totalConsolidatedReorderLevel > 0 && totalOnHand <= totalConsolidatedReorderLevel) {
+      totalDeficit = Math.max(1, totalConsolidatedReorderLevel - totalOnHand);
+    }
+
     const totalReorderValuation = totalDeficit * (prod.costPrice || 0);
     const isBelowMinOverall = lowBranchesCount > 0 || (totalConsolidatedReorderLevel > 0 && totalOnHand <= totalConsolidatedReorderLevel);
 
@@ -156,10 +160,10 @@ export const ReorderStockTracking: React.FC<ReorderStockTrackingProps> = ({
       const query = localSearch.trim().toLowerCase();
       const matchesSearch =
         !query ||
-        prod.name.toLowerCase().includes(query) ||
-        prod.sku.toLowerCase().includes(query) ||
-        prod.barcode.toLowerCase().includes(query) ||
-        prod.category.toLowerCase().includes(query);
+        (prod?.name || '').toLowerCase().includes(query) ||
+        (prod?.sku || '').toLowerCase().includes(query) ||
+        (prod?.barcode || '').toLowerCase().includes(query) ||
+        (prod?.category || '').toLowerCase().includes(query);
 
       return matchesReorderFilter && matchesCat && matchesSearch;
     }

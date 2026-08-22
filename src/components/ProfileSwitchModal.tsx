@@ -61,13 +61,13 @@ export const ProfileSwitchModal: React.FC<ProfileSwitchModalProps> = ({
   if (!isOpen || !currentUser) return null;
 
   const filteredUsers = users.filter((u) => {
-    const q = search.toLowerCase();
+    const q = (search || '').toLowerCase();
     const branchName = branches.find((b) => b.id === u.branchId)?.name || 'HQ/All';
     return (
-      u.name.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
-      u.role.toLowerCase().includes(q) ||
-      branchName.toLowerCase().includes(q)
+      (u?.name || '').toLowerCase().includes(q) ||
+      (u?.email || '').toLowerCase().includes(q) ||
+      (u?.role || '').toLowerCase().includes(q) ||
+      (branchName || '').toLowerCase().includes(q)
     );
   });
 

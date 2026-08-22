@@ -20,11 +20,26 @@ import {
 
 const API_BASE = (((import.meta as any).env?.VITE_API_BASE_URL as string) || '').replace(/\/$/, '');
 
+let currentUserContext: User | null = null;
+
+export const setUserContext = (user: User | null) => {
+  currentUserContext = user;
+};
+
 async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+  const userHeaders: Record<string, string> = {};
+  if (currentUserContext) {
+    userHeaders['x-user-email'] = currentUserContext.email;
+    userHeaders['x-user-name'] = currentUserContext.name;
+    userHeaders['x-user-role'] = currentUserContext.role;
+    userHeaders['x-user-branch'] = currentUserContext.branchId;
+  }
+
   const res = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
+      ...userHeaders,
       ...options?.headers,
     },
     ...options,
@@ -39,6 +54,29 @@ async function fetchJson<T>(endpoint: string, options?: RequestInit): Promise<T>
 
 export const api = {
   // Auth
+  async getSetupStatus(): Promise<{ isFirstLaunch: boolean; userCount: number; hasSuperAdmin: boolean }> {
+    return fetchJson('/api/auth/setup-status');
+  },
+
+  async setupSuperAdmin(data: {
+    name: string;
+    email: string;
+    password: string;
+    branchId?: string;
+  }): Promise<{ user: User; token: string }> {
+    return fetchJson('/api/auth/setup-superadmin', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async forgotPassword(email: string): Promise<{ success: boolean; userName: string; adminEmail: string; message: string }> {
+    return fetchJson('/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
   async login(email: string, password: string): Promise<{ user: User; token: string }> {
     return fetchJson('/api/auth/login', {
       method: 'POST',
@@ -136,6 +174,13 @@ export const api = {
   async deleteUser(id: string): Promise<{ success: boolean }> {
     return fetchJson(`/api/users/${id}`, {
       method: 'DELETE',
+    });
+  },
+
+  async resetUserPassword(id: string, newPassword: string): Promise<{ success: boolean; message: string; user: User }> {
+    return fetchJson(`/api/users/${id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ newPassword }),
     });
   },
 

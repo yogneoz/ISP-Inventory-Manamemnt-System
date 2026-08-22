@@ -375,9 +375,9 @@ export const Shipments: React.FC<ShipmentsProps> = ({
       sh.destinationBranchId === effectiveBranchId ||
       sh.sourceBranchId === effectiveBranchId;
     const matchesSearch =
-      sh.trackingCode.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (sh.sourceBranchName && sh.sourceBranchName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      sh.destinationBranchName.toLowerCase().includes(searchQuery.toLowerCase());
+      (sh?.trackingCode || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      (sh.sourceBranchName && (sh?.sourceBranchName || '').toLowerCase().includes((searchQuery || '').toLowerCase())) ||
+      (sh?.destinationBranchName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
     return matchesBranch && matchesSearch;
   });
 

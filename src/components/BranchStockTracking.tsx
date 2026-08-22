@@ -81,10 +81,10 @@ export const BranchStockTracking: React.FC<BranchStockTrackingProps> = ({
       const query = localSearch.trim().toLowerCase();
       const matchesSearch =
         !query ||
-        prod.name.toLowerCase().includes(query) ||
-        prod.sku.toLowerCase().includes(query) ||
-        prod.barcode.toLowerCase().includes(query) ||
-        prod.category.toLowerCase().includes(query);
+        (prod?.name || '').toLowerCase().includes(query) ||
+        (prod?.sku || '').toLowerCase().includes(query) ||
+        (prod?.barcode || '').toLowerCase().includes(query) ||
+        (prod?.category || '').toLowerCase().includes(query);
 
       return matchesStockFilter && matchesCat && matchesSearch;
     })

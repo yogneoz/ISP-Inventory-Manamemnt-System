@@ -302,16 +302,16 @@ export const CustomersManagement: React.FC<CustomersManagementProps> = ({
     
     if (!searchQuery.trim()) return matchesBranch && matchesStatus;
 
-    const q = searchQuery.toLowerCase().trim();
+    const q = (searchQuery || '').toLowerCase().trim();
     const matchesQuery =
-      rec.deviceSerial.toLowerCase().includes(q) ||
-      rec.ponSerial.toLowerCase().includes(q) ||
-      (rec.macAddress && rec.macAddress.toLowerCase().includes(q)) ||
-      rec.customerName.toLowerCase().includes(q) ||
-      rec.customerCode.toLowerCase().includes(q) ||
-      rec.contactPhone.toLowerCase().includes(q) ||
-      rec.productName.toLowerCase().includes(q) ||
-      (rec.purchaseBillRef && rec.purchaseBillRef.toLowerCase().includes(q));
+      (rec?.deviceSerial || '').toLowerCase().includes(q) ||
+      (rec?.ponSerial || '').toLowerCase().includes(q) ||
+      (rec.macAddress && (rec?.macAddress || '').toLowerCase().includes(q)) ||
+      (rec?.customerName || '').toLowerCase().includes(q) ||
+      (rec?.customerCode || '').toLowerCase().includes(q) ||
+      (rec?.contactPhone || '').toLowerCase().includes(q) ||
+      (rec?.productName || '').toLowerCase().includes(q) ||
+      (rec.purchaseBillRef && (rec?.purchaseBillRef || '').toLowerCase().includes(q));
 
     return matchesBranch && matchesStatus && matchesQuery;
   });

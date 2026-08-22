@@ -152,6 +152,43 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
     'ALL' | 'DISCREPANCY' | 'MATCHED' | 'SHORTAGE' | 'EXCESS' | 'UNCOUNTED'
   >('ALL');
 
+  // View Tab: 'SINGLE_BRANCH' (Floor Count Session) | 'CONSOLIDATED_MATRIX' (Multi-Branch Approver View)
+  const [activeAuditTab, setActiveAuditTab] = useState<'SINGLE_BRANCH' | 'CONSOLIDATED_MATRIX'>('SINGLE_BRANCH');
+
+  // Blind Stock Audit Mode States
+  const [isBlindAuditMode, setIsBlindAuditMode] = useState<boolean>(false);
+  const [isBlindRevealed, setIsBlindRevealed] = useState<boolean>(false);
+
+  // Permission Checks: Only SUPER_ADMIN and INVENTORY_MANAGER (Stock Manager) can toggle Blind Count or see all company branches
+  const isExecutiveUser = useMemo(() => {
+    return (
+      currentUser?.role === 'SUPER_ADMIN' ||
+      currentUser?.role === 'INVENTORY_MANAGER'
+    );
+  }, [currentUser]);
+
+  const canToggleBlindCount = isExecutiveUser;
+
+  // Company-Wide Blind Stock Audit Mode (Persisted in localStorage)
+  const [isCompanyWideBlindCount, setIsCompanyWideBlindCount] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('izone_company_wide_blind_count') === 'true';
+    } catch (_e) {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('izone_company_wide_blind_count', String(isCompanyWideBlindCount));
+    } catch (_e) {
+      // ignore
+    }
+  }, [isCompanyWideBlindCount]);
+
+  // Effective Blind Audit Mode for active counting session
+  const isEffectiveBlindAudit = isCompanyWideBlindCount || isBlindAuditMode;
+
   // Modals & Submission States
   const [showApprovalModal, setShowApprovalModal] = useState<boolean>(false);
   const [showApproveReconcileModal, setShowApproveReconcileModal] = useState<boolean>(false);
@@ -163,6 +200,29 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isLocallySubmitted, setIsLocallySubmitted] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // All pending stock audit approval requests across all 19 branches
+  const allPendingAuditRequests = useMemo(() => {
+    return approvalRequests.filter(
+      (r) => r.type === 'STOCK_AUDIT_RECONCILIATION' && r.status === 'PENDING'
+    );
+  }, [approvalRequests]);
+
+  // Branch visibility in Consolidated Matrix & Approver View: Branch user type specific
+  const visibleBranches = useMemo(() => {
+    if (!isExecutiveUser && currentUser?.branchId && currentUser.branchId !== 'ALL') {
+      return branches.filter((b) => b.id === currentUser.branchId);
+    }
+    return branches;
+  }, [branches, currentUser, isExecutiveUser]);
+
+  // Pending audit requests filtered by branch for branch staff users
+  const visiblePendingAuditRequests = useMemo(() => {
+    if (!isExecutiveUser && currentUser?.branchId && currentUser.branchId !== 'ALL') {
+      return allPendingAuditRequests.filter((r) => r.branchId === currentUser.branchId);
+    }
+    return allPendingAuditRequests;
+  }, [allPendingAuditRequests, currentUser, isExecutiveUser]);
 
   // Reset local submission state when branch changes
   useEffect(() => {
@@ -356,11 +416,11 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       if (filterVariance === 'UNCOUNTED' && row.isCounted) return false;
 
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+        const q = (searchQuery || '').toLowerCase();
         return (
-          row.productName.toLowerCase().includes(q) ||
-          row.sku.toLowerCase().includes(q) ||
-          (row.barcode && row.barcode.toLowerCase().includes(q))
+          (row?.productName || '').toLowerCase().includes(q) ||
+          (row?.sku || '').toLowerCase().includes(q) ||
+          (row.barcode && (row?.barcode || '').toLowerCase().includes(q))
         );
       }
 
@@ -516,6 +576,42 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
     }
   };
 
+  // Bulk Approve All Pending Branch Audits
+  const handleApproveAllPendingAudits = async () => {
+    if (!onProcessApproval || visiblePendingAuditRequests.length === 0) return;
+    setIsSubmitting(true);
+    try {
+      for (const req of visiblePendingAuditRequests) {
+        await onProcessApproval(req.id, 'APPROVED', 'Bulk Reconciliation Authorized by Executive Approver');
+      }
+      setToastMessage(`Successfully authorized and reconciled all ${visiblePendingAuditRequests.length} pending branch stock audits!`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to bulk approve audits:', err);
+      setToastMessage(`Bulk approval failed: ${err.message || 'Unknown error'}`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Single Branch Approval from Matrix
+  const handleApproveSinglePendingBranch = async (requestId: string, branchName: string) => {
+    if (!onProcessApproval) return;
+    setIsSubmitting(true);
+    try {
+      await onProcessApproval(requestId, 'APPROVED', `Physical Stock Audit Authorized for ${branchName}`);
+      setToastMessage(`Stock Audit for ${branchName} Authorized & Reconciled!`);
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err: any) {
+      console.error('Failed to approve branch audit:', err);
+      setToastMessage(`Branch approval failed: ${err.message || 'Unknown error'}`);
+      setTimeout(() => setToastMessage(null), 5000);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // 3. Super Admin / Stock Manager: REJECT AUDIT REQUEST (Unlocks table for branch recount)
   const handleRejectAudit = async () => {
     if (!pendingAuditRequest || !onProcessApproval) return;
@@ -660,7 +756,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
       let companyTotalCountedQty = 0;
       let companyTotalVarianceQty = 0;
 
-      const branchBreakdowns = branches.map((b) => {
+      const branchBreakdowns = visibleBranches.map((b) => {
         const stk = stock.find((s) => s.productId === prod.id && s.branchId === b.id);
         const bBookQty = stk ? stk.quantityOnHand : 0;
         const bCountedQty = b.id === activeBranchId
@@ -702,7 +798,7 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         totalVarianceVal,
       };
     });
-  }, [products, branches, stock, activeBranchId, auditRows]);
+  }, [products, visibleBranches, stock, activeBranchId, auditRows]);
 
   const consolidatedSummary = useMemo(() => {
     let totalBook = 0;
@@ -952,137 +1048,267 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
         </div>
       )}
 
-      {/* HEADER SECTION */}
-      <div
-        className={`p-5 rounded-3xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
-          isDarkMode
-            ? 'bg-slate-900/90 border-slate-800 text-slate-100'
-            : 'bg-white border-slate-200 text-slate-800 shadow-xs'
-        }`}
-      >
-        <div className="space-y-1">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-2xl bg-indigo-600/10 text-indigo-500 border border-indigo-500/20">
-              <ClipboardCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
-                <span>Physical Stock Count & Reconciliation Audit</span>
-                {isTableLocked && (
-                  <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 text-[10px] font-mono flex items-center gap-1 font-bold">
-                    <Lock className="h-3 w-3" />
-                    <span>LOCKED</span>
-                  </span>
-                )}
-                {isReviewMode && (
-                  <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 text-[10px] font-mono flex items-center gap-1 font-bold">
-                    <ShieldCheck className="h-3 w-3" />
-                    <span>MANAGER REVIEW</span>
-                  </span>
-                )}
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Count branch inventory, record discrepancy justifications, and submit for management authorization to reconcile physical stock.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          {/* Branch Selector with Permission Locking */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold">
-            <Building className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
-            <span className="text-slate-500 dark:text-slate-400">Location:</span>
-            {isBranchLockedForUser ? (
-              <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1">
-                <span>{activeBranch?.name}</span>
-                <span className="text-[10px] text-indigo-600 dark:text-indigo-400">({activeBranch?.code})</span>
+      {/* AUDIT WORKFLOW TAB SWITCHER */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-2 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveAuditTab('SINGLE_BRANCH')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+              activeAuditTab === 'SINGLE_BRANCH'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            <Building className="h-4 w-4" />
+            <span>Branch Floor Audit Session ({activeBranch?.name})</span>
+            {isEffectiveBlindAudit && (
+              <span className="px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 text-[10px] font-black">
+                BLIND
               </span>
-            ) : (
-              <select
-                value={activeBranchId}
-                onChange={(e) => setActiveBranchId(e.target.value)}
-                className="bg-transparent font-bold text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer"
-              >
-                {allowedBranches.map((b) => (
-                  <option key={b.id} value={b.id} className="dark:bg-slate-900">
-                    {b.name} ({b.code})
-                  </option>
-                ))}
-              </select>
             )}
-          </div>
-
-          {/* Consolidated Report Modal Button */}
-          <button
-            type="button"
-            onClick={() => setShowConsolidatedModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 hover:bg-indigo-100 text-xs font-bold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer"
-            title="Open Consolidated Multi-Branch Stock Audit Report"
-          >
-            <TableProperties className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-            <span>Consolidated Matrix</span>
           </button>
 
-          {/* Export Branch CSV */}
           <button
             type="button"
-            onClick={handleExportBranchCSV}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
-            title="Download Branch Audit CSV Report"
+            onClick={() => setActiveAuditTab('CONSOLIDATED_MATRIX')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+              activeAuditTab === 'CONSOLIDATED_MATRIX'
+                ? 'bg-indigo-600 text-white shadow-md'
+                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+            }`}
           >
-            <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
-            <span>Export Branch CSV</span>
+            <TableProperties className="h-4 w-4" />
+            <span>Multi-Branch Audit Matrix & Approver View</span>
+            {visiblePendingAuditRequests.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black animate-pulse">
+                {visiblePendingAuditRequests.length} PENDING
+              </span>
+            )}
           </button>
-
-          {/* PRIMARY WORKFLOW BUTTON: SUBMIT FOR APPROVAL REPORT */}
-          {!pendingAuditRequest && !isLocallySubmitted && (
-            <button
-              type="button"
-              id="btn-submit-stock-audit-approval"
-              onClick={() => setShowApprovalModal(true)}
-              disabled={stats.discrepancyCount === 0 || isTableLocked}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-md transition-all cursor-pointer ${
-                stats.discrepancyCount > 0 && !isTableLocked
-                  ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 hover:from-indigo-500 hover:to-indigo-600 ring-2 ring-indigo-500/20 active:scale-95'
-                  : 'bg-slate-400 dark:bg-slate-800 text-slate-200 cursor-not-allowed opacity-60'
-              }`}
-              title={
-                stats.discrepancyCount === 0
-                  ? 'No stock count discrepancies to submit'
-                  : 'Submit Physical Stock Count Audit Report for Authorization & Lock Table'
-              }
-            >
-              <Send className="h-4 w-4 shrink-0" />
-              <span>Submit for Approval Report {stats.discrepancyCount > 0 ? `(${stats.discrepancyCount})` : ''}</span>
-            </button>
-          )}
-
-          {/* Super Admin / Stock Manager: DEDICATED APPROVE & RECONCILE ACTION */}
-          {isManagerOrAdmin && (
-            <button
-              type="button"
-              onClick={() => {
-                if (pendingAuditRequest) {
-                  setShowApproveReconcileModal(true);
-                } else {
-                  setShowApproveReconcileModal(true);
-                }
-              }}
-              disabled={stats.discrepancyCount === 0 && !pendingAuditRequest}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-white font-extrabold text-xs shadow-md cursor-pointer transition-all ${
-                stats.discrepancyCount > 0 || pendingAuditRequest
-                  ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 active:scale-95'
-                  : 'bg-slate-400 dark:bg-slate-800 text-slate-200 cursor-not-allowed opacity-60'
-              }`}
-              title="Super Admin / Stock Manager: Authorize & Reconcile Physical Counts with Ledger"
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              <span>Approve & Reconcile Stock</span>
-            </button>
-          )}
         </div>
+
+        {visiblePendingAuditRequests.length > 0 && isManagerOrAdmin && (
+          <button
+            type="button"
+            onClick={handleApproveAllPendingAudits}
+            disabled={isSubmitting}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+          >
+            <CheckCircle2 className="h-4 w-4" />
+            <span>Approve All ({visiblePendingAuditRequests.length}) Pending Branch Audits</span>
+          </button>
+        )}
       </div>
+
+      {/* VIEW MODE 1: SINGLE BRANCH FLOOR AUDIT SESSION */}
+      {activeAuditTab === 'SINGLE_BRANCH' && (
+        <>
+          {/* HEADER SECTION */}
+          <div
+            className={`p-5 rounded-3xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 ${
+              isDarkMode
+                ? 'bg-slate-900/90 border-slate-800 text-slate-100'
+                : 'bg-white border-slate-200 text-slate-800 shadow-xs'
+            }`}
+          >
+            <div className="space-y-1">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-2xl bg-indigo-600/10 text-indigo-500 border border-indigo-500/20">
+                  <ClipboardCheck className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-serif font-bold tracking-tight flex items-center gap-2">
+                    <span>Physical Stock Count & Reconciliation Audit</span>
+                    {isTableLocked && (
+                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 text-[10px] font-mono flex items-center gap-1 font-bold">
+                        <Lock className="h-3 w-3" />
+                        <span>LOCKED</span>
+                      </span>
+                    )}
+                    {isReviewMode && (
+                      <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 text-[10px] font-mono flex items-center gap-1 font-bold">
+                        <ShieldCheck className="h-3 w-3" />
+                        <span>MANAGER REVIEW</span>
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Count branch inventory, record discrepancy justifications, and submit for management authorization to reconcile physical stock.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+              {/* Branch Selector with Permission Locking */}
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold">
+                <Building className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                <span className="text-slate-500 dark:text-slate-400">Location:</span>
+                {isBranchLockedForUser ? (
+                  <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                    <span>{activeBranch?.name}</span>
+                    <span className="text-[10px] text-indigo-600 dark:text-indigo-400">({activeBranch?.code})</span>
+                  </span>
+                ) : (
+                  <select
+                    value={activeBranchId}
+                    onChange={(e) => setActiveBranchId(e.target.value)}
+                    className="bg-transparent font-bold text-slate-800 dark:text-slate-100 focus:outline-none cursor-pointer"
+                  >
+                    {allowedBranches.map((b) => (
+                      <option key={b.id} value={b.id} className="dark:bg-slate-900">
+                        {b.name} ({b.code})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Dedicated Company-Wide Blind Stock Audit Button (Super Admin & Stock Manager) */}
+              {canToggleBlindCount && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isCompanyWideBlindCount;
+                    setIsCompanyWideBlindCount(next);
+                    if (next) setIsBlindRevealed(false);
+                    setToastMessage(
+                      next
+                        ? 'Company-Wide Blind Count ACTIVATED for all 19 branches!'
+                        : 'Company-Wide Blind Count Mode Deactivated.'
+                    );
+                    setTimeout(() => setToastMessage(null), 4000);
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black transition-all cursor-pointer border ${
+                    isCompanyWideBlindCount
+                      ? 'bg-purple-600 text-white border-purple-500 shadow-md ring-2 ring-purple-400/40'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                  title="Enable Blind Count Mode across all company branches simultaneously"
+                >
+                  <Lock className={`h-4 w-4 ${isCompanyWideBlindCount ? 'text-purple-200' : 'text-purple-500'}`} />
+                  <span>Company Blind Count: {isCompanyWideBlindCount ? 'ON (All Branches)' : 'OFF'}</span>
+                </button>
+              )}
+
+              {/* Branch Blind Stock Audit Toggle (Restricted to Super Admin & Stock Manager) */}
+              <button
+                type="button"
+                disabled={!canToggleBlindCount || isCompanyWideBlindCount}
+                onClick={() => {
+                  if (!canToggleBlindCount) {
+                    setToastMessage('Access Denied: Only Super Admin and Stock Manager can toggle Blind Count mode.');
+                    setTimeout(() => setToastMessage(null), 4000);
+                    return;
+                  }
+                  if (isBlindAuditMode) {
+                    setIsBlindAuditMode(false);
+                    setIsBlindRevealed(false);
+                    setToastMessage('Switched to Standard Audit Mode (Visible Book Balances).');
+                  } else {
+                    setIsBlindAuditMode(true);
+                    setIsBlindRevealed(false);
+                    setToastMessage('Blind Stock Audit Mode Activated — Book balances hidden for unbiased stock count!');
+                  }
+                  setTimeout(() => setToastMessage(null), 4000);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                  !canToggleBlindCount || isCompanyWideBlindCount
+                    ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                    : isBlindAuditMode
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md font-extrabold cursor-pointer'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-200 cursor-pointer'
+                }`}
+                title={
+                  !canToggleBlindCount
+                    ? 'Restricted: Only Super Admin & Stock Manager can toggle Blind Count'
+                    : isCompanyWideBlindCount
+                    ? 'Enforced company-wide by Executive Admin'
+                    : 'Blind Stock Audit: Hide book quantities from floor count staff to prevent bias'
+                }
+              >
+                <Lock className={`h-4 w-4 ${isEffectiveBlindAudit ? 'text-slate-950 dark:text-amber-400' : 'text-amber-500'}`} />
+                <span>
+                  Branch Blind Count: {isCompanyWideBlindCount ? 'ON (Enforced)' : isBlindAuditMode ? 'ON (Hidden)' : 'OFF'}
+                </span>
+                {!canToggleBlindCount && (
+                  <span className="text-[9px] uppercase px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-extrabold">
+                    Locked
+                  </span>
+                )}
+              </button>
+
+              {/* Consolidated Report Modal Button */}
+              <button
+                type="button"
+                onClick={() => setShowConsolidatedModal(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/40 hover:bg-indigo-100 text-xs font-bold text-indigo-700 dark:text-indigo-300 transition-colors cursor-pointer"
+                title="Open Consolidated Multi-Branch Stock Audit Report"
+              >
+                <TableProperties className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                <span>Consolidated Matrix</span>
+              </button>
+
+              {/* Export Branch CSV */}
+              <button
+                type="button"
+                onClick={handleExportBranchCSV}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                title="Download Branch Audit CSV Report"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
+                <span>Export Branch CSV</span>
+              </button>
+
+              {/* PRIMARY WORKFLOW BUTTON: SUBMIT FOR APPROVAL REPORT */}
+              {!pendingAuditRequest && !isLocallySubmitted && (
+                <button
+                  type="button"
+                  id="btn-submit-stock-audit-approval"
+                  onClick={() => setShowApprovalModal(true)}
+                  disabled={stats.discrepancyCount === 0 || isTableLocked}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-extrabold text-white shadow-md transition-all cursor-pointer ${
+                    stats.discrepancyCount > 0 && !isTableLocked
+                      ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-indigo-800 hover:from-indigo-500 hover:to-indigo-600 ring-2 ring-indigo-500/20 active:scale-95'
+                      : 'bg-slate-400 dark:bg-slate-800 text-slate-200 cursor-not-allowed opacity-60'
+                  }`}
+                  title={
+                    stats.discrepancyCount === 0
+                      ? 'No stock count discrepancies to submit'
+                      : 'Submit Physical Stock Count Audit Report for Authorization & Lock Table'
+                  }
+                >
+                  <Send className="h-4 w-4 shrink-0" />
+                  <span>Submit for Approval Report {stats.discrepancyCount > 0 ? `(${stats.discrepancyCount})` : ''}</span>
+                </button>
+              )}
+
+              {/* Super Admin / Stock Manager: DEDICATED APPROVE & RECONCILE ACTION */}
+              {isManagerOrAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (pendingAuditRequest) {
+                      setShowApproveReconcileModal(true);
+                    } else {
+                      setShowApproveReconcileModal(true);
+                    }
+                  }}
+                  disabled={stats.discrepancyCount === 0 && !pendingAuditRequest}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-white font-extrabold text-xs shadow-md cursor-pointer transition-all ${
+                    stats.discrepancyCount > 0 || pendingAuditRequest
+                      ? 'bg-emerald-600 hover:bg-emerald-700 ring-2 ring-emerald-500/20 active:scale-95'
+                      : 'bg-slate-400 dark:bg-slate-800 text-slate-200 cursor-not-allowed opacity-60'
+                  }`}
+                  title="Super Admin / Stock Manager: Authorize & Reconcile Physical Counts with Ledger"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Approve & Reconcile Stock</span>
+                </button>
+              )}
+            </div>
+          </div>
 
       {/* METRICS SUMMARY CARDS */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -1195,6 +1421,68 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           </p>
         </div>
       </div>
+
+      {/* BLIND AUDIT ACTIVE BANNER & UNSEAL ACTION */}
+      {isEffectiveBlindAudit && (
+        <div className="p-4 rounded-2xl border-2 border-indigo-400 dark:border-indigo-600 bg-gradient-to-r from-indigo-900 via-slate-900 to-indigo-950 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-indigo-500 text-white shadow-md shrink-0">
+              <Lock className="h-5 w-5" />
+            </div>
+            <div className="space-y-0.5 text-xs">
+              <div className="font-extrabold text-sm flex items-center gap-2 text-indigo-200">
+                <span>
+                  {isCompanyWideBlindCount
+                    ? `Company-Wide Blind Stock Audit Active (${activeBranch?.name})`
+                    : `Blind Stock Audit Active for ${activeBranch?.name}`}
+                </span>
+                {isBlindRevealed ? (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-extrabold">
+                    UNSEALED
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-extrabold">
+                    COUNTING IN PROGRESS
+                  </span>
+                )}
+              </div>
+              <p className="text-slate-300 leading-relaxed max-w-2xl">
+                {isBlindRevealed
+                  ? 'System balances and variances are unsealed and calculated. Review discrepancies below before submitting for management reconciliation.'
+                  : 'Book quantities are hidden from floor stock auditors to guarantee unbiased physical counts. When physical counting is completed, click "Unseal & Reveal System Balances".'}
+              </p>
+            </div>
+          </div>
+          <div className="shrink-0 flex items-center gap-2">
+            {!isBlindRevealed ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBlindRevealed(true);
+                  setToastMessage('System Balances Unsealed! Variances calculated successfully.');
+                  setTimeout(() => setToastMessage(null), 4000);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs shadow-md flex items-center gap-2 cursor-pointer active:scale-95 transition-all"
+              >
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Unseal & Reveal System Balances</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBlindRevealed(false);
+                  setToastMessage('Re-sealed system balances for blind count.');
+                  setTimeout(() => setToastMessage(null), 3000);
+                }}
+                className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold border border-slate-700 cursor-pointer"
+              >
+                Re-seal Balances
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* FILTER & SEARCH TOOLBAR */}
       <div
@@ -1334,8 +1622,17 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
                       {/* Book System Qty */}
                       <td className="p-3.5 text-center font-mono font-bold text-slate-700 dark:text-slate-300">
-                        <span className="text-sm">{row.bookQty}</span>{' '}
-                        <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
+                        {isEffectiveBlindAudit && !isBlindRevealed ? (
+                          <span className="px-2 py-1 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 text-[10px] font-bold border border-amber-300 dark:border-amber-800 flex items-center justify-center gap-1">
+                            <Lock className="h-3 w-3 text-amber-600" />
+                            <span>Hidden (Blind)</span>
+                          </span>
+                        ) : (
+                          <>
+                            <span className="text-sm">{row.bookQty}</span>{' '}
+                            <span className="text-[10px] text-slate-400 font-normal">{row.unit}</span>
+                          </>
+                        )}
                       </td>
 
                       {/* Physical Stock Count Input */}
@@ -1357,11 +1654,13 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                             value={row.countedQty}
                             onChange={(e) => handleCountChange(row.productId, e.target.value)}
                             className={`w-18 text-center font-mono font-bold py-1.5 px-2 text-xs rounded-xl border focus:outline-none focus:ring-2 disabled:opacity-75 disabled:cursor-not-allowed ${
-                              variance < 0
-                                ? 'border-rose-400 bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 focus:ring-rose-400'
-                                : variance > 0
-                                ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 focus:ring-emerald-400'
-                                : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-indigo-500'
+                              !isEffectiveBlindAudit || isBlindRevealed
+                                ? variance < 0
+                                  ? 'border-rose-400 bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 focus:ring-rose-400'
+                                  : variance > 0
+                                  ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 focus:ring-emerald-400'
+                                  : 'border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:ring-indigo-500'
+                                : 'border-indigo-400 bg-indigo-50/60 dark:bg-indigo-950/40 text-indigo-950 dark:text-indigo-100 focus:ring-indigo-500'
                             }`}
                           />
                           <button
@@ -1378,7 +1677,9 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
 
                       {/* Variance Qty */}
                       <td className="p-3.5 text-center font-mono font-extrabold">
-                        {variance === 0 ? (
+                        {isEffectiveBlindAudit && !isBlindRevealed ? (
+                          <span className="text-[10px] text-slate-400 font-semibold italic">Unsealed on submit</span>
+                        ) : variance === 0 ? (
                           <span className="inline-flex items-center gap-1 text-slate-400 font-medium">
                             <Check className="h-3 w-3 text-emerald-500" />
                             <span>0</span>
@@ -1397,14 +1698,18 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
                       {/* Variance Value */}
                       <td
                         className={`p-3.5 text-right font-mono font-bold ${
-                          variance < 0
+                          isEffectiveBlindAudit && !isBlindRevealed
+                            ? 'text-slate-400 font-normal italic'
+                            : variance < 0
                             ? 'text-rose-600 dark:text-rose-400'
                             : variance > 0
                             ? 'text-emerald-600 dark:text-emerald-400'
                             : 'text-slate-400 font-normal'
                         }`}
                       >
-                        {varianceVal === 0
+                        {isEffectiveBlindAudit && !isBlindRevealed
+                          ? '🔒 Hidden'
+                          : varianceVal === 0
                           ? 'NPR 0'
                           : `${varianceVal > 0 ? '+' : ''}NPR ${(varianceVal ?? 0).toLocaleString()}`}
                       </td>
@@ -1451,6 +1756,214 @@ export const PhysicalStockAudit: React.FC<PhysicalStockAuditProps> = ({
           </table>
         </div>
       </div>
+        </>
+      )}
+
+      {/* VIEW MODE 2: MULTI-BRANCH CONSOLIDATED AUDIT MATRIX & APPROVER VIEW */}
+      {activeAuditTab === 'CONSOLIDATED_MATRIX' && (
+        <div className="space-y-6">
+          {/* Executive Approver Summary Banner */}
+          {visiblePendingAuditRequests.length > 0 ? (
+            <div className="p-5 rounded-3xl border-2 border-amber-400 dark:border-amber-600 bg-amber-500/10 text-amber-950 dark:text-amber-100 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg">
+              <div className="flex items-start gap-3">
+                <div className="p-3 rounded-2xl bg-amber-500 text-slate-950 font-bold shrink-0">
+                  <ShieldCheck className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base flex items-center gap-2">
+                    <span>{visiblePendingAuditRequests.length} Branch Stock Audit Submissions Awaiting Authorization</span>
+                    <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-mono font-black">
+                      ACTION REQUIRED
+                    </span>
+                  </h3>
+                  <p className="text-xs text-amber-900/80 dark:text-amber-200/90 mt-1">
+                    Branch floor staff have completed stock counts and submitted audit reports. As an authorized approver, you can unseal system book balances, review variances, and approve stock reconciliation.
+                  </p>
+
+                  {/* List of Pending Branch Submissions */}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {visiblePendingAuditRequests.map((req) => (
+                      <div
+                        key={req.id}
+                        className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 text-xs flex items-center gap-2 shadow-xs"
+                      >
+                        <Building className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                          {req.branchName}
+                        </span>
+                        <span className="font-mono text-[10px] text-slate-500">
+                          #{req.auditData?.auditRefNumber || 'AUD-REQ'}
+                        </span>
+                        {isManagerOrAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleApproveSinglePendingBranch(req.id, req.branchName)}
+                            className="px-2 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold cursor-pointer transition-colors"
+                          >
+                            Approve
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {isManagerOrAdmin && (
+                <button
+                  type="button"
+                  onClick={handleApproveAllPendingAudits}
+                  disabled={isSubmitting}
+                  className="px-5 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-lg shrink-0 flex items-center gap-2 cursor-pointer active:scale-95 transition-all disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>Authorize & Reconcile All ({visiblePendingAuditRequests.length}) Audits</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="p-4 rounded-2xl border border-emerald-300 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                <span>
+                  <strong>Branch Stock Audits Up to Date:</strong> No pending stock reconciliation requests. Stock records are currently synchronized with physical ledger counts.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Consolidated Matrix Toolbar */}
+          <div className={`p-4 rounded-2xl border flex flex-col md:flex-row items-center justify-between gap-3 ${
+            isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-xs'
+          }`}>
+            <div className="relative flex-1 w-full">
+              <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search matrix by SKU, Product Name, or Category..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs font-semibold focus:outline-none cursor-pointer"
+              >
+                <option value="ALL">All Categories</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={handleExportBranchCSV}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+              >
+                <FileSpreadsheet className="h-4 w-4 text-emerald-500" />
+                <span>Export Full Company Matrix CSV</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Consolidated Matrix Table */}
+          <div className={`rounded-3xl border overflow-hidden ${
+            isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-white border-slate-200 shadow-sm'
+          }`}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className={`font-bold uppercase text-[10px] tracking-wider border-b ${
+                  isDarkMode ? 'bg-slate-800/90 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                }`}>
+                  <tr>
+                    <th className="p-3 sticky left-0 z-20 bg-slate-100 dark:bg-slate-800 min-w-[180px]">Product / SKU</th>
+                    <th className="p-3 text-right">Cost Price</th>
+                    {visibleBranches.map((b) => {
+                      const hasPending = approvalRequests.some(
+                        (r) => r.type === 'STOCK_AUDIT_RECONCILIATION' && r.branchId === b.id && r.status === 'PENDING'
+                      );
+                      return (
+                        <th key={b.id} className="p-3 text-center min-w-[110px] border-l border-slate-200 dark:border-slate-800">
+                          <div className="flex items-center justify-center gap-1 font-bold">
+                            <span>{b.code}</span>
+                            {hasPending && (
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" title="Pending Approval" />
+                            )}
+                          </div>
+                          <div className="text-[9px] text-slate-400 font-normal truncate max-w-[90px]">{b.name}</div>
+                        </th>
+                      );
+                    })}
+                    <th className="p-3 text-center border-l-2 border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                      Co. Total Book
+                    </th>
+                    <th className="p-3 text-center bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                      Co. Total Counted
+                    </th>
+                    <th className="p-3 text-center bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                      Net Variance
+                    </th>
+                    <th className="p-3 text-right bg-indigo-50/50 dark:bg-indigo-950/30 font-extrabold text-indigo-700 dark:text-indigo-300">
+                      Net NPR Impact
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-mono">
+                  {consolidatedMatrix
+                    .filter((row) => {
+                      const q = searchQuery.toLowerCase().trim();
+                      const matchSearch = !q || row.productName.toLowerCase().includes(q) || row.sku.toLowerCase().includes(q);
+                      const matchCat = selectedCategory === 'ALL' || row.category === selectedCategory;
+                      return matchSearch && matchCat;
+                    })
+                    .map((row) => (
+                      <tr key={row.productId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                        <td className="p-3 font-sans sticky left-0 z-10 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800">
+                          <div className="font-bold text-slate-900 dark:text-slate-100 text-xs">{row.productName}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{row.sku}</div>
+                        </td>
+                        <td className="p-3 text-right text-slate-600 dark:text-slate-400">
+                          NPR {(row.unitCost || 0).toLocaleString()}
+                        </td>
+                        {row.branches.map((b) => (
+                          <td key={b.branchId} className="p-3 text-center border-l border-slate-200 dark:border-slate-800">
+                            <div className="text-slate-800 dark:text-slate-200 font-bold">{b.countedQty}</div>
+                            <div className="text-[10px] text-slate-400 font-normal">Bk: {b.bookQty}</div>
+                            {b.variance !== 0 && (
+                              <div className={`text-[10px] font-black ${b.variance < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                {b.variance > 0 ? `+${b.variance}` : b.variance}
+                              </div>
+                            )}
+                          </td>
+                        ))}
+                        <td className="p-3 text-center font-bold border-l-2 border-indigo-200 dark:border-indigo-900 bg-indigo-50/20 dark:bg-indigo-950/20 text-slate-800 dark:text-slate-200">
+                          {row.companyTotalBookQty}
+                        </td>
+                        <td className="p-3 text-center font-bold bg-indigo-50/20 dark:bg-indigo-950/20 text-slate-900 dark:text-slate-100">
+                          {row.companyTotalCountedQty}
+                        </td>
+                        <td className={`p-3 text-center font-extrabold bg-indigo-50/20 dark:bg-indigo-950/20 ${
+                          row.companyTotalVarianceQty < 0 ? 'text-rose-600' : row.companyTotalVarianceQty > 0 ? 'text-emerald-600' : 'text-slate-400'
+                        }`}>
+                          {row.companyTotalVarianceQty > 0 ? `+${row.companyTotalVarianceQty}` : row.companyTotalVarianceQty}
+                        </td>
+                        <td className={`p-3 text-right font-extrabold bg-indigo-50/20 dark:bg-indigo-950/20 ${
+                          row.totalVarianceVal < 0 ? 'text-rose-600' : row.totalVarianceVal > 0 ? 'text-emerald-600' : 'text-slate-400'
+                        }`}>
+                          {row.totalVarianceVal === 0 ? 'NPR 0' : `${row.totalVarianceVal > 0 ? '+' : ''}NPR ${row.totalVarianceVal.toLocaleString()}`}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL 1: SUBMIT STOCK AUDIT FOR APPROVAL (Workflow: Count Stock > Send Request for approval) */}
       {showApprovalModal && (

@@ -95,13 +95,13 @@ export const WarrantyProducts: React.FC<WarrantyProductsProps> = ({
 
     if (!searchQuery.trim()) return matchesBranch && matchesWarranty && matchesCat;
 
-    const q = searchQuery.toLowerCase().trim();
+    const q = (searchQuery || '').toLowerCase().trim();
     const matchesQuery =
-      item.name.toLowerCase().includes(q) ||
-      item.serialOrTag.toLowerCase().includes(q) ||
-      (item.secondarySerial && item.secondarySerial.toLowerCase().includes(q)) ||
-      item.assignedTo.toLowerCase().includes(q) ||
-      item.branchName.toLowerCase().includes(q);
+      (item?.name || '').toLowerCase().includes(q) ||
+      (item?.serialOrTag || '').toLowerCase().includes(q) ||
+      (item.secondarySerial && (item?.secondarySerial || '').toLowerCase().includes(q)) ||
+      (item?.assignedTo || '').toLowerCase().includes(q) ||
+      (item?.branchName || '').toLowerCase().includes(q);
 
     return matchesBranch && matchesWarranty && matchesCat && matchesQuery;
   });

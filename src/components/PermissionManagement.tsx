@@ -428,9 +428,9 @@ export const PermissionManagement: React.FC<PermissionManagementProps> = ({ curr
     .map((group) => {
       const filteredOps = group.operations.filter(
         (op) =>
-          op.operationName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          op.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          group.category.toLowerCase().includes(searchQuery.toLowerCase())
+          (op?.operationName || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+          (op?.description || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+          (group?.category || '').toLowerCase().includes((searchQuery || '').toLowerCase())
       );
       return {
         ...group,

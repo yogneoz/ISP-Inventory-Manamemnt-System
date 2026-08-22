@@ -104,7 +104,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
 
       // Search Query
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
+        const q = (searchQuery || '').toLowerCase().trim();
         const branchObj = branches.find((b) => b.id === dev.branchId);
         const branchName = branchObj?.name.toLowerCase() || '';
         const branchCode = branchObj?.code.toLowerCase() || '';
@@ -227,11 +227,11 @@ export const ExportStock: React.FC<ExportStockProps> = ({
       if (filterReorderStatus === 'OUT_OF_STOCK' && !item.isOutOfStock) return false;
 
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchName = prod.name.toLowerCase().includes(q);
-        const matchSku = prod.sku.toLowerCase().includes(q);
+        const q = (searchQuery || '').toLowerCase().trim();
+        const matchName = (prod?.name || '').toLowerCase().includes(q);
+        const matchSku = (prod?.sku || '').toLowerCase().includes(q);
         const matchBarcode = prod.barcode?.toLowerCase().includes(q);
-        const matchCat = prod.category.toLowerCase().includes(q);
+        const matchCat = (prod?.category || '').toLowerCase().includes(q);
         if (!matchName && !matchSku && !matchBarcode && !matchCat) return false;
       }
 
@@ -252,10 +252,10 @@ export const ExportStock: React.FC<ExportStockProps> = ({
       const matchesCat = filterCategory === 'ALL' || p.category === filterCategory;
       const matchesGrp = filterGroup === 'ALL' || (p.productGroup || 'Product Item') === filterGroup;
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchName = p.name.toLowerCase().includes(q);
-        const matchSku = p.sku.toLowerCase().includes(q);
-        const matchCat = p.category.toLowerCase().includes(q);
+        const q = (searchQuery || '').toLowerCase().trim();
+        const matchName = (p?.name || '').toLowerCase().includes(q);
+        const matchSku = (p?.sku || '').toLowerCase().includes(q);
+        const matchCat = (p?.category || '').toLowerCase().includes(q);
         if (!matchName && !matchSku && !matchCat) return false;
       }
       return matchesCat && matchesGrp;
@@ -284,7 +284,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
         key: 'sku',
         label: 'Product SKU',
         formatter: (_: any, row: CustomerDeviceRecord) => {
-          const prod = products.find((p) => p.name.toLowerCase() === row.productName.toLowerCase());
+          const prod = products.find((p) => (p?.name || '').toLowerCase() === (row?.productName || '').toLowerCase());
           return prod?.sku || '-';
         },
       },
@@ -292,7 +292,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
         key: 'category',
         label: 'Category',
         formatter: (_: any, row: CustomerDeviceRecord) => {
-          const prod = products.find((p) => p.name.toLowerCase() === row.productName.toLowerCase());
+          const prod = products.find((p) => (p?.name || '').toLowerCase() === (row?.productName || '').toLowerCase());
           return prod?.category || 'CPE Hardware';
         },
       },
@@ -308,7 +308,7 @@ export const ExportStock: React.FC<ExportStockProps> = ({
         key: 'unitCost',
         label: 'Unit Cost Price (NPR)',
         formatter: (_: any, row: CustomerDeviceRecord) => {
-          const prod = products.find((p) => p.name.toLowerCase() === row.productName.toLowerCase());
+          const prod = products.find((p) => (p?.name || '').toLowerCase() === (row?.productName || '').toLowerCase());
           return prod ? prod.costPrice : 1850;
         },
       },

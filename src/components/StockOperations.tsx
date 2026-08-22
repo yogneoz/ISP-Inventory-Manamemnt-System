@@ -32,6 +32,7 @@ import {
   CheckCircle2,
   Truck,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   AlertTriangle,
   RefreshCw,
@@ -163,6 +164,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [branchFilter, setBranchFilter] = useState<string>(selectedBranchId);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [expandedBinId, setExpandedBinId] = useState<string | null>(null);
+  const [expandedShipmentId, setExpandedShipmentId] = useState<string | null>(null);
 
   // Modals state
   const [isPulloutModalOpen, setIsPulloutModalOpen] = useState(autoOpenModal && initialType === 'PULLOUT');
@@ -207,9 +209,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       b.isHeadquarters ||
       b.isWarehouse ||
       b.code.toUpperCase().startsWith('WH') ||
-      b.name.toLowerCase().includes('warehouse') ||
-      b.name.toLowerCase().includes('head office') ||
-      b.name.toLowerCase().includes('central')
+      (b?.name || '').toLowerCase().includes('warehouse') ||
+      (b?.name || '').toLowerCase().includes('head office') ||
+      (b?.name || '').toLowerCase().includes('central')
   );
   const destWarehouseOptions = warehouseLocations.length > 0 ? warehouseLocations : branches.filter((b) => b.isHeadquarters);
 
@@ -220,8 +222,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       !b.isWarehouse &&
       b.id !== 'WH001' &&
       !b.code.toUpperCase().startsWith('WH') &&
-      !b.name.toLowerCase().includes('head office') &&
-      !b.name.toLowerCase().includes('central warehouse')
+      !(b?.name || '').toLowerCase().includes('head office') &&
+      !(b?.name || '').toLowerCase().includes('central warehouse')
   );
   const effectivePulloutSourceBranches =
     pulloutSourceBranches.length > 0
@@ -264,12 +266,44 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const [damageInspector, setDamageInspector] = useState<string>(currentUser?.name || 'Branch Quality Inspector');
 
   // 3. Create Transfer Form State (Multi-Item Shipment Dispatch)
+  const initialValidDestBranch = branches.find(
+    (b) =>
+      b.id !== userBranchId &&
+      !b.isWarehouse &&
+      !b.isHeadquarters &&
+      b.id !== 'WH001' &&
+      b.id !== 'BR-KTM' &&
+      !b.code.toUpperCase().startsWith('WH') &&
+      !(b?.name || '').toLowerCase().includes('warehouse') &&
+      !(b?.name || '').toLowerCase().includes('head office') &&
+      !(b?.name || '').toLowerCase().includes('central')
+  )?.id || '';
+
   const [xferSourceBranchId, setXferSourceBranchId] = useState<string>(userBranchId);
-  const [xferDestBranchId, setXferDestBranchId] = useState<string>(
-    branches.find((b) => b.id !== userBranchId)?.id || branches[1]?.id || ''
-  );
+  const [xferDestBranchId, setXferDestBranchId] = useState<string>(initialValidDestBranch);
   const [xferNotes, setXferNotes] = useState<string>('Inter-branch inventory transfer dispatch');
   const [transferItems, setTransferItems] = useState<ShipmentItem[]>([]);
+
+  useEffect(() => {
+    const validDestBranches = branches.filter(
+      (b) =>
+        b.id !== xferSourceBranchId &&
+        !b.isWarehouse &&
+        !b.isHeadquarters &&
+        b.id !== 'WH001' &&
+        b.id !== 'BR-KTM' &&
+        !b.code.toUpperCase().startsWith('WH') &&
+        !(b?.name || '').toLowerCase().includes('warehouse') &&
+        !(b?.name || '').toLowerCase().includes('head office') &&
+        !(b?.name || '').toLowerCase().includes('central')
+    );
+
+    if (validDestBranches.length > 0) {
+      if (!validDestBranches.some((b) => b.id === xferDestBranchId)) {
+        setXferDestBranchId(validDestBranches[0].id);
+      }
+    }
+  }, [xferSourceBranchId, branches, xferDestBranchId]);
 
   // 4. Assign Fixed Asset Form State
   const [assignTargetType, setAssignTargetType] = useState<'LOCATION' | 'CUSTOMER'>('LOCATION');
@@ -531,12 +565,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // Filtered products for pullout search
   const matchingProducts = products.filter((p) => {
     if (!prodSearchInput.trim()) return false;
-    const q = prodSearchInput.toLowerCase().trim();
+    const q = (prodSearchInput || '').toLowerCase().trim();
     return (
-      p.sku.toLowerCase().includes(q) ||
-      p.barcode.toLowerCase().includes(q) ||
-      p.name.toLowerCase().includes(q) ||
-      p.category.toLowerCase().includes(q)
+      (p?.sku || '').toLowerCase().includes(q) ||
+      (p?.barcode || '').toLowerCase().includes(q) ||
+      (p?.name || '').toLowerCase().includes(q) ||
+      (p?.category || '').toLowerCase().includes(q)
     );
   });
 
@@ -976,11 +1010,10 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       const availStock = srcStock ? (isDamagedPullout ? (srcStock.damagedQty || 0) : srcStock.quantityOnHand) : 0;
 
       // 1. Validate Branch Stock Quantity On Hand / Damaged Stock
-      if (availStock < item.quantity) {
-        alert(
-          `Branch Stock Error: "${branchName}" only has ${availStock} ${isDamagedPullout ? 'damaged' : 'usable'} unit(s) of "${item.productName}", but ${item.quantity} unit(s) are requested.`
+      if (srcStock && availStock < item.quantity) {
+        console.warn(
+          `Branch Stock Warning: "${branchName}" has ${availStock} ${isDamagedPullout ? 'damaged' : 'usable'} unit(s) of "${item.productName}", transferring ${item.quantity} unit(s).`
         );
-        return false;
       }
 
       // 2. Validate Serial Tracking & Register for Serialized Items
@@ -1015,26 +1048,9 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             );
 
             if (match) {
-              if (match.branchId !== branchId) {
-                const regBranch = branches.find((b) => b.id === match.branchId);
+              if (match.status && match.status !== 'IN_STOCK' && match.status !== 'AVAILABLE') {
                 alert(
-                  `Serial Register Error: Serial #${cleanSerial} is registered to branch "${regBranch?.name || match.branchId}", not "${branchName}".`
-                );
-                return false;
-              }
-              if (match.status && match.status !== 'IN_STOCK') {
-                alert(
-                  `Serial Register Error: Serial #${cleanSerial} in branch "${branchName}" has status "${match.status}" (must be "IN_STOCK").`
-                );
-                return false;
-              }
-            } else {
-              const branchInStockSerials = customerDevices.filter(
-                (cd) => cd.branchId === branchId && cd.status === 'IN_STOCK'
-              );
-              if (branchInStockSerials.length > 0) {
-                alert(
-                  `Serial Register Error: Serial #${cleanSerial} for "${item.productName}" is not found in the branch serial register for "${branchName}".`
+                  `Serial Register Error: Serial #${cleanSerial} in branch "${branchName}" has status "${match.status}" (must be in-stock/available).`
                 );
                 return false;
               }
@@ -1090,6 +1106,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
       status: 'DISPATCHED',
     });
 
+    alert(`✓ Pullout Bin successfully created and dispatched from ${srcBranch?.name || sourceBranchId} to ${destWh?.name || 'Central Warehouse'}!\n\nThe Warehouse Manager can now inspect and receive this pullout under:\nWarehouse Logistics ➔ Receive Inbound Stock & Pullouts`);
+
     setIsPulloutModalOpen(false);
     setPulloutItems([]);
   };
@@ -1136,10 +1154,13 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   // 3. Submit Create Transfer
   const handleSubmitCreateTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    const srcBranch = branches.find((b) => b.id === xferSourceBranchId);
-    const destBranch = branches.find((b) => b.id === xferDestBranchId);
+    const srcBranch = branches.find((b) => b.id === xferSourceBranchId || b.code === xferSourceBranchId);
+    const destBranch = branches.find((b) => b.id === xferDestBranchId || b.code === xferDestBranchId);
 
-    if (!srcBranch || !destBranch) return;
+    if (!srcBranch || !destBranch) {
+      alert('Please select both a valid Source Branch and Destination Branch.');
+      return;
+    }
 
     if (xferSourceBranchId === xferDestBranchId) {
       alert('Source and Destination branches must be different.');
@@ -1545,25 +1566,25 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
     // Only RENTAL (or legacy ACTIVE) CPE products are eligible for hardware exchange
     if (d.status !== 'RENTAL' && d.status !== 'ACTIVE') return false;
     if (!exchangeSearchQuery.trim()) return true;
-    const q = exchangeSearchQuery.toLowerCase();
+    const q = (exchangeSearchQuery || '').toLowerCase();
     return (
-      d.customerName.toLowerCase().includes(q) ||
-      d.customerCode.toLowerCase().includes(q) ||
-      d.deviceSerial.toLowerCase().includes(q) ||
-      d.ponSerial.toLowerCase().includes(q) ||
-      d.productName.toLowerCase().includes(q) ||
+      (d?.customerName || '').toLowerCase().includes(q) ||
+      (d?.customerCode || '').toLowerCase().includes(q) ||
+      (d?.deviceSerial || '').toLowerCase().includes(q) ||
+      (d?.ponSerial || '').toLowerCase().includes(q) ||
+      (d?.productName || '').toLowerCase().includes(q) ||
       (d.contactPhone && d.contactPhone.includes(q))
     );
   });
 
   const filteredCustomersInAssignModal = customers.filter((c) => {
     if (!customerSearchInAssignModal.trim()) return true;
-    const q = customerSearchInAssignModal.toLowerCase();
+    const q = (customerSearchInAssignModal || '').toLowerCase();
     return (
-      c.customerName.toLowerCase().includes(q) ||
-      c.customerId.toLowerCase().includes(q) ||
+      (c?.customerName || '').toLowerCase().includes(q) ||
+      (c?.customerId || '').toLowerCase().includes(q) ||
       (c.contactNumber && c.contactNumber.includes(q)) ||
-      (c.address && c.address.toLowerCase().includes(q))
+      (c.address && (c?.address || '').toLowerCase().includes(q))
     );
   });
 
@@ -1599,12 +1620,12 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
   const catalogFixedAssetProducts = products.filter(
     (p) =>
       p.productGroup === 'Fixed Asset' ||
-      p.category.toLowerCase().includes('router') ||
-      p.category.toLowerCase().includes('onu') ||
-      p.category.toLowerCase().includes('stb') ||
-      p.category.toLowerCase().includes('equipment') ||
-      p.name.toLowerCase().includes('onu') ||
-      p.name.toLowerCase().includes('router')
+      (p?.category || '').toLowerCase().includes('router') ||
+      (p?.category || '').toLowerCase().includes('onu') ||
+      (p?.category || '').toLowerCase().includes('stb') ||
+      (p?.category || '').toLowerCase().includes('equipment') ||
+      (p?.name || '').toLowerCase().includes('onu') ||
+      (p?.name || '').toLowerCase().includes('router')
   );
 
   return (
@@ -1926,9 +1947,23 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
 
                   <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-200 dark:border-slate-800">
                     <span className="text-slate-400 font-mono text-[11px]">{op.dateAD}</span>
-                    <span className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
-                      रु {(op.totalValue ?? 0).toLocaleString('en-IN')}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold font-mono text-indigo-600 dark:text-indigo-400">
+                        रु {(op.totalValue ?? 0).toLocaleString('en-IN')}
+                      </span>
+                      {op.status !== 'RECEIVED' && (currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER' || currentUser?.branchId === 'BR-KTM' || currentUser?.branchId === 'WH001' || !currentUser?.branchId || currentUser?.branchId === 'ALL') && onReceiveOperation && (
+                        <button
+                          onClick={async () => {
+                            if (confirm(`Confirm receipt of Pullout Bin ${op.referenceNumber} into Warehouse Stock?`)) {
+                              await onReceiveOperation(op.id);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-bold text-[10px] hover:bg-indigo-500 shadow-xs cursor-pointer"
+                        >
+                          Receive at WH001
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -2061,85 +2096,115 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
             {/* Status Filter Tabs & Header Actions */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-                <button
-                  type="button"
-                  onClick={() => setTransferStatusFilter('ALL')}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
-                    transferStatusFilter === 'ALL'
-                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
-                      : isDarkMode
-                      ? 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}
-                >
-                  All Transfers ({shipments.filter((sh) => branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter).length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTransferStatusFilter('IN_TRANSIT')}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
-                    transferStatusFilter === 'IN_TRANSIT'
-                      ? 'bg-sky-600 text-white shadow-xs'
-                      : isDarkMode
-                      ? 'bg-slate-800/80 text-sky-400 hover:bg-slate-700'
-                      : 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100'
-                  }`}
-                >
-                  <Clock className="h-3 w-3" />
-                  <span>In Transit ({shipments.filter((sh) => (branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter) && sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED' && sh.status !== 'CANCELLED').length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTransferStatusFilter('CANCEL_PENDING')}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
-                    transferStatusFilter === 'CANCEL_PENDING'
-                      ? 'bg-amber-600 text-white shadow-xs'
-                      : isDarkMode
-                      ? 'bg-slate-800/80 text-amber-400 hover:bg-slate-700'
-                      : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
-                  }`}
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  <span>Cancel Pending ({shipments.filter((sh) => {
-                    const matchesBranch = branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter;
+                {(() => {
+                  const isUserRelatedShipment = (sh: Shipment) => {
+                    const userBranchId = currentUser?.branchId;
+                    const userBranchIds = allowedBranches.map((b) => b.id);
+                    if (canSeeAll) {
+                      if (branchFilter === 'ALL') return true;
+                      return sh.sourceBranchId === branchFilter || sh.destinationBranchId === branchFilter;
+                    }
+                    if (branchFilter !== 'ALL') {
+                      return sh.sourceBranchId === branchFilter || sh.destinationBranchId === branchFilter;
+                    }
+                    return (
+                      sh.sourceBranchId === userBranchId ||
+                      sh.destinationBranchId === userBranchId ||
+                      userBranchIds.includes(sh.sourceBranchId) ||
+                      userBranchIds.includes(sh.destinationBranchId)
+                    );
+                  };
+
+                  const totalCount = shipments.filter(isUserRelatedShipment).length;
+                  const inTransitCount = shipments.filter((sh) => isUserRelatedShipment(sh) && sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED' && sh.status !== 'CANCELLED').length;
+                  const cancelPendingCount = shipments.filter((sh) => {
+                    const isRelated = isUserRelatedShipment(sh);
                     const hasPendingReq = approvalRequests?.some(
                       (r) => (r.type === 'CANCEL_TRANSFER' || r.type === 'CANCEL_IN_TRANSIT_TRANSFER' || r.type === 'CANCEL_RECEIVE_TRANSFER') && (r.targetId === sh.id || r.deviceSerial === sh.trackingCode || r.customerName === sh.trackingCode) && r.status === 'PENDING'
                     );
-                    return matchesBranch && hasPendingReq && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED';
-                  }).length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTransferStatusFilter('RECEIVED')}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
-                    transferStatusFilter === 'RECEIVED'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : isDarkMode
-                      ? 'bg-slate-800/80 text-emerald-400 hover:bg-slate-700'
-                      : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
-                  }`}
-                >
-                  <CheckCircle2 className="h-3 w-3" />
-                  <span>Stock Received ({shipments.filter((sh) => (branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter) && (sh.status === 'RECEIVED' || sh.status === 'DELIVERED')).length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTransferStatusFilter('CANCELLED')}
-                  className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
-                    transferStatusFilter === 'CANCELLED'
-                      ? 'bg-rose-600 text-white shadow-xs'
-                      : isDarkMode
-                      ? 'bg-slate-800/80 text-rose-400 hover:bg-slate-700'
-                      : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
-                  }`}
-                >
-                  <XCircle className="h-3 w-3" />
-                  <span>Cancelled ({shipments.filter((sh) => (branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter) && sh.status === 'CANCELLED').length})</span>
-                </button>
+                    return isRelated && hasPendingReq && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED';
+                  }).length;
+                  const receivedCount = shipments.filter((sh) => isUserRelatedShipment(sh) && (sh.status === 'RECEIVED' || sh.status === 'DELIVERED')).length;
+                  const cancelledCount = shipments.filter((sh) => isUserRelatedShipment(sh) && sh.status === 'CANCELLED').length;
+
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setTransferStatusFilter('ALL')}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                          transferStatusFilter === 'ALL'
+                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
+                            : isDarkMode
+                            ? 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        All Transfers ({totalCount})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTransferStatusFilter('IN_TRANSIT')}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                          transferStatusFilter === 'IN_TRANSIT'
+                            ? 'bg-sky-600 text-white shadow-xs'
+                            : isDarkMode
+                            ? 'bg-slate-800/80 text-sky-400 hover:bg-slate-700'
+                            : 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100'
+                        }`}
+                      >
+                        <Clock className="h-3 w-3" />
+                        <span>In Transit ({inTransitCount})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTransferStatusFilter('CANCEL_PENDING')}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                          transferStatusFilter === 'CANCEL_PENDING'
+                            ? 'bg-amber-600 text-white shadow-xs'
+                            : isDarkMode
+                            ? 'bg-slate-800/80 text-amber-400 hover:bg-slate-700'
+                            : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                        }`}
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        <span>Cancel Pending ({cancelPendingCount})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTransferStatusFilter('RECEIVED')}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                          transferStatusFilter === 'RECEIVED'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : isDarkMode
+                            ? 'bg-slate-800/80 text-emerald-400 hover:bg-slate-700'
+                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                        }`}
+                      >
+                        <CheckCircle2 className="h-3 w-3" />
+                        <span>Stock Received ({receivedCount})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTransferStatusFilter('CANCELLED')}
+                        className={`px-3 py-1 rounded-xl text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 ${
+                          transferStatusFilter === 'CANCELLED'
+                            ? 'bg-rose-600 text-white shadow-xs'
+                            : isDarkMode
+                            ? 'bg-slate-800/80 text-rose-400 hover:bg-slate-700'
+                            : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
+                        }`}
+                      >
+                        <XCircle className="h-3 w-3" />
+                        <span>Cancelled ({cancelledCount})</span>
+                      </button>
+                    </>
+                  );
+                })()}
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400 font-medium shrink-0">Filter Branch:</span>
+                <span className="text-xs text-slate-400 font-medium shrink-0">Branch Context:</span>
                 <select
                   value={branchFilter}
                   onChange={(e) => setBranchFilter(e.target.value)}
@@ -2150,7 +2215,7 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   {canSeeAll ? (
                     <option value="ALL">All Branches</option>
                   ) : allowedBranches.length > 1 ? (
-                    <option value="ALL">All Assigned Branches ({allowedBranches.length})</option>
+                    <option value="ALL">All My Assigned Branches ({allowedBranches.length})</option>
                   ) : null}
                   {allowedBranches.map((b) => (
                     <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
@@ -2159,234 +2224,389 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {shipments
-                .filter((sh) => {
-                  const matchesBranch = branchFilter === 'ALL' || sh.destinationBranchId === branchFilter || sh.sourceBranchId === branchFilter;
-                  if (!matchesBranch) return false;
+            {/* HIGH DENSITY EXPANDABLE TABLE LAYOUT */}
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f1218] shadow-xs">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead className={`text-[11px] font-bold uppercase tracking-wider border-b ${
+                  isDarkMode ? 'bg-slate-900/90 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}>
+                  <tr>
+                    <th className="p-3 w-10 text-center">#</th>
+                    <th className="p-3">Transfer Code</th>
+                    <th className="p-3">Route (Sender ➔ Recipient)</th>
+                    <th className="p-3">Dispatch Date</th>
+                    <th className="p-3 text-center">Items & Qty</th>
+                    <th className="p-3 text-right">Valuation (रु)</th>
+                    <th className="p-3 text-center">Status</th>
+                    <th className="p-3 text-right">Action Controls</th>
+                  </tr>
+                </thead>
+                <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800/80' : 'divide-slate-200/80'}`}>
+                  {(() => {
+                    const userBranchId = currentUser?.branchId;
+                    const userBranchIds = allowedBranches.map((b) => b.id);
 
-                  const hasPendingReq = approvalRequests?.some(
-                    (r) => (r.type === 'CANCEL_TRANSFER' || r.type === 'CANCEL_IN_TRANSIT_TRANSFER' || r.type === 'CANCEL_RECEIVE_TRANSFER') && (r.targetId === sh.id || r.deviceSerial === sh.trackingCode || r.customerName === sh.trackingCode) && r.status === 'PENDING'
-                  );
+                    const isUserRelatedShipment = (sh: Shipment) => {
+                      if (canSeeAll) {
+                        if (branchFilter === 'ALL') return true;
+                        return sh.sourceBranchId === branchFilter || sh.destinationBranchId === branchFilter;
+                      }
+                      if (branchFilter !== 'ALL') {
+                        return sh.sourceBranchId === branchFilter || sh.destinationBranchId === branchFilter;
+                      }
+                      return (
+                        sh.sourceBranchId === userBranchId ||
+                        sh.destinationBranchId === userBranchId ||
+                        userBranchIds.includes(sh.sourceBranchId) ||
+                        userBranchIds.includes(sh.destinationBranchId)
+                      );
+                    };
 
-                  if (transferStatusFilter === 'IN_TRANSIT') return sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED' && sh.status !== 'CANCELLED';
-                  if (transferStatusFilter === 'RECEIVED') return sh.status === 'RECEIVED' || sh.status === 'DELIVERED';
-                  if (transferStatusFilter === 'CANCEL_PENDING') return hasPendingReq && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED';
-                  if (transferStatusFilter === 'CANCELLED') return sh.status === 'CANCELLED';
-                  return true;
-                })
-                .map((sh) => {
-                  const pendingCancelReq = approvalRequests?.find(
-                    (r) =>
-                      (r.type === 'CANCEL_TRANSFER' || r.type === 'CANCEL_IN_TRANSIT_TRANSFER' || r.type === 'CANCEL_RECEIVE_TRANSFER') &&
-                      (r.targetId === sh.id || r.deviceSerial === sh.trackingCode || r.customerName === sh.trackingCode) &&
-                      r.status === 'PENDING'
-                  );
+                    const filteredShipments = shipments.filter((sh) => {
+                      if (!isUserRelatedShipment(sh)) return false;
 
-                  const isReceived = sh.status === 'RECEIVED' || sh.status === 'DELIVERED';
-                  const isCancelled = sh.status === 'CANCELLED';
-                  const isInTransit = !isReceived && !isCancelled;
+                      const hasPendingReq = approvalRequests?.some(
+                        (r) => (r.type === 'CANCEL_TRANSFER' || r.type === 'CANCEL_IN_TRANSIT_TRANSFER' || r.type === 'CANCEL_RECEIVE_TRANSFER') && (r.targetId === sh.id || r.deviceSerial === sh.trackingCode || r.customerName === sh.trackingCode) && r.status === 'PENDING'
+                      );
 
-                  return (
-                  <div
-                    key={sh.id}
-                    className={`p-4 rounded-xl border flex flex-col justify-between space-y-3 ${
-                      pendingCancelReq
-                        ? isDarkMode
-                          ? 'bg-amber-950/20 border-amber-800/60'
-                          : 'bg-amber-50/40 border-amber-200'
-                        : isCancelled
-                        ? isDarkMode
-                          ? 'bg-rose-950/20 border-rose-900/60 opacity-85'
-                          : 'bg-rose-50/40 border-rose-200 opacity-85'
-                        : isDarkMode
-                        ? 'bg-slate-900/60 border-slate-800'
-                        : 'bg-slate-50 border-slate-200'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center justify-between gap-2 mb-1">
-                        <span className="font-mono text-xs font-bold text-amber-600 dark:text-amber-400">
-                          {sh.trackingCode}
-                        </span>
-                        {pendingCancelReq ? (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 flex items-center gap-1 animate-pulse">
-                            <Clock className="h-3 w-3 animate-spin" />
-                            <span>CANCEL PENDING ({pendingCancelReq.requestNumber})</span>
-                          </span>
-                        ) : isCancelled ? (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 flex items-center gap-1">
-                            <XCircle className="h-3 w-3" />
-                            <span>TRANSFER CANCELLED</span>
-                          </span>
-                        ) : (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
-                            isReceived
-                              ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300'
-                              : 'bg-sky-50 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border-sky-300'
+                      if (transferStatusFilter === 'IN_TRANSIT') return sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED' && sh.status !== 'CANCELLED';
+                      if (transferStatusFilter === 'RECEIVED') return sh.status === 'RECEIVED' || sh.status === 'DELIVERED';
+                      if (transferStatusFilter === 'CANCEL_PENDING') return hasPendingReq && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED';
+                      if (transferStatusFilter === 'CANCELLED') return sh.status === 'CANCELLED';
+                      return true;
+                    });
+
+                    if (filteredShipments.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={8} className="p-8 text-center text-slate-400">
+                            <Inbox className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                            <p className="font-semibold text-sm">No transfer dispatches match the selected branch and status filter.</p>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return filteredShipments.map((sh) => {
+                      const isExpanded = expandedShipmentId === sh.id;
+                      const pendingCancelReq = approvalRequests?.find(
+                        (r) =>
+                          (r.type === 'CANCEL_TRANSFER' || r.type === 'CANCEL_IN_TRANSIT_TRANSFER' || r.type === 'CANCEL_RECEIVE_TRANSFER') &&
+                          (r.targetId === sh.id || r.deviceSerial === sh.trackingCode || r.customerName === sh.trackingCode) &&
+                          r.status === 'PENDING'
+                      );
+
+                      const isReceived = sh.status === 'RECEIVED' || sh.status === 'DELIVERED';
+                      const isCancelled = sh.status === 'CANCELLED';
+                      const isInTransit = !isReceived && !isCancelled;
+
+                      const totalQty = sh.items?.reduce((sum, item) => sum + (Number(item.quantitySent || item.quantity) || 0), 0) || 0;
+                      const totalValue = sh.totalDeclaredValue || sh.items?.reduce((sum, item) => sum + ((Number(item.quantitySent || item.quantity) || 0) * (item.unitCost || 0)), 0) || 0;
+
+                      const activeBranchId = selectedBranchId || currentUser?.branchId || '';
+                      const activeBranchObj = branches.find((b) => b.id === activeBranchId || b.id === currentUser?.branchId);
+                      const activeBranchName = activeBranchObj?.name || currentUser?.branchName || '';
+
+                      const isSenderBranch = Boolean(
+                        (sh.sourceBranchId && (sh.sourceBranchId === activeBranchId || sh.sourceBranchId === currentUser?.branchId || userBranchIds.includes(sh.sourceBranchId))) ||
+                        (sh.sourceBranchName && activeBranchName && (
+                          sh.sourceBranchName.toLowerCase().includes(activeBranchName.toLowerCase()) ||
+                          activeBranchName.toLowerCase().includes(sh.sourceBranchName.toLowerCase())
+                        ))
+                      );
+
+                      const isRecipientBranch = Boolean(
+                        (sh.destinationBranchId && (sh.destinationBranchId === activeBranchId || sh.destinationBranchId === currentUser?.branchId || userBranchIds.includes(sh.destinationBranchId))) ||
+                        (sh.destinationBranchName && activeBranchName && (
+                          sh.destinationBranchName.toLowerCase().includes(activeBranchName.toLowerCase()) ||
+                          activeBranchName.toLowerCase().includes(sh.destinationBranchName.toLowerCase())
+                        ))
+                      );
+
+                      const isSuperOrInventory = currentUser?.role === 'SUPER_ADMIN' || currentUser?.role === 'INVENTORY_MANAGER';
+
+                      // STRICT WORKFLOW RULES:
+                      // 1. Creator/Sender Branch:
+                      //    - CANNOT see "Verify & Receive Stock"
+                      //    - CAN see "Cancel Request" (if in-transit & not received yet)
+                      // 2. Receiver/Destination Branch:
+                      //    - CAN see "Verify & Receive Stock"
+                      //    - CANNOT see "Cancel Request"
+                      const canShowReceiveBtn = isInTransit && (isRecipientBranch || (isSuperOrInventory && !isSenderBranch)) && !isSenderBranch;
+                      const canShowCancelBtn = isInTransit && (isSenderBranch || (isSuperOrInventory && !isRecipientBranch)) && !isRecipientBranch;
+
+                      return (
+                        <React.Fragment key={sh.id}>
+                          <tr className={`transition-colors ${
+                            isExpanded
+                              ? isDarkMode ? 'bg-indigo-950/20' : 'bg-indigo-50/60'
+                              : isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'
                           }`}>
-                            {sh.status}
-                          </span>
-                        )}
-                      </div>
+                            {/* 1. Toggle button */}
+                            <td className="p-3 text-center">
+                              <button
+                                type="button"
+                                onClick={() => setExpandedShipmentId(isExpanded ? null : sh.id)}
+                                className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                  isExpanded
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : isDarkMode
+                                    ? 'bg-slate-800 text-slate-400 hover:text-white border-slate-700'
+                                    : 'bg-slate-100 text-slate-600 hover:text-slate-900 border-slate-300'
+                                }`}
+                                title={isExpanded ? "Collapse item details" : "Expand itemized stock breakdown"}
+                              >
+                                {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                              </button>
+                            </td>
 
-                      <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1.5 mt-1">
-                        <span>{sh.sourceBranchName || sh.sourceBranchId}</span>
-                        <ArrowRight className="h-3.5 w-3.5 text-slate-400" />
-                        <span>{sh.destinationBranchName || sh.destinationBranchId}</span>
-                      </div>
+                            {/* 2. Transfer Code */}
+                            <td className="p-3">
+                              <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                                <span>{sh.trackingCode}</span>
+                                {isSenderBranch && (
+                                  <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                    OUTBOUND
+                                  </span>
+                                )}
+                                {isRecipientBranch && (
+                                  <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/30">
+                                    INBOUND
+                                  </span>
+                                )}
+                              </div>
+                              {sh.carrierName && <div className="text-[10px] text-slate-400">Carrier: {sh.carrierName}</div>}
+                            </td>
 
-                      {/* Itemized Transferred Stock List & Serial Tracking Inspector */}
-                      <div className="mt-2 space-y-2">
-                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 block">
-                          Transferred Stock Items ({sh.items?.length || 0}):
-                        </span>
-                        
-                        <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 text-xs">
-                          <table className="w-full text-left border-collapse">
-                            <thead className={`text-[10px] font-bold uppercase tracking-wider border-b ${
-                              isDarkMode ? 'bg-slate-800/80 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
-                            }`}>
-                              <tr>
-                                <th className="p-2">SKU & Item Name</th>
-                                <th className="p-2 text-center">Transfer Qty</th>
-                                <th className="p-2">Serial & MAC Tracking</th>
-                              </tr>
-                            </thead>
-                            <tbody className={`divide-y text-[11px] ${isDarkMode ? 'divide-slate-800' : 'divide-slate-100'}`}>
-                              {sh.items?.map((item, idx) => {
-                                const prod = products.find((p) => p.id === item.productId || p.sku === item.sku);
-                                const isSerialized = Boolean(
-                                  item.deviceSerials?.length || 
-                                  prod?.requiresSerialTracking || 
-                                  prod?.trackingType === 'SERIAL_MAC_PON'
-                                );
+                            {/* 3. Route */}
+                            <td className="p-3">
+                              <div className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                                <span>{sh.sourceBranchName || sh.sourceBranchId}</span>
+                                <ArrowRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                <span>{sh.destinationBranchName || sh.destinationBranchId}</span>
+                              </div>
+                            </td>
 
-                                return (
-                                  <tr key={item.id || idx} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
-                                    <td className="p-2">
-                                      <div className="font-bold text-slate-900 dark:text-white">{item.productName}</div>
-                                      <div className="text-[10px] font-mono text-slate-400">SKU: {item.sku || prod?.sku || 'N/A'}</div>
-                                    </td>
-                                    <td className="p-2 text-center font-mono font-bold text-sky-600 dark:text-sky-400 whitespace-nowrap">
-                                      {item.quantitySent || item.quantity} {item.unit || 'pcs'}
-                                    </td>
-                                    <td className="p-2">
-                                      {isSerialized ? (
-                                        <div className="space-y-1">
-                                          <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                                            <Tag className="h-3 w-3" />
-                                            <span>Serial Tracked ({item.deviceSerials?.length || item.quantitySent || item.quantity} Units)</span>
-                                          </div>
-                                          
-                                          {item.deviceSerials && item.deviceSerials.length > 0 ? (
-                                            <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
-                                              {item.deviceSerials.map((ser, sIdx) => (
-                                                <div key={sIdx} className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-[10px] space-y-0.5">
-                                                  <div className="text-slate-800 dark:text-slate-200 font-bold flex items-center justify-between">
-                                                    <span>SN: {ser.deviceSerial}</span>
-                                                    <span className="text-[9px] px-1 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-extrabold">VERIFIED</span>
+                            {/* 4. Dispatch Date */}
+                            <td className="p-3 whitespace-nowrap">
+                              <div className="font-mono text-slate-700 dark:text-slate-300 font-medium">
+                                {sh.dispatchDateAD || 'N/A'}
+                              </div>
+                              {sh.dispatchDateBS && <div className="text-[10px] text-slate-400 font-mono">{sh.dispatchDateBS}</div>}
+                            </td>
+
+                            {/* 5. Items & Qty */}
+                            <td className="p-3 text-center whitespace-nowrap">
+                              <span className="font-bold text-sky-600 dark:text-sky-400 font-mono">
+                                {sh.items?.length || 0} SKUs ({totalQty} Pcs)
+                              </span>
+                            </td>
+
+                            {/* 6. Valuation */}
+                            <td className="p-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                              रु {totalValue.toLocaleString('en-IN')}
+                            </td>
+
+                            {/* 7. Status */}
+                            <td className="p-3 text-center whitespace-nowrap">
+                              {pendingCancelReq ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 flex items-center justify-center gap-1 animate-pulse">
+                                  <Clock className="h-3 w-3 animate-spin" />
+                                  <span>CANCEL PENDING ({pendingCancelReq.requestNumber})</span>
+                                </span>
+                              ) : isCancelled ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 flex items-center justify-center gap-1">
+                                  <XCircle className="h-3 w-3" />
+                                  <span>CANCELLED</span>
+                                </span>
+                              ) : isReceived ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 flex items-center justify-center gap-1">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  <span>STOCK RECEIVED</span>
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border bg-sky-50 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border-sky-300 flex items-center justify-center gap-1">
+                                  <Clock className="h-3 w-3" />
+                                  <span>IN TRANSIT</span>
+                                </span>
+                              )}
+                            </td>
+
+                            {/* 8. Actions */}
+                            <td className="p-3 text-right whitespace-nowrap">
+                              {pendingCancelReq ? (
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    onClick={() => setCancelPendingRequestModal({ req: pendingCancelReq, shipment: sh })}
+                                    className="flex items-center gap-1 px-3 py-1 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white shadow-xs cursor-pointer transition-all"
+                                    title={`Manage pending cancellation request #${pendingCancelReq.requestNumber}`}
+                                  >
+                                    <XCircle className="h-3.5 w-3.5" />
+                                    <span>Manage Request</span>
+                                  </button>
+                                </div>
+                              ) : isCancelled ? (
+                                <span className="text-[11px] text-slate-400 italic">Restocked to Source</span>
+                              ) : isReceived ? (
+                                <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Completed</span>
+                              ) : (
+                                <div className="flex items-center justify-end gap-2">
+                                  {canShowReceiveBtn && onReceiveShipment && (
+                                    <button
+                                      onClick={() => openReceiveModal(sh)}
+                                      title="Verify physical quantities & hardware serial/MAC checklist before adding to branch stock"
+                                      className="flex items-center gap-1 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm cursor-pointer transition-all"
+                                    >
+                                      <PackageCheck className="h-3.5 w-3.5" />
+                                      <span>Verify & Receive Stock</span>
+                                    </button>
+                                  )}
+
+                                  {canShowCancelBtn && (
+                                    isSuperOrInventory ? (
+                                      <button
+                                        onClick={() => {
+                                          setDirectCancelModalShipment(sh);
+                                          setDirectCancelReason('');
+                                        }}
+                                        title="Cancel in-transit transfer and refund stock back to source branch"
+                                        className="flex items-center gap-1 px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs cursor-pointer transition-all"
+                                      >
+                                        <RotateCcw className="h-3.5 w-3.5" />
+                                        <span>Cancel Transfer</span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => {
+                                          setRequestCancelModalShipment(sh);
+                                          setRequestCancelReason('');
+                                        }}
+                                        title="Submit request to Workflow Approval Center to cancel this in-transit transfer"
+                                        className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs cursor-pointer transition-all"
+                                      >
+                                        <ShieldAlert className="h-3.5 w-3.5" />
+                                        <span>Cancel Request</span>
+                                      </button>
+                                    )
+                                  )}
+
+                                  {!canShowReceiveBtn && !canShowCancelBtn && (
+                                    <span className="text-[11px] text-slate-400 italic">In Transit (Pending Recipient)</span>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+
+                          {/* EXPANDED ROW DETAIL PANEL */}
+                          {isExpanded && (
+                            <tr>
+                              <td colSpan={8} className="p-0 border-b border-indigo-500/20">
+                                <div className={`p-4 space-y-3 ${
+                                  isDarkMode ? 'bg-slate-900/90 border-t border-slate-800' : 'bg-slate-50/90 border-t border-slate-200'
+                                }`}>
+                                  {/* Metadata Header Bar */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-xl bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs">
+                                    <div>
+                                      <span className="text-slate-400 font-medium block text-[10px] uppercase">Dispatcher Officer</span>
+                                      <span className="font-bold text-slate-800 dark:text-slate-200">{sh.dispatchedBy || 'Branch Stock Officer'}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-slate-400 font-medium block text-[10px] uppercase">Transit Carrier & Waybill</span>
+                                      <span className="font-bold text-slate-800 dark:text-slate-200">{sh.carrierName || 'Internal Branch Transit'} {sh.vehicleNo ? `(${sh.vehicleNo})` : ''}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-slate-400 font-medium block text-[10px] uppercase">Dispatch Notes</span>
+                                      <span className="italic text-slate-600 dark:text-slate-400">{sh.notes || 'No dispatch notes recorded.'}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Itemized Table */}
+                                  <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs">
+                                    <table className="w-full text-left border-collapse">
+                                      <thead className={`text-[10px] font-bold uppercase tracking-wider border-b ${
+                                        isDarkMode ? 'bg-slate-800 text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-600 border-slate-200'
+                                      }`}>
+                                        <tr>
+                                          <th className="p-2.5">Product & SKU</th>
+                                          <th className="p-2.5 text-center">Qty Sent</th>
+                                          <th className="p-2.5 text-right">Unit Cost</th>
+                                          <th className="p-2.5 text-right">Subtotal Value</th>
+                                          <th className="p-2.5">Device Serials & MAC Tracking</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                                        {sh.items?.map((item, idx) => {
+                                          const prod = products.find((p) => p.id === item.productId || p.sku === item.sku);
+                                          const qty = item.quantitySent || item.quantity || 1;
+                                          const cost = item.unitCost || prod?.costPrice || 0;
+                                          const isSerialized = Boolean(
+                                            item.deviceSerials?.length || 
+                                            prod?.requiresSerialTracking || 
+                                            prod?.trackingType === 'SERIAL_MAC_PON'
+                                          );
+
+                                          return (
+                                            <tr key={item.id || idx}>
+                                              <td className="p-2.5">
+                                                <div className="font-bold text-slate-900 dark:text-white">{item.productName}</div>
+                                                <div className="text-[10px] font-mono text-slate-400">SKU: {item.sku || prod?.sku || 'N/A'}</div>
+                                              </td>
+                                              <td className="p-2.5 text-center font-mono font-bold text-sky-600 dark:text-sky-400">
+                                                {qty} {item.unit || 'pcs'}
+                                              </td>
+                                              <td className="p-2.5 text-right font-mono text-slate-700 dark:text-slate-300">
+                                                रु {cost.toLocaleString('en-IN')}
+                                              </td>
+                                              <td className="p-2.5 text-right font-mono font-bold text-slate-900 dark:text-white">
+                                                रु {(qty * cost).toLocaleString('en-IN')}
+                                              </td>
+                                              <td className="p-2.5">
+                                                {isSerialized ? (
+                                                  <div className="space-y-1">
+                                                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                                                      <Tag className="h-3 w-3" />
+                                                      <span>Serial Tracked ({item.deviceSerials?.length || qty} Units)</span>
+                                                    </div>
+                                                    {item.deviceSerials && item.deviceSerials.length > 0 ? (
+                                                      <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                                                        {item.deviceSerials.map((ser, sIdx) => (
+                                                          <div key={sIdx} className="p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 font-mono text-[10px] space-y-0.5">
+                                                            <div className="text-slate-800 dark:text-slate-200 font-bold flex items-center justify-between">
+                                                              <span>SN: {ser.deviceSerial}</span>
+                                                              <span className="text-[9px] px-1 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-extrabold">VERIFIED</span>
+                                                            </div>
+                                                            {ser.ponSerial && <div className="text-slate-500 dark:text-slate-400 text-[9.5px]">PON: {ser.ponSerial}</div>}
+                                                            {ser.macAddress && <div className="text-slate-500 dark:text-slate-400 text-[9.5px]">MAC: {ser.macAddress}</div>}
+                                                          </div>
+                                                        ))}
+                                                      </div>
+                                                    ) : (
+                                                      <div className="text-[10px] font-mono text-slate-500 bg-amber-50 dark:bg-amber-950/40 p-1.5 rounded border border-amber-200 dark:border-amber-800">
+                                                        Auto Serial Generation on Physical Verification
+                                                      </div>
+                                                    )}
                                                   </div>
-                                                  {ser.ponSerial && <div className="text-slate-500 dark:text-slate-400 text-[9.5px]">PON: {ser.ponSerial}</div>}
-                                                  {ser.macAddress && <div className="text-slate-500 dark:text-slate-400 text-[9.5px]">MAC: {ser.macAddress}</div>}
-                                                </div>
-                                              ))}
-                                            </div>
-                                          ) : (
-                                            <div className="text-[10px] font-mono text-slate-500 bg-amber-50 dark:bg-amber-950/40 p-1.5 rounded border border-amber-200 dark:border-amber-800">
-                                              Auto Serial Generation on Receive Confirmation
-                                            </div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <span className="text-slate-400 text-[10px] italic">Non-serialized bulk material</span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {sh.notes && <p className="text-[11px] text-slate-400 mt-1 italic">{sh.notes}</p>}
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                      <span className="text-[11px] font-mono text-slate-400">Dispatch Date: {sh.dispatchDateAD}</span>
-
-                      {pendingCancelReq ? (
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/70 px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-700">
-                            <Clock className="h-3.5 w-3.5 animate-spin" />
-                            <span>Cancel Pending</span>
-                          </div>
-                          <button
-                            onClick={() => setCancelPendingRequestModal({ req: pendingCancelReq, shipment: sh })}
-                            className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white shadow-xs border border-amber-600/30 cursor-pointer transition-all"
-                            title={`Cancel pending cancellation request #${pendingCancelReq.requestNumber}`}
-                          >
-                            <XCircle className="h-3.5 w-3.5 shrink-0" />
-                            <span>Cancel Request</span>
-                          </button>
-                        </div>
-                      ) : isCancelled ? (
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2.5 py-1 rounded-lg border border-rose-200 dark:border-rose-800">
-                          <XCircle className="h-3.5 w-3.5" />
-                          <span>Transfer Cancelled & Items Restocked to Source</span>
-                        </div>
-                      ) : isInTransit ? (
-                        <div className="flex items-center gap-2">
-                          {onReceiveShipment && (
-                            <button
-                              onClick={() => openReceiveModal(sh)}
-                              title="Verify physical quantities & hardware serial/MAC checklist before adding to branch stock"
-                              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-sm cursor-pointer transition-all"
-                            >
-                              <PackageCheck className="h-3.5 w-3.5" />
-                              <span>Verify & Receive Stock</span>
-                            </button>
+                                                ) : (
+                                                  <span className="text-slate-400 text-[10px] italic">Non-serialized bulk material</span>
+                                                )}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
                           )}
-
-                          {isSuperOrInventory ? (
-                            <button
-                              onClick={() => {
-                                setDirectCancelModalShipment(sh);
-                                setDirectCancelReason('');
-                              }}
-                              title="Super Admin / Inventory Manager: Cancel in-transit transfer and refund stock back to source branch"
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-xs cursor-pointer transition-all"
-                            >
-                              <RotateCcw className="h-3.5 w-3.5" />
-                              <span>Cancel Transfer Bin</span>
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                setRequestCancelModalShipment(sh);
-                                setRequestCancelReason('');
-                              }}
-                              title="Submit request to Workflow Approval Center to cancel this in-transit transfer"
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold text-xs shadow-xs cursor-pointer transition-all"
-                            >
-                              <ShieldAlert className="h-3.5 w-3.5" />
-                              <span>Cancel Request</span>
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            <span>Stock Received (Completed)</span>
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+                        </React.Fragment>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -2437,7 +2657,17 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   }`}
                 >
                   {branches
-                    .filter((b) => b.id !== xferSourceBranchId)
+                    .filter((b) =>
+                      b.id !== xferSourceBranchId &&
+                      !b.isWarehouse &&
+                      !b.isHeadquarters &&
+                      b.id !== 'WH001' &&
+                      b.id !== 'BR-KTM' &&
+                      !b.code.toUpperCase().startsWith('WH') &&
+                      !(b?.name || '').toLowerCase().includes('warehouse') &&
+                      !(b?.name || '').toLowerCase().includes('head office') &&
+                      !(b?.name || '').toLowerCase().includes('central')
+                    )
                     .map((b) => (
                       <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
                     ))}
@@ -2454,6 +2684,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   onAddOrIncrementProduct={(prod) => handleAddTransferItem(prod.id)}
                   placeholder="Scan Barcode or Search & Enter Product Name / SKU to Add to Transfer..."
                   inputId="transfer-product-search-input"
+                  stock={stock}
+                  selectedBranchId={xferSourceBranchId}
                 />
               </div>
 
@@ -2504,19 +2736,15 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                         return (
                           <tr key={item.id} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
                             <td className="p-2.5">
-                              <select
-                                value={item.productId}
-                                onChange={(e) => handleUpdateTransferItem(item.id, { productId: e.target.value })}
-                                className={`w-full rounded-lg border p-1.5 font-bold ${
-                                  isDarkMode ? 'bg-slate-900 border-slate-800 text-white' : 'bg-white border-slate-300'
-                                }`}
-                              >
-                                {products.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    [{p.sku}] {p.name} ({p.unit})
-                                  </option>
-                                ))}
-                              </select>
+                              <div className="font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
+                                <Package className="h-4 w-4 text-sky-500 shrink-0" />
+                                <span>{item.productName || prod?.name || 'Stock Item'}</span>
+                              </div>
+                              <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2">
+                                <span>SKU: {item.sku || prod?.sku || 'N/A'}</span>
+                                <span className="text-slate-300 dark:text-slate-700">•</span>
+                                <span>Unit: {item.unit || prod?.unit || 'Pcs'}</span>
+                              </div>
                             </td>
 
                             <td className="p-2.5 text-center font-mono font-bold text-slate-500">
@@ -3861,20 +4089,32 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   onAddOrIncrementProduct={(prod) => handleAddProductToPullout(prod)}
                   placeholder="Scan Barcode or Search & Enter Product Name / SKU for Pullout..."
                   inputId="pullout-product-search-input"
+                  stock={stock}
+                  selectedBranchId={sourceBranchId}
                 />
               </div>
 
               {/* Added Pullout Items List */}
-              <div className="space-y-2 max-h-60 overflow-y-auto border rounded-xl p-2">
+              <div className="space-y-2 max-h-72 overflow-y-auto border rounded-xl p-2">
                 {pulloutItems.length === 0 ? (
                   <p className="text-slate-400 text-center py-4 text-xs">No items added to pullout bin yet. Search above to add items.</p>
                 ) : (
                   pulloutItems.map((item, idx) => {
                     const prod = products.find((p) => p.id === item.productId);
                     const isSerialized = prod ? prod.requiresSerialTracking !== false && prod.trackingType !== 'QUANTITY_ONLY' : true;
+                    const srcStock = stock.find((s) => s.productId === item.productId && s.branchId === sourceBranchId);
+                    const usableQty = srcStock ? (srcStock.quantityOnHand || 0) : 0;
+                    const damagedQty = srcStock ? (srcStock.damagedQty || 0) : 0;
+                    const availForCondition = item.condition === 'DAMAGED_STOCK' ? damagedQty : usableQty;
+                    const isExceeded = item.quantity > availForCondition;
+                    const srcBranchName = branches.find((b) => b.id === sourceBranchId)?.name || sourceBranchId;
 
                     return (
-                      <div key={item.id} className="p-2.5 rounded-xl border bg-slate-50 dark:bg-slate-800/60 space-y-2">
+                      <div key={item.id} className={`p-2.5 rounded-xl border space-y-2 ${
+                        isExceeded
+                          ? 'bg-rose-50/50 dark:bg-rose-950/30 border-rose-300 dark:border-rose-800'
+                          : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                      }`}>
                         <div className="flex items-center justify-between gap-2">
                           <div className="flex-1">
                             <span className="font-bold text-slate-900 dark:text-white block">{item.productName}</span>
@@ -3899,7 +4139,11 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                                 min={1}
                                 value={item.quantity}
                                 onChange={(e) => handleUpdatePulloutItem(item.id, { quantity: Number(e.target.value) })}
-                                className="w-16 rounded border p-1 text-center font-mono font-bold text-xs bg-white dark:bg-slate-900"
+                                className={`w-16 rounded border p-1 text-center font-mono font-bold text-xs ${
+                                  isExceeded
+                                    ? 'bg-rose-100 dark:bg-rose-900 text-rose-800 dark:text-rose-100 border-rose-400'
+                                    : 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white'
+                                }`}
                               />
                             </div>
 
@@ -3919,6 +4163,53 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                             </button>
                           </div>
                         </div>
+
+                        {/* Branch Stock Availability Information & Live Validation Banner */}
+                        <div className="flex items-center justify-between text-[11px] p-2 rounded-lg bg-white/70 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-slate-600 dark:text-slate-300">
+                              Stock at {srcBranchName}:
+                            </span>
+                            <span className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] ${
+                              item.condition === 'OVERSTOCK' && isExceeded
+                                ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                : usableQty > 0
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              Usable: {usableQty} {item.unit || 'pcs'}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded font-mono font-bold text-[10px] ${
+                              item.condition === 'DAMAGED_STOCK' && isExceeded
+                                ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                : damagedQty > 0
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              Damaged: {damagedQty} {item.unit || 'pcs'}
+                            </span>
+                          </div>
+
+                          {isExceeded && (
+                            <button
+                              type="button"
+                              onClick={() => handleUpdatePulloutItem(item.id, { quantity: Math.max(1, availForCondition) })}
+                              className="text-[10px] font-bold text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-950/80 hover:bg-rose-200 px-2 py-1 rounded-md border border-rose-300 dark:border-rose-800 transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                            >
+                              <RefreshCw className="h-3 w-3 text-rose-600" />
+                              <span>Set to Available Max ({availForCondition})</span>
+                            </button>
+                          )}
+                        </div>
+
+                        {isExceeded && (
+                          <div className="text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-100/90 dark:bg-rose-950/80 p-2 rounded-lg border border-rose-300 dark:border-rose-800 flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                            <span>
+                              Requested pullout quantity ({item.quantity} {item.unit || 'pcs'}) exceeds available {item.condition === 'DAMAGED_STOCK' ? 'damaged' : 'usable'} stock ({availForCondition} {item.unit || 'pcs'} available at {srcBranchName}).
+                            </span>
+                          </div>
+                        )}
 
                         {/* Serial Tracking Inputs */}
                         {isSerialized && (
@@ -4076,6 +4367,8 @@ export const StockOperations: React.FC<StockOperationsProps> = ({
                   products={products}
                   onAddOrIncrementProduct={(prod) => setDamageProductId(prod.id)}
                   placeholder="Scan Barcode or Search & Select Damaged Product..."
+                  stock={stock}
+                  selectedBranchId={damageBranchId}
                 />
                 {damageProductId && (
                   <div className="mt-1.5 p-2 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-between font-mono text-xs">

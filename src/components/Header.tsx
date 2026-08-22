@@ -124,10 +124,19 @@ export const Header: React.FC<HeaderProps> = ({
     (r) => r.status === 'PENDING' && (selectedBranchId === 'ALL' || r.branchId === selectedBranchId)
   ).length;
 
+  const userBranchContext =
+    selectedBranchId && selectedBranchId !== 'ALL'
+      ? selectedBranchId
+      : currentUser?.branchId && currentUser.branchId !== 'ALL'
+      ? currentUser.branchId
+      : 'ALL';
+
   const inTransitShipmentsCount = shipments.filter(
     (s) =>
       (s.status === 'IN_TRANSIT' || s.status === 'DISPATCHED') &&
-      (selectedBranchId === 'ALL' || s.destinationBranchId === selectedBranchId)
+      (userBranchContext === 'ALL' ||
+        s.destinationBranchId === userBranchContext ||
+        s.sourceBranchId === userBranchContext)
   ).length;
 
   const totalNotificationBadge = lowStockCount + pendingApprovalsCount + inTransitShipmentsCount;
@@ -142,6 +151,23 @@ export const Header: React.FC<HeaderProps> = ({
     >
       {/* Left: Brand logo & Branch Switcher */}
       <div className="flex items-center gap-2.5 sm:gap-3">
+        {/* Mobile & Desktop Hamburger Menu Toggle Button */}
+        {onToggleSidebar && (
+          <button
+            type="button"
+            onClick={onToggleSidebar}
+            title={isSidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            className="flex items-center justify-center p-1.5 rounded-lg text-white hover:bg-white/10 active:bg-white/20 transition-all cursor-pointer"
+            aria-label="Toggle navigation menu"
+          >
+            {isSidebarOpen ? (
+              <X className="h-5 w-5 text-amber-300" />
+            ) : (
+              <Menu className="h-5 w-5 text-white" />
+            )}
+          </button>
+        )}
+
         <div className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-500/20 font-serif font-bold text-base tracking-tight border border-indigo-400/30">
             iZ
@@ -501,9 +527,9 @@ export const Header: React.FC<HeaderProps> = ({
                         {users
                           .filter(
                             (u) =>
-                              u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
-                              u.role.toLowerCase().includes(userSearch.toLowerCase()) ||
-                              u.email.toLowerCase().includes(userSearch.toLowerCase())
+                              (u?.name || '').toLowerCase().includes((userSearch || '').toLowerCase()) ||
+                              (u?.role || '').toLowerCase().includes((userSearch || '').toLowerCase()) ||
+                              (u?.email || '').toLowerCase().includes((userSearch || '').toLowerCase())
                           )
                           .map((u) => {
                             const isCurrent = u.id === currentUser.id;

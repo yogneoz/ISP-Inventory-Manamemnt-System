@@ -261,28 +261,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
     children: procurementChildren,
   });
 
-  // 4. Warehouse Logistics Group
-  const warehouseLogisticsChildren = [
-    ...(isSuperAdmin || currentUser?.branchId === 'BR-KTM' || !currentUser?.branchId || currentUser?.branchId === 'ALL'
-      ? [{ id: 'create-shipment' as NavTab, label: 'Warehouse Shipment Dispatch', icon: Send }]
-      : []),
-    {
-      id: 'receive-shipment' as NavTab,
-      label: 'Receive Inbound Stock & Pullouts',
-      icon: Inbox,
-      badge: inTransitShipmentCount,
-      badgeColor: 'bg-amber-500 text-white',
-    },
-    { id: 'shipment-list' as NavTab, label: 'Shipment & Transfer History', icon: History },
-  ];
-  groups.push({
-    id: 'logistics',
-    title: 'Warehouse Logistics',
-    shortLabel: 'Warehouse',
-    icon: Truck,
-    badgeCount: inTransitShipmentCount,
-    children: warehouseLogisticsChildren,
-  });
+  // 4. Warehouse Logistics Group (Exclusively for HQ / Warehouse / Admin)
+  const isWarehouseStaffOrAdmin =
+    isSuperAdmin ||
+    currentUser?.role === 'INVENTORY_MANAGER' ||
+    currentUser?.branchId === 'BR-KTM' ||
+    currentUser?.branchId === 'WH001' ||
+    !currentUser?.branchId ||
+    currentUser?.branchId === 'ALL';
+
+  if (isWarehouseStaffOrAdmin) {
+    const warehouseLogisticsChildren = [
+      { id: 'create-shipment' as NavTab, label: 'Warehouse Shipment Dispatch', icon: Send },
+      {
+        id: 'receive-shipment' as NavTab,
+        label: 'Receive Inbound Stock & Pullouts',
+        icon: Inbox,
+        badge: inTransitShipmentCount,
+        badgeColor: 'bg-amber-500 text-white',
+      },
+      { id: 'shipment-list' as NavTab, label: 'Shipment & Transfer History', icon: History },
+    ];
+    groups.push({
+      id: 'logistics',
+      title: 'Warehouse Logistics',
+      shortLabel: 'Warehouse',
+      icon: Truck,
+      badgeCount: inTransitShipmentCount,
+      children: warehouseLogisticsChildren,
+    });
+  }
 
   // 5. Branch Operations & Transfers Group
   const branchOpsChildren = [
@@ -437,7 +445,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const filteredSubItems = currentGroupDef
     ? currentGroupDef.children.filter((child) =>
-        child.label.toLowerCase().includes(menuFilter.trim().toLowerCase())
+        (child?.label || '').toLowerCase().includes(menuFilter.trim().toLowerCase())
       )
     : [];
 

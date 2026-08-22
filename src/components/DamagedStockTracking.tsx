@@ -119,10 +119,10 @@ export const DamagedStockTracking: React.FC<DamagedStockTrackingProps> = ({
       const query = localSearch.trim().toLowerCase();
       const matchesSearch =
         !query ||
-        prod.name.toLowerCase().includes(query) ||
-        prod.sku.toLowerCase().includes(query) ||
-        prod.barcode.toLowerCase().includes(query) ||
-        prod.category.toLowerCase().includes(query);
+        (prod?.name || '').toLowerCase().includes(query) ||
+        (prod?.sku || '').toLowerCase().includes(query) ||
+        (prod?.barcode || '').toLowerCase().includes(query) ||
+        (prod?.category || '').toLowerCase().includes(query);
 
       return matchesDamagedFilter && matchesCat && matchesSearch;
     });

@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Product } from '../types';
-import { Search, Barcode, Plus } from 'lucide-react';
+import { Product, InventoryStock } from '../types';
+import { Search, Barcode, Plus, Package, AlertTriangle } from 'lucide-react';
 
 interface ProductSearchBarProps {
   products: Product[];
   onAddOrIncrementProduct: (product: Product) => void;
   placeholder?: string;
   inputId?: string;
+  stock?: InventoryStock[];
+  selectedBranchId?: string;
+  showStockBadges?: boolean;
 }
 
 export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
@@ -14,6 +17,9 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
   onAddOrIncrementProduct,
   placeholder = 'Scan Barcode or Search & Enter Product Name / SKU:',
   inputId,
+  stock,
+  selectedBranchId,
+  showStockBadges = true,
 }) => {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -22,11 +28,11 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
   // Filter matching products
   const matchingProducts = products.filter((p) => {
     if (!query.trim()) return false;
-    const q = query.toLowerCase().trim();
+    const q = (query || '').toLowerCase().trim();
     return (
-      p.sku.toLowerCase().includes(q) ||
-      p.barcode.toLowerCase().includes(q) ||
-      p.name.toLowerCase().includes(q)
+      (p?.sku || '').toLowerCase().includes(q) ||
+      (p?.barcode || '').toLowerCase().includes(q) ||
+      (p?.name || '').toLowerCase().includes(q)
     );
   });
 
@@ -46,10 +52,10 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
       if (!query.trim()) return;
 
       const exactBarcodeMatch = products.find(
-        (p) => p.barcode.toLowerCase() === query.trim().toLowerCase()
+        (p) => (p?.barcode || '').toLowerCase() === query.trim().toLowerCase()
       );
       const exactSkuMatch = products.find(
-        (p) => p.sku.toLowerCase() === query.trim().toLowerCase()
+        (p) => (p?.sku || '').toLowerCase() === query.trim().toLowerCase()
       );
 
       if (exactBarcodeMatch) {
@@ -106,42 +112,85 @@ export const ProductSearchBar: React.FC<ProductSearchBarProps> = ({
 
       {/* Autocomplete dropdown */}
       {isOpen && query.trim().length > 0 && (
-        <div className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-xl border border-blue-200 bg-white shadow-xl">
+        <div className="absolute z-50 left-0 right-0 mt-1 max-h-64 overflow-y-auto rounded-xl border border-blue-200 bg-white shadow-xl">
           {matchingProducts.length === 0 ? (
             <div className="p-3 text-xs text-slate-500 text-center font-medium">
               No product found matching "{query}". Check SKU code or Barcode.
             </div>
           ) : (
-            matchingProducts.map((prod) => (
-              <button
-                key={prod.id}
-                type="button"
-                onClick={() => handleSelect(prod)}
-                className="w-full text-left px-4 py-2.5 hover:bg-blue-50 flex items-center justify-between border-b border-slate-100 last:border-b-0 transition-colors cursor-pointer"
-              >
-                <div>
-                  <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
-                    <span className="font-mono text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded text-[11px]">
-                      {prod.sku}
+            matchingProducts.map((prod) => {
+              let qtyOnHand = 0;
+              let damagedQty = 0;
+              let hasStockData = false;
+
+              if (stock && stock.length > 0) {
+                hasStockData = true;
+                const stk = stock.find(
+                  (s) => s.productId === prod.id && (!selectedBranchId || selectedBranchId === 'ALL' || s.branchId === selectedBranchId)
+                );
+                if (stk) {
+                  qtyOnHand = stk.quantityOnHand || 0;
+                  damagedQty = stk.damagedQty || 0;
+                }
+              }
+
+              return (
+                <button
+                  key={prod.id}
+                  type="button"
+                  onClick={() => handleSelect(prod)}
+                  className="w-full text-left px-4 py-2.5 hover:bg-blue-50/80 flex items-center justify-between border-b border-slate-100 last:border-b-0 transition-colors cursor-pointer"
+                >
+                  <div className="flex-1 pr-2">
+                    <div className="text-xs font-bold text-slate-900 flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded text-[11px]">
+                        {prod.sku}
+                      </span>
+                      <span>{prod.name}</span>
+                    </div>
+
+                    <div className="text-[11px] text-slate-500 flex items-center gap-3 mt-1 flex-wrap">
+                      <span>Barcode: <strong className="font-mono text-slate-700">{prod.barcode || '-'}</strong></span>
+                      <span>Category: {prod.category || 'General'}</span>
+                      <span>Unit: {prod.unit || 'pcs'}</span>
+                    </div>
+
+                    {showStockBadges && hasStockData && (
+                      <div className="flex items-center gap-2 mt-1.5 text-[10px] flex-wrap">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold ${
+                          qtyOnHand > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-500 border border-slate-200'
+                        }`}>
+                          <Package className="h-3 w-3 text-emerald-600" />
+                          <span>Usable: {qtyOnHand} {prod.unit || 'pcs'}</span>
+                        </span>
+
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono font-bold ${
+                          damagedQty > 0 ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-slate-100 text-slate-500 border border-slate-200'
+                        }`}>
+                          <AlertTriangle className="h-3 w-3 text-amber-600" />
+                          <span>Damaged: {damagedQty} {prod.unit || 'pcs'}</span>
+                        </span>
+
+                        {qtyOnHand === 0 && damagedQty === 0 && (
+                          <span className="text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                            Out of Stock at Selected Branch
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <span className="text-xs font-bold font-mono text-slate-900 block">
+                      रु {(prod.costPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </span>
-                    <span>{prod.name}</span>
+                    <div className="text-[10px] text-blue-600 font-semibold flex items-center gap-1 justify-end mt-1">
+                      <Plus className="h-3 w-3" /> Select / Add
+                    </div>
                   </div>
-                  <div className="text-[11px] text-slate-500 flex items-center gap-3 mt-0.5">
-                    <span>Barcode: <strong className="font-mono text-slate-700">{prod.barcode}</strong></span>
-                    <span>Category: {prod.category}</span>
-                    <span>Unit: {prod.unit}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs font-bold font-mono text-slate-900">
-                    {(prod.costPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                  <div className="text-[10px] text-blue-600 font-semibold flex items-center gap-1 justify-end">
-                    <Plus className="h-3 w-3" /> Select / Add
-                  </div>
-                </div>
-              </button>
-            ))
+                </button>
+              );
+            })
           )}
         </div>
       )}

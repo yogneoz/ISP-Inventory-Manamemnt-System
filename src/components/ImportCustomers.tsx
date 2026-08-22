@@ -106,7 +106,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
         const customerName =
           String(row['Customer Name'] || row['CustomerName'] || row['Name'] || '').trim();
         const username =
-          String(row['Username'] || row['User Name'] || customerId.toLowerCase()).trim();
+          String(row['Username'] || row['User Name'] || (customerId || '').toLowerCase()).trim();
         const contactNumber =
           String(row['Primary Mobile'] || row['Contact Number'] || row['Mobile'] || row['Phone'] || '').trim();
         const targetBranchCode =
@@ -124,7 +124,7 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
         rows.push({
           customerId: customerId || `CUS-${10000 + idx}`,
           customerName: customerName || 'Imported Customer',
-          username: username || (customerId ? customerId.toLowerCase() : `user${idx}`),
+          username: username || (customerId ? (customerId || '').toLowerCase() : `user${idx}`),
           contactNumber: contactNumber || '9800000000',
           targetBranchCode: targetBranchCode || 'WH001',
           address: address || 'Nepal',
@@ -190,9 +190,9 @@ export const ImportCustomers: React.FC<ImportCustomersProps> = ({
       const importedCustomers: CustomerRecord[] = validRows.map((r) => {
         const matchingBranch = branches.find(
           (b) =>
-            b.code.toLowerCase() === r.targetBranchCode.toLowerCase() ||
-            b.id.toLowerCase() === r.targetBranchCode.toLowerCase() ||
-            b.name.toLowerCase().includes(r.targetBranchCode.toLowerCase())
+            (b?.code || '').toLowerCase() === (r?.targetBranchCode || '').toLowerCase() ||
+            (b?.id || '').toLowerCase() === (r?.targetBranchCode || '').toLowerCase() ||
+            (b?.name || '').toLowerCase().includes((r?.targetBranchCode || '').toLowerCase())
         );
         return {
           id: r.customerId || `CUS-${Math.floor(1000 + Math.random() * 9000)}`,

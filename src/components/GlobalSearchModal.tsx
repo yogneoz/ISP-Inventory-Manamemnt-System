@@ -89,10 +89,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const matchedProducts = query
     ? products.filter(
         (p) =>
-          (p.name && p.name.toLowerCase().includes(query)) ||
-          (p.sku && p.sku.toLowerCase().includes(query)) ||
-          (p.barcode && p.barcode.toLowerCase().includes(query)) ||
-          (p.category && p.category.toLowerCase().includes(query))
+          (p.name && (p?.name || '').toLowerCase().includes(query)) ||
+          (p.sku && (p?.sku || '').toLowerCase().includes(query)) ||
+          (p.barcode && (p?.barcode || '').toLowerCase().includes(query)) ||
+          (p.category && (p?.category || '').toLowerCase().includes(query))
       ).slice(0, 5)
     : [];
 
@@ -100,9 +100,9 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const matchedOrders = query
     ? purchaseOrders.filter(
         (po) =>
-          (po.poNumber && po.poNumber.toLowerCase().includes(query)) ||
-          (po.supplierName && po.supplierName.toLowerCase().includes(query)) ||
-          (po.status && po.status.toLowerCase().includes(query))
+          (po.poNumber && (po?.poNumber || '').toLowerCase().includes(query)) ||
+          (po.supplierName && (po?.supplierName || '').toLowerCase().includes(query)) ||
+          (po.status && (po?.status || '').toLowerCase().includes(query))
       ).slice(0, 4)
     : [];
 
@@ -110,9 +110,9 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const matchedInvoices = query
     ? invoices.filter(
         (inv) =>
-          (inv.invoiceNumber && inv.invoiceNumber.toLowerCase().includes(query)) ||
-          (inv.vendorBillNumber && inv.vendorBillNumber.toLowerCase().includes(query)) ||
-          (inv.supplierName && inv.supplierName.toLowerCase().includes(query))
+          (inv.invoiceNumber && (inv?.invoiceNumber || '').toLowerCase().includes(query)) ||
+          (inv.vendorBillNumber && (inv?.vendorBillNumber || '').toLowerCase().includes(query)) ||
+          (inv.supplierName && (inv?.supplierName || '').toLowerCase().includes(query))
       ).slice(0, 4)
     : [];
 
@@ -120,10 +120,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const matchedShipments = query
     ? shipments.filter(
         (sh) =>
-          (sh.trackingCode && sh.trackingCode.toLowerCase().includes(query)) ||
-          (sh.sourceBranchName && sh.sourceBranchName.toLowerCase().includes(query)) ||
-          (sh.destinationBranchName && sh.destinationBranchName.toLowerCase().includes(query)) ||
-          (sh.status && sh.status.toLowerCase().includes(query))
+          (sh.trackingCode && (sh?.trackingCode || '').toLowerCase().includes(query)) ||
+          (sh.sourceBranchName && (sh?.sourceBranchName || '').toLowerCase().includes(query)) ||
+          (sh.destinationBranchName && (sh?.destinationBranchName || '').toLowerCase().includes(query)) ||
+          (sh.status && (sh?.status || '').toLowerCase().includes(query))
       ).slice(0, 4)
     : [];
 
@@ -131,9 +131,9 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const matchedAssets = query
     ? assets.filter(
         (a) =>
-          (a.tagNumber && a.tagNumber.toLowerCase().includes(query)) ||
-          (a.name && a.name.toLowerCase().includes(query)) ||
-          (a.category && a.category.toLowerCase().includes(query))
+          (a.tagNumber && (a?.tagNumber || '').toLowerCase().includes(query)) ||
+          (a.name && (a?.name || '').toLowerCase().includes(query)) ||
+          (a.category && (a?.category || '').toLowerCase().includes(query))
       ).slice(0, 4)
     : [];
 
@@ -141,11 +141,11 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const matchedDevices = query
     ? customerDevices.filter(
         (d) =>
-          (d.customerCode && d.customerCode.toLowerCase().includes(query)) ||
-          (d.customerName && d.customerName.toLowerCase().includes(query)) ||
-          (d.productName && d.productName.toLowerCase().includes(query)) ||
-          (d.deviceSerial && d.deviceSerial.toLowerCase().includes(query)) ||
-          (d.contactPhone && d.contactPhone.toLowerCase().includes(query))
+          (d.customerCode && (d?.customerCode || '').toLowerCase().includes(query)) ||
+          (d.customerName && (d?.customerName || '').toLowerCase().includes(query)) ||
+          (d.productName && (d?.productName || '').toLowerCase().includes(query)) ||
+          (d.deviceSerial && (d?.deviceSerial || '').toLowerCase().includes(query)) ||
+          (d.contactPhone && (d?.contactPhone || '').toLowerCase().includes(query))
       ).slice(0, 4)
     : [];
 
@@ -153,10 +153,10 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const matchedSuppliers = query
     ? suppliers.filter(
         (s) =>
-          (s.name && s.name.toLowerCase().includes(query)) ||
-          (s.contactPerson && s.contactPerson.toLowerCase().includes(query)) ||
-          (s.panVatNumber && s.panVatNumber.toLowerCase().includes(query)) ||
-          (s.phone && s.phone.toLowerCase().includes(query))
+          (s.name && (s?.name || '').toLowerCase().includes(query)) ||
+          (s.contactPerson && (s?.contactPerson || '').toLowerCase().includes(query)) ||
+          (s.panVatNumber && (s?.panVatNumber || '').toLowerCase().includes(query)) ||
+          (s.phone && (s?.phone || '').toLowerCase().includes(query))
       ).slice(0, 3)
     : [];
 
@@ -164,9 +164,9 @@ export const GlobalSearchModal: React.FC<GlobalSearchModalProps> = ({
   const matchedBranches = query
     ? branches.filter(
         (b) =>
-          (b.name && b.name.toLowerCase().includes(query)) ||
-          (b.code && b.code.toLowerCase().includes(query)) ||
-          (b.location && b.location.toLowerCase().includes(query))
+          (b.name && (b?.name || '').toLowerCase().includes(query)) ||
+          (b.code && (b?.code || '').toLowerCase().includes(query)) ||
+          (b.location && (b?.location || '').toLowerCase().includes(query))
       ).slice(0, 3)
     : [];
 

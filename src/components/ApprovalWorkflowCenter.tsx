@@ -131,19 +131,19 @@ export const ApprovalWorkflowCenter: React.FC<ApprovalWorkflowCenterProps> = ({
 
     if (!searchQuery.trim()) return matchesStatus && matchesType && matchesBranch;
 
-    const q = searchQuery.toLowerCase().trim();
+    const q = (searchQuery || '').toLowerCase().trim();
     const matchesQ =
-      req.requestNumber.toLowerCase().includes(q) ||
-      req.customerName.toLowerCase().includes(q) ||
-      req.deviceSerial.toLowerCase().includes(q) ||
-      (req.ponSerial && req.ponSerial.toLowerCase().includes(q)) ||
-      req.requestedByName.toLowerCase().includes(q) ||
-      req.productName.toLowerCase().includes(q) ||
-      (req.auditData?.auditRefNumber && req.auditData.auditRefNumber.toLowerCase().includes(q)) ||
-      (req.auditData?.branchName && req.auditData.branchName.toLowerCase().includes(q)) ||
-      (req.shipmentData?.trackingCode && req.shipmentData.trackingCode.toLowerCase().includes(q)) ||
-      (req.shipmentData?.sourceBranchName && req.shipmentData.sourceBranchName.toLowerCase().includes(q)) ||
-      (req.shipmentData?.destinationBranchName && req.shipmentData.destinationBranchName.toLowerCase().includes(q));
+      (req?.requestNumber || '').toLowerCase().includes(q) ||
+      (req?.customerName || '').toLowerCase().includes(q) ||
+      (req?.deviceSerial || '').toLowerCase().includes(q) ||
+      (req.ponSerial && (req?.ponSerial || '').toLowerCase().includes(q)) ||
+      (req?.requestedByName || '').toLowerCase().includes(q) ||
+      (req?.productName || '').toLowerCase().includes(q) ||
+      (req.auditData?.auditRefNumber && (req?.auditData?.auditRefNumber || '').toLowerCase().includes(q)) ||
+      (req.auditData?.branchName && (req?.auditData?.branchName || '').toLowerCase().includes(q)) ||
+      (req.shipmentData?.trackingCode && (req?.shipmentData?.trackingCode || '').toLowerCase().includes(q)) ||
+      (req.shipmentData?.sourceBranchName && (req?.shipmentData?.sourceBranchName || '').toLowerCase().includes(q)) ||
+      (req.shipmentData?.destinationBranchName && (req?.shipmentData?.destinationBranchName || '').toLowerCase().includes(q));
 
     return matchesStatus && matchesType && matchesBranch && matchesQ;
   });

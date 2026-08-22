@@ -204,7 +204,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
     const matchesStatus =
       statusFilter === 'ALL' || c.status === statusFilter;
 
-    const query = searchQuery.toLowerCase().trim();
+    const query = (searchQuery || '').toLowerCase().trim();
     const matchesSearch =
       !query ||
       c.customerId?.toLowerCase().includes(query) ||
@@ -447,7 +447,7 @@ export const CustomerMasterDirectory: React.FC<CustomerMasterDirectoryProps> = (
                     (d) =>
                       d.customerCode === customer.customerId ||
                       d.customerId === customer.id ||
-                      d.customerName.toLowerCase() === customer.customerName.toLowerCase()
+                      (d?.customerName || '').toLowerCase() === (customer?.customerName || '').toLowerCase()
                   );
                   const isExpanded = expandedCustomerId === customer.id;
 

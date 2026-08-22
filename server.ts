@@ -1035,11 +1035,146 @@ let approvalRequests: ApprovalRequest[] = [
 // Active user session simulation
 let activeUser = users[0];
 
+// Extract triggering user details from request headers or body or activeUser
+function getUserFromReq(req: any) {
+  const email =
+    (req.headers['x-user-email'] as string) ||
+    req.body?.userEmail ||
+    req.body?.user?.email ||
+    req.body?.currentUser?.email ||
+    activeUser?.email ||
+    'admin@izone.net.np';
+  const name =
+    (req.headers['x-user-name'] as string) ||
+    req.body?.userName ||
+    req.body?.user?.name ||
+    req.body?.currentUser?.name ||
+    activeUser?.name ||
+    'Shrestha Administrator';
+  const role =
+    (req.headers['x-user-role'] as string) ||
+    req.body?.userRole ||
+    req.body?.user?.role ||
+    activeUser?.role ||
+    'SUPER_ADMIN';
+  const branchId =
+    (req.headers['x-user-branch'] as string) ||
+    req.body?.branchId ||
+    req.body?.user?.branchId ||
+    activeUser?.branchId ||
+    'WH001';
+
+  return { email, name, role, branchId };
+}
+
+function logAuditEvent(
+  req: any,
+  action: string,
+  module: string,
+  details: string,
+  overrideBranchId?: string
+) {
+  const u = getUserFromReq(req);
+  const auditItem: AuditLog = {
+    id: `aud-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+    userEmail: u.email,
+    userName: u.name,
+    action,
+    module: module as AuditLog['module'],
+    details,
+    timestampAD: new Date().toISOString(),
+    timestampBS: '2083-04-16 BS',
+    branchId: overrideBranchId || u.branchId,
+  };
+
+  auditTrail.unshift(auditItem);
+
+  // Async persist to Postgres if available
+  pgPool
+    .query(
+      `INSERT INTO audit_logs (id, user_email, user_name, action, module, details, timestamp_ad, timestamp_bs, branch_id)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7, $8)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        auditItem.id,
+        auditItem.userEmail,
+        auditItem.userName,
+        auditItem.action,
+        auditItem.module,
+        auditItem.details,
+        auditItem.timestampBS,
+        auditItem.branchId,
+      ]
+    )
+    .catch(() => {});
+
+  return auditItem;
+}
+
 // ==========================================
 // API REST ENDPOINTS
 // ==========================================
 
 // Auth Login
+app.get('/api/auth/setup-status', (req, res) => {
+  res.json({
+    isFirstLaunch: users.length === 0,
+    userCount: users.length,
+    hasSuperAdmin: users.some((u) => u.role === 'SUPER_ADMIN'),
+  });
+});
+
+app.post('/api/auth/setup-superadmin', (req, res) => {
+  const { name, email, password, branchId } = req.body;
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: 'Name, email, and password are required.' });
+  }
+
+  // If superadmin exists and users are not empty, prevent unauthorized duplicate setup
+  if (users.length > 0 && users.some((u) => u.role === 'SUPER_ADMIN')) {
+    return res.status(400).json({ message: 'Super admin already exists in the system.' });
+  }
+
+  const hqBranchId = branchId || branches[0]?.id || 'WH001';
+  const newSuperAdmin = {
+    id: `usr-sa-${Date.now()}`,
+    email,
+    password,
+    name,
+    role: 'SUPER_ADMIN' as const,
+    branchId: hqBranchId,
+    allowedBranchIds: branches.map((b) => b.id),
+    canSwitchUser: true,
+  };
+
+  users.unshift(newSuperAdmin);
+  activeUser = newSuperAdmin;
+
+  logAuditEvent(req, 'CREATE_SUPER_ADMIN', 'AUTH', `Initial Super Admin account initialized: ${name} (${email})`);
+
+  const { password: _, ...userWithoutPass } = newSuperAdmin;
+  res.status(201).json({ user: userWithoutPass, token: `session-token-${newSuperAdmin.id}` });
+});
+
+app.post('/api/auth/forgot-password', (req, res) => {
+  const { email } = req.body;
+  const user = users.find((u) => u.email.toLowerCase() === (email || '').toLowerCase().trim());
+  
+  if (!user) {
+    return res.status(404).json({ message: 'No registered user account found with this email address.' });
+  }
+
+  const adminUser = users.find((u) => u.role === 'SUPER_ADMIN') || users[0];
+  logAuditEvent(req, 'FORGOT_PASSWORD_REQUEST', 'AUTH', `Password reset request submitted for ${user.name} (${user.email})`);
+
+  res.json({
+    success: true,
+    userName: user.name,
+    adminEmail: adminUser?.email || 'superadmin@izone.net.np',
+    message: `Reset request logged for ${user.name}. Please contact your System Administrator (${adminUser?.email || 'superadmin@izone.net.np'}) or ask your Manager to reset your password in User & Staff Management.`,
+  });
+});
+
 app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body;
   const user = users.find((u) => u.email === email && u.password === password);
@@ -1130,6 +1265,7 @@ app.post('/api/branches', (req, res) => {
     });
   });
 
+  logAuditEvent(req, 'CREATE_BRANCH', 'MASTER_DATA', `Created new branch ${newBranch.name} (${newBranch.code || newBranch.id})`);
   res.status(201).json(newBranch);
 });
 
@@ -1138,12 +1274,15 @@ app.put('/api/branches/:id', (req, res) => {
   const idx = branches.findIndex((b) => b.id === id);
   if (idx === -1) return res.status(404).json({ message: 'Branch not found' });
   branches[idx] = { ...branches[idx], ...req.body };
+  logAuditEvent(req, 'UPDATE_BRANCH', 'MASTER_DATA', `Updated branch details for ${branches[idx].name} (${branches[idx].id})`);
   res.json(branches[idx]);
 });
 
 app.delete('/api/branches/:id', (req, res) => {
   const { id } = req.params;
+  const br = branches.find((b) => b.id === id);
   branches = branches.filter((b) => b.id !== id);
+  logAuditEvent(req, 'DELETE_BRANCH', 'MASTER_DATA', `Deleted branch ${br?.name || id}`);
   res.json({ success: true });
 });
 
@@ -1159,6 +1298,7 @@ app.post('/api/suppliers', (req, res) => {
     ...req.body,
   };
   suppliers.push(newSupplier);
+  logAuditEvent(req, 'CREATE_SUPPLIER', 'MASTER_DATA', `Created new supplier ${newSupplier.name} (${(newSupplier as any).supplierCode || newSupplier.id})`);
   res.status(201).json(newSupplier);
 });
 
@@ -1167,12 +1307,15 @@ app.put('/api/suppliers/:id', (req, res) => {
   const idx = suppliers.findIndex((s) => s.id === id);
   if (idx === -1) return res.status(404).json({ message: 'Supplier not found' });
   suppliers[idx] = { ...suppliers[idx], ...req.body };
+  logAuditEvent(req, 'UPDATE_SUPPLIER', 'MASTER_DATA', `Updated supplier ${suppliers[idx].name} (${(suppliers[idx] as any).supplierCode || suppliers[idx].id})`);
   res.json(suppliers[idx]);
 });
 
 app.delete('/api/suppliers/:id', (req, res) => {
   const { id } = req.params;
+  const sup = suppliers.find((s) => s.id === id);
   suppliers = suppliers.filter((s) => s.id !== id);
+  logAuditEvent(req, 'DELETE_SUPPLIER', 'MASTER_DATA', `Deleted supplier ${sup?.name || id}`);
   res.json({ success: true });
 });
 
@@ -1189,6 +1332,7 @@ app.post('/api/users', (req, res) => {
     ...req.body,
   };
   users.push(newUser);
+  logAuditEvent(req, 'CREATE_USER', 'AUTH', `Created new user account ${newUser.name} (${newUser.email}) - Role: ${newUser.role}`);
   const { password: _, ...userWithoutPass } = newUser;
   res.status(201).json(userWithoutPass);
 });
@@ -1202,6 +1346,7 @@ app.put('/api/users/:id', (req, res) => {
     ...users[idx],
     ...req.body,
   };
+  logAuditEvent(req, 'UPDATE_USER', 'AUTH', `Updated user account ${users[idx].name} (${users[idx].email})`);
   const { password: _, ...userWithoutPass } = users[idx];
   res.json(userWithoutPass);
 });
@@ -1210,9 +1355,35 @@ app.delete('/api/users/:id', (req, res) => {
   const { id } = req.params;
   const idx = users.findIndex((u) => u.id === id);
   if (idx !== -1) {
+    const deletedUser = users[idx];
     users.splice(idx, 1);
+    logAuditEvent(req, 'DELETE_USER', 'AUTH', `Deleted user account ${deletedUser.name} (${deletedUser.email})`);
   }
   res.json({ success: true });
+});
+
+app.post('/api/users/:id/reset-password', (req, res) => {
+  const { id } = req.params;
+  const { newPassword } = req.body;
+  const userIdx = users.findIndex((u) => u.id === id);
+  
+  if (userIdx === -1) {
+    return res.status(404).json({ message: 'User account not found.' });
+  }
+
+  if (!newPassword || newPassword.trim().length < 3) {
+    return res.status(400).json({ message: 'New password must be at least 3 characters long.' });
+  }
+
+  users[userIdx].password = newPassword.trim();
+  logAuditEvent(req, 'RESET_USER_PASSWORD', 'AUTH', `Password reset for user account ${users[userIdx].name} (${users[userIdx].email})`);
+
+  const { password: _, ...userWithoutPass } = users[userIdx];
+  res.json({
+    success: true,
+    message: `Password for ${users[userIdx].name} (${users[userIdx].email}) has been successfully updated.`,
+    user: userWithoutPass,
+  });
 });
 
 // Products
@@ -1240,17 +1411,7 @@ app.post('/api/products', (req, res) => {
     });
   });
 
-  auditTrail.unshift({
-    id: `aud-${Date.now()}`,
-    userEmail: activeUser.email,
-    userName: activeUser.name,
-    action: 'CREATE_PRODUCT',
-    module: 'PRODUCTS',
-    details: `Created new product SKU ${newProd.sku} (${newProd.name})`,
-    timestampAD: new Date().toISOString(),
-    timestampBS: '2083-04-16 BS',
-  });
-
+  logAuditEvent(req, 'CREATE_PRODUCT', 'PRODUCTS', `Created new product SKU ${newProd.sku} (${newProd.name}) - Price: NPR ${newProd.sellingPrice}`);
   res.status(201).json(newProd);
 });
 
@@ -1259,14 +1420,24 @@ app.put('/api/products/:id', (req, res) => {
   const idx = products.findIndex((p) => p.id === id);
   if (idx === -1) return res.status(404).json({ message: 'Product not found' });
 
+  const oldProd = { ...products[idx] };
   products[idx] = { ...products[idx], ...req.body };
+  const updated = products[idx];
+
+  const changeMsg = oldProd.sku !== updated.sku
+    ? `SKU updated from ${oldProd.sku} to ${updated.sku}`
+    : `Updated product details for ${updated.name} (${updated.sku})`;
+
+  logAuditEvent(req, 'UPDATE_PRODUCT_SKU', 'PRODUCTS', changeMsg);
   res.json(products[idx]);
 });
 
 app.delete('/api/products/:id', (req, res) => {
   const { id } = req.params;
+  const prod = products.find((p) => p.id === id);
   products = products.filter((p) => p.id !== id);
   inventoryStock = inventoryStock.filter((s) => s.productId !== id);
+  logAuditEvent(req, 'DELETE_PRODUCT', 'PRODUCTS', `Deleted product ${prod?.name || id} (SKU: ${prod?.sku || 'N/A'})`);
   res.json({ success: true });
 });
 
@@ -1473,6 +1644,7 @@ app.post('/api/assets', (req, res) => {
     ...req.body,
   };
   assetRegister.push(newAsset);
+  logAuditEvent(req, 'ASSIGN_FIXED_ASSET', 'FIXED_ASSETS', `Assigned / Registered Fixed Asset Tag #${newAsset.tagNumber || newAsset.assetTag || 'FA'} (${newAsset.name}) at branch ${newAsset.branchId}`);
   res.status(201).json(newAsset);
 });
 
@@ -1482,6 +1654,7 @@ app.patch('/api/assets/:id/status', (req, res) => {
   if (!asset) return res.status(404).json({ message: 'Asset not found' });
 
   Object.assign(asset, req.body);
+  logAuditEvent(req, 'UPDATE_ASSET_STATUS', 'FIXED_ASSETS', `Updated Fixed Asset Tag #${asset.tagNumber || (asset as any).assetTag} status to ${req.body.status || 'UPDATED'}`);
   res.json(asset);
 });
 
@@ -1523,6 +1696,7 @@ app.post('/api/purchase-orders', (req, res) => {
   }
 
   purchaseOrders.unshift(newPO);
+  logAuditEvent(req, 'CREATE_PURCHASE_ORDER', 'PROCUREMENT', `Created Purchase Order #${newPO.poNumber} for supplier ${newPO.supplierName || 'Vendor'} (Total: NPR ${totalAmount?.toLocaleString() || 0})`);
   res.status(201).json(newPO);
 });
 
@@ -1551,6 +1725,7 @@ app.put('/api/purchase-orders/:id', (req, res) => {
   };
 
   purchaseOrders[index] = updatedPO;
+  logAuditEvent(req, 'UPDATE_PURCHASE_ORDER', 'PROCUREMENT', `Updated Purchase Order #${updatedPO.poNumber} (Supplier: ${updatedPO.supplierName})`);
   res.json(updatedPO);
 });
 
@@ -1561,6 +1736,7 @@ app.patch('/api/purchase-orders/:id/status', (req, res) => {
   if (!po) return res.status(404).json({ message: 'PO not found' });
 
   po.status = status;
+  logAuditEvent(req, 'UPDATE_PO_STATUS', 'PROCUREMENT', `Changed Purchase Order #${po.poNumber} status to ${status}`);
   res.json(po);
 });
 
@@ -1612,6 +1788,7 @@ app.post('/api/purchase-orders/:id/receive', (req, res) => {
     });
   });
 
+  logAuditEvent(req, 'RECEIVE_PURCHASE_ORDER', 'PROCUREMENT', `Received goods for Purchase Order #${po.poNumber} from supplier ${po.supplierName}`);
   res.json(po);
 });
 
@@ -1723,6 +1900,7 @@ app.post('/api/purchase-invoices', (req, res) => {
   }
 
   purchaseInvoices.unshift(newInv);
+  logAuditEvent(req, 'CREATE_PURCHASE_INVOICE', 'PROCUREMENT', `Created Purchase Invoice #${newInv.invoiceNumber} for supplier ${newInv.supplierName || 'Vendor'} (Grand Total: NPR ${newInv.grandTotal?.toLocaleString() || 0})`);
   res.status(201).json(newInv);
 });
 
@@ -1738,6 +1916,7 @@ app.post('/api/purchase-invoices/:id/pay', (req, res) => {
   } else {
     inv.paymentStatus = 'PARTIAL';
   }
+  logAuditEvent(req, 'RECORD_INVOICE_PAYMENT', 'PROCUREMENT', `Recorded payment of NPR ${Number(amount).toLocaleString()} for Invoice #${inv.invoiceNumber} (Status: ${inv.paymentStatus})`);
   res.json(inv);
 });
 
@@ -1762,12 +1941,13 @@ app.post('/api/shipments', (req, res) => {
   // Decrement source stock if inter-branch and increment incoming at destination
   if (req.body.type === 'INTER_BRANCH' && req.body.sourceBranchId) {
     req.body.items.forEach((item: any) => {
-      const sourceStk = inventoryStock.find(
+      const qtySent = Number(item.quantitySent || item.quantity || 1);
+      let sourceStk = inventoryStock.find(
         (s) => s.productId === item.productId && s.branchId === req.body.sourceBranchId
       );
       if (sourceStk) {
         const qtyBefore = sourceStk.quantityOnHand;
-        sourceStk.quantityOnHand = Math.max(0, sourceStk.quantityOnHand - item.quantitySent);
+        sourceStk.quantityOnHand = Math.max(0, sourceStk.quantityOnHand - qtySent);
         sourceStk.lastUpdated = new Date().toISOString();
 
         transactionLogs.unshift({
@@ -1779,9 +1959,9 @@ app.post('/api/shipments', (req, res) => {
           branchId: req.body.sourceBranchId,
           changeType: 'SHIPMENT_TRANSFER',
           quantityBefore: qtyBefore,
-          quantityChanged: -item.quantitySent,
+          quantityChanged: -qtySent,
           quantityAfter: sourceStk.quantityOnHand,
-          unitCost: 0,
+          unitCost: item.unitCost || 0,
           referenceDocId: newShipment.trackingCode,
           timestampAD: new Date().toISOString(),
           timestampBS: '2083-04-16 BS',
@@ -1804,13 +1984,14 @@ app.post('/api/shipments', (req, res) => {
           };
           inventoryStock.push(destStk);
         }
-        destStk.incomingQty = (destStk.incomingQty || 0) + item.quantitySent;
+        destStk.incomingQty = (destStk.incomingQty || 0) + qtySent;
         destStk.lastUpdated = new Date().toISOString();
       }
     });
   }
 
   shipments.unshift(newShipment);
+  logAuditEvent(req, newShipment.type === 'INTER_BRANCH' ? 'CREATE_TRANSFER' : 'CREATE_SHIPMENT', 'LOGISTICS', `Created ${newShipment.type === 'INTER_BRANCH' ? 'Inter-Branch Transfer' : 'Shipment'} #${newShipment.trackingCode} (${newShipment.sourceBranchName || newShipment.sourceBranchId} -> ${newShipment.destinationBranchName || newShipment.destinationBranchId}) with ${newShipment.items?.length || 0} line items`);
   res.status(201).json(newShipment);
 });
 
@@ -1925,6 +2106,7 @@ app.post('/api/shipments/:id/receive', (req, res) => {
   sh.hasDiscrepancy = hasDiscrepancy;
   sh.status = hasDiscrepancy ? 'DISCREPANCY' : 'RECEIVED';
 
+  logAuditEvent(req, sh.type === 'INTER_BRANCH' ? 'RECEIVE_TRANSFER' : 'RECEIVE_SHIPMENT', 'LOGISTICS', `Received ${sh.type === 'INTER_BRANCH' ? 'Transfer' : 'Shipment'} #${sh.trackingCode} at ${sh.destinationBranchName}${hasDiscrepancy ? ' [Discrepancy Flagged]' : ''}`);
   res.json(sh);
 });
 
@@ -1949,19 +2131,27 @@ app.post('/api/shipments/:id/cancel', (req, res) => {
   }
 
   // Restore sent stock back to source branch inventory and deduct incoming from destination
-  sh.items.forEach((item: any) => {
-    const qtySent = Number(item.quantitySent) || 0;
+  const srcBranchObj = branches.find((b) => b.id === sh.sourceBranchId || b.code === sh.sourceBranchId);
+  const srcBranchId = srcBranchObj?.id || sh.sourceBranchId;
+  const srcBranchCode = srcBranchObj?.code || sh.sourceBranchId;
 
-    if (qtySent > 0 && sh.sourceBranchId) {
+  const destBranchObj = branches.find((b) => b.id === sh.destinationBranchId || b.code === sh.destinationBranchId);
+  const destBranchId = destBranchObj?.id || sh.destinationBranchId;
+  const destBranchCode = destBranchObj?.code || sh.destinationBranchId;
+
+  sh.items.forEach((item: any) => {
+    const qtySent = Number(item.quantitySent || item.quantity) || 1;
+
+    if (qtySent > 0 && srcBranchId) {
       let sourceStk = inventoryStock.find(
-        (s) => s.productId === item.productId && s.branchId === sh.sourceBranchId
+        (s) => s.productId === item.productId && (s.branchId === srcBranchId || s.branchId === srcBranchCode)
       );
 
       if (!sourceStk) {
         sourceStk = {
-          id: `stk-${sh.sourceBranchId.toLowerCase()}-${item.productId}`,
+          id: `stk-${srcBranchId.toLowerCase()}-${item.productId}`,
           productId: item.productId,
-          branchId: sh.sourceBranchId,
+          branchId: srcBranchId,
           quantityOnHand: 0,
           damagedQty: 0,
           reservedQty: 0,
@@ -1983,7 +2173,7 @@ app.post('/api/shipments/:id/cancel', (req, res) => {
         productId: item.productId,
         productSku: prod?.sku || item.sku || '',
         productName: prod?.name || item.productName || '',
-        branchId: sh.sourceBranchId,
+        branchId: srcBranchId,
         changeType: 'TRANSFER_CANCELLED',
         quantityBefore: qtyBefore,
         quantityChanged: qtySent,
@@ -1996,9 +2186,9 @@ app.post('/api/shipments/:id/cancel', (req, res) => {
     }
 
     // Decrement incomingQty from destination branch
-    if (qtySent > 0 && sh.destinationBranchId) {
+    if (qtySent > 0 && destBranchId) {
       const destStk = inventoryStock.find(
-        (s) => s.productId === item.productId && s.branchId === sh.destinationBranchId
+        (s) => s.productId === item.productId && (s.branchId === destBranchId || s.branchId === destBranchCode)
       );
       if (destStk) {
         destStk.incomingQty = Math.max(0, (destStk.incomingQty || 0) - qtySent);
@@ -2012,12 +2202,12 @@ app.post('/api/shipments/:id/cancel', (req, res) => {
         if (!s?.deviceSerial) return;
         const cleanSer = s.deviceSerial.trim().toUpperCase();
         let devRecord = customerDeviceRecords.find(
-          (cd) => cd.deviceSerial.trim().toUpperCase() === cleanSer
+          (cd) => cd.deviceSerial.trim().toUpperCase() === cleanSer || (cd.ponSerial && cd.ponSerial.trim().toUpperCase() === cleanSer)
         );
         if (devRecord) {
-          devRecord.branchId = sh.sourceBranchId;
+          devRecord.branchId = srcBranchId;
           devRecord.status = 'IN_STOCK';
-          devRecord.notes = `Transfer ${sh.trackingCode} cancelled. Stock restored to source branch ${sh.sourceBranchName || sh.sourceBranchId}.`;
+          devRecord.notes = `Transfer ${sh.trackingCode} cancelled. Stock restored to source branch ${sh.sourceBranchName || srcBranchId}.`;
         }
       });
     }
@@ -2027,17 +2217,13 @@ app.post('/api/shipments/:id/cancel', (req, res) => {
   sh.notes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled on ${new Date().toISOString().split('T')[0]} by ${user?.name || 'Admin'} (${user?.role || 'SUPER_ADMIN'})${reason ? ': ' + reason : ''}. Stock refunded to source branch.`;
 
   // Log in Audit Trail
-  auditTrail.unshift({
-    id: `audit-${Date.now()}`,
-    userEmail: user?.email || 'admin@system.com.np',
-    userName: user?.name || 'Super Admin',
-    action: 'CANCEL_TRANSFER',
-    module: 'BRANCH_OPERATIONS',
-    details: `Cancelled in-transit transfer ${sh.trackingCode} (${sh.sourceBranchName || sh.sourceBranchId} -> ${sh.destinationBranchName || sh.destinationBranchId}). Returned ${sh.items.reduce((s: number, i: any) => s + (i.quantitySent || 0), 0)} items back to ${sh.sourceBranchName || sh.sourceBranchId} stock.${reason ? ' Reason: ' + reason : ''}`,
-    timestampAD: new Date().toISOString(),
-    timestampBS: '2083-04-22 BS',
-    branchId: sh.sourceBranchId,
-  });
+  logAuditEvent(
+    req,
+    'CANCEL_TRANSFER',
+    'LOGISTICS',
+    `Cancelled in-transit transfer ${sh.trackingCode} (${sh.sourceBranchName || sh.sourceBranchId} -> ${sh.destinationBranchName || sh.destinationBranchId}). Returned ${sh.items.reduce((s: number, i: any) => s + (i.quantitySent || 0), 0)} items back to ${sh.sourceBranchName || sh.sourceBranchId} stock.${reason ? ' Reason: ' + reason : ''}`,
+    sh.sourceBranchId
+  );
 
   res.json({ shipment: sh, message: `Transfer ${sh.trackingCode} cancelled successfully. Items refunded to source branch stock.` });
 });
@@ -2271,11 +2457,27 @@ app.post('/api/stock-operations', (req, res) => {
   }
 
   stockOperations.unshift(newOp);
+  logAuditEvent(req, `CREATE_STOCK_${opType}`, 'STOCK_OPERATIONS', `Created Stock Operation ${newOp.referenceNumber} (${opType}) at ${newOp.branchName} (Total Value: NPR ${totalValue.toLocaleString()})`);
   res.status(201).json(newOp);
 });
 
 // Receive Pullout Bin at Warehouse
 app.post('/api/stock-operations/:id/receive', (req, res) => {
+  const user = getUserFromReq(req);
+  const isAuthorized =
+    !user ||
+    user.role === 'SUPER_ADMIN' ||
+    user.role === 'INVENTORY_MANAGER' ||
+    user.branchId === 'BR-KTM' ||
+    user.branchId === 'WH001' ||
+    user.branchId === 'ALL';
+
+  if (!isAuthorized) {
+    return res.status(403).json({
+      message: 'Access Denied: Receiving pullout stock is restricted to Headquarters Warehouse Managers and Inventory Controllers.',
+    });
+  }
+
   const { id } = req.params;
   const op = stockOperations.find((o) => o.id === id);
   if (!op) return res.status(404).json({ message: 'Stock operation not found' });
@@ -2348,6 +2550,7 @@ app.post('/api/stock-operations/:id/receive', (req, res) => {
     whStk.lastUpdated = new Date().toISOString();
   }
 
+  logAuditEvent(req, 'RECEIVE_PULLOUT_BIN', 'STOCK_OPERATIONS', `Received Pullout Bin #${op.referenceNumber} at Warehouse ${op.destinationWarehouseName || whId}`);
   res.json(op);
 });
 
@@ -2364,7 +2567,9 @@ app.get('/api/fiscal-years', async (req, res) => {
       return res.json(result.rows);
     }
   } catch (e: any) {
-    console.warn('PostgreSQL fiscal_years read notice:', e.message);
+    if (e?.code !== 'ECONNREFUSED' && !e?.message?.includes('ECONNREFUSED')) {
+      console.warn('PostgreSQL fiscal_years read notice:', e.message);
+    }
   }
   res.json(fiscalYears);
 });
@@ -2778,6 +2983,7 @@ app.post('/api/customer-devices', (req, res) => {
     customerMasterRecords.unshift(newMaster);
   }
 
+  logAuditEvent(req, 'ASSIGN_CUSTOMER_CPE', 'CPE_MANAGEMENT', `Assigned CPE Device Serial ${newRecord.deviceSerial} (PON: ${newRecord.ponSerial || 'N/A'}) to customer ${newRecord.customerName} (${custCode})`, newRecord.branchId);
   res.status(201).json(newRecord);
 });
 
@@ -2851,6 +3057,7 @@ app.patch('/api/customer-devices/:id/status', (req, res) => {
     ).length;
   }
 
+  logAuditEvent(req, 'UPDATE_CPE_DEVICE_STATUS', 'CPE_MANAGEMENT', `Updated CPE Device ${record.deviceSerial} status from ${oldStatus} to ${record.status} for customer ${record.customerName}`, record.branchId);
   res.json(record);
 });
 
@@ -3007,6 +3214,7 @@ app.post('/api/customers', (req, res) => {
     customerMasterRecords.unshift(newRecord);
   }
 
+  logAuditEvent(req, 'CREATE_CUSTOMER', 'MASTER_DATA', `Created / Registered Customer Profile ${newRecord.customerName} (${newRecord.customerId})`, newRecord.branchId);
   res.status(201).json(newRecord);
 });
 
@@ -3037,6 +3245,7 @@ app.post('/api/customers/bulk', (req, res) => {
     count++;
   });
 
+  logAuditEvent(req, 'BULK_IMPORT_CUSTOMERS', 'MASTER_DATA', `Bulk imported ${count} Customer Records into Master Directory`);
   res.status(201).json({ success: true, count, total: customerMasterRecords.length });
 });
 
@@ -3052,12 +3261,15 @@ app.put('/api/customers/:id', (req, res) => {
     ...req.body,
   };
 
+  logAuditEvent(req, 'UPDATE_CUSTOMER', 'MASTER_DATA', `Updated Customer Master Details for ${customerMasterRecords[idx].customerName} (${customerMasterRecords[idx].customerId})`, customerMasterRecords[idx].branchId);
   res.json(customerMasterRecords[idx]);
 });
 
 app.delete('/api/customers/:id', (req, res) => {
   const { id } = req.params;
+  const cust = customerMasterRecords.find((c) => c.id === id || c.customerId === id);
   customerMasterRecords = customerMasterRecords.filter((c) => c.id !== id && c.customerId !== id);
+  logAuditEvent(req, 'DELETE_CUSTOMER', 'MASTER_DATA', `Deleted Customer Record ${cust?.customerName || id}`);
   res.json({ success: true, deletedId: id });
 });
 
@@ -3106,17 +3318,7 @@ app.post('/api/approval-requests', (req, res) => {
     logDetails = `Submitted Physical Stock Count Audit authorization request #${newRequest.requestNumber} for ${newRequest.branchName || newRequest.branchId} (${newRequest.auditData?.discrepancyCount || 0} variance items, Net Impact: NPR ${(newRequest.auditData?.netValueVariance || 0).toLocaleString()}). Reason: ${newRequest.reason}`;
   }
 
-  auditTrail.unshift({
-    id: `audit-${Date.now()}`,
-    userEmail: newRequest.requestedByEmail || 'user@system.com.np',
-    userName: newRequest.requestedByName || 'Branch Staff',
-    action: `APPROVAL_REQUEST_SUBMITTED`,
-    module: logModule,
-    details: logDetails,
-    timestampAD: new Date().toISOString(),
-    timestampBS: '2083-04-22 BS',
-    branchId: newRequest.branchId,
-  });
+  logAuditEvent(req, 'APPROVAL_REQUEST_SUBMITTED', logModule, logDetails, newRequest.branchId);
 
   res.status(201).json(newRequest);
 });
@@ -3128,27 +3330,18 @@ app.post('/api/approval-requests/:id/process', (req, res) => {
   const request = approvalRequests.find((r) => r.id === id);
   if (!request) return res.status(404).json({ message: 'Approval request not found' });
 
+  const currentU = getUserFromReq(req);
   request.status = status;
-  request.processedByEmail = approverUser?.email || 'admin@system.com.np';
-  request.processedByName = approverUser?.name || 'Super Admin';
-  request.processedByRole = approverUser?.role || 'SUPER_ADMIN';
+  request.processedByEmail = approverUser?.email || currentU.email;
+  request.processedByName = approverUser?.name || currentU.name;
+  request.processedByRole = approverUser?.role || currentU.role;
   request.processedAtAD = new Date().toISOString();
   request.processedAtBS = '2083-04-22 BS';
 
   if (status === 'REJECTED') {
     request.rejectionReason = rejectionReason || 'Request rejected by administrator';
 
-    auditTrail.unshift({
-      id: `audit-${Date.now()}`,
-      userEmail: request.processedByEmail,
-      userName: request.processedByName,
-      action: `APPROVAL_REQUEST_REJECTED`,
-      module: 'OPERATIONS',
-      details: `Rejected approval request #${request.requestNumber} for ${request.customerName} (${request.deviceSerial}): ${request.rejectionReason}`,
-      timestampAD: new Date().toISOString(),
-      timestampBS: '2083-04-22 BS',
-      branchId: request.branchId,
-    });
+    logAuditEvent(req, 'APPROVAL_REQUEST_REJECTED', 'OPERATIONS', `Rejected approval request #${request.requestNumber} for ${request.customerName} (${request.deviceSerial}): ${request.rejectionReason}`, request.branchId);
 
     return res.json({ request, message: 'Approval request rejected successfully' });
   }
@@ -3206,36 +3399,52 @@ app.post('/api/approval-requests/:id/process', (req, res) => {
       });
     }
 
-    auditTrail.unshift({
-      id: `audit-${Date.now()}`,
-      userEmail: request.processedByEmail,
-      userName: request.processedByName,
-      action: `APPROVAL_REQUEST_APPROVED`,
-      module: 'OPERATIONS',
-      details: `Approved request #${request.requestNumber}. Updated ${request.customerName} (${request.deviceSerial}) status to ${request.requestedStatus}${request.restockQtyOnApproval ? ' (+1 unit restocked to branch inventory)' : ''}`,
-      timestampAD: new Date().toISOString(),
-      timestampBS: '2083-04-22 BS',
-      branchId: request.branchId,
-    });
+    logAuditEvent(req, 'APPROVAL_REQUEST_APPROVED', 'OPERATIONS', `Approved request #${request.requestNumber}. Updated ${request.customerName} (${request.deviceSerial}) status to ${request.requestedStatus}${request.restockQtyOnApproval ? ' (+1 unit restocked to branch inventory)' : ''}`, request.branchId);
   }
 
   // IF APPROVED: Cancel In-Transit Transfer (Restores items back to Source Branch stock)
-  if (request.type === 'CANCEL_TRANSFER' || request.type === 'CANCEL_IN_TRANSIT_TRANSFER' || request.type === 'CANCEL_RECEIVE_TRANSFER') {
-    const sh = shipments.find((s) => s.id === request.targetId || s.trackingCode === request.deviceSerial || s.trackingCode === request.customerName);
-    if (sh && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED') {
-      sh.items.forEach((item: any) => {
-        const qtySent = Number(item.quantitySent) || 0;
+  if (
+    request.type === 'CANCEL_TRANSFER' ||
+    request.type === 'CANCEL_IN_TRANSIT_TRANSFER' ||
+    request.type === 'CANCEL_RECEIVE_TRANSFER' ||
+    (request.type && request.type.toUpperCase().includes('CANCEL_TRANSFER'))
+  ) {
+    const targetId = (request.targetId || request.shipmentData?.shipmentId || '').trim();
+    const code1 = (request.deviceSerial || '').trim().toUpperCase();
+    const code2 = (request.customerName || '').trim().toUpperCase();
+    const code3 = (request.shipmentData?.trackingCode || '').trim().toUpperCase();
 
-        if (qtySent > 0 && sh.sourceBranchId) {
+    const sh = shipments.find(
+      (s) =>
+        (targetId && s.id === targetId) ||
+        (code1 && s.trackingCode && s.trackingCode.trim().toUpperCase() === code1) ||
+        (code2 && s.trackingCode && s.trackingCode.trim().toUpperCase() === code2) ||
+        (code3 && s.trackingCode && s.trackingCode.trim().toUpperCase() === code3) ||
+        (targetId && s.trackingCode && s.trackingCode.trim().toUpperCase() === targetId.toUpperCase())
+    );
+
+    if (sh && sh.status !== 'CANCELLED' && sh.status !== 'RECEIVED' && sh.status !== 'DELIVERED') {
+      const srcBranchObj = branches.find((b) => b.id === sh.sourceBranchId || b.code === sh.sourceBranchId);
+      const srcBranchId = srcBranchObj?.id || sh.sourceBranchId;
+      const srcBranchCode = srcBranchObj?.code || sh.sourceBranchId;
+
+      const destBranchObj = branches.find((b) => b.id === sh.destinationBranchId || b.code === sh.destinationBranchId);
+      const destBranchId = destBranchObj?.id || sh.destinationBranchId;
+      const destBranchCode = destBranchObj?.code || sh.destinationBranchId;
+
+      sh.items.forEach((item: any) => {
+        const qtySent = Number(item.quantitySent || item.quantity) || 1;
+
+        if (qtySent > 0 && srcBranchId) {
           let sourceStk = inventoryStock.find(
-            (s) => s.productId === item.productId && s.branchId === sh.sourceBranchId
+            (s) => s.productId === item.productId && (s.branchId === srcBranchId || s.branchId === srcBranchCode)
           );
 
           if (!sourceStk) {
             sourceStk = {
-              id: `stk-${sh.sourceBranchId.toLowerCase()}-${item.productId}`,
+              id: `stk-${srcBranchId.toLowerCase()}-${item.productId}`,
               productId: item.productId,
-              branchId: sh.sourceBranchId,
+              branchId: srcBranchId,
               quantityOnHand: 0,
               damagedQty: 0,
               reservedQty: 0,
@@ -3257,7 +3466,7 @@ app.post('/api/approval-requests/:id/process', (req, res) => {
             productId: item.productId,
             productSku: prod?.sku || item.sku || '',
             productName: prod?.name || item.productName || '',
-            branchId: sh.sourceBranchId,
+            branchId: srcBranchId,
             changeType: 'TRANSFER_CANCELLED',
             quantityBefore: qtyBefore,
             quantityChanged: qtySent,
@@ -3270,9 +3479,9 @@ app.post('/api/approval-requests/:id/process', (req, res) => {
         }
 
         // Decrement destination incomingQty
-        if (qtySent > 0 && sh.destinationBranchId) {
+        if (qtySent > 0 && destBranchId) {
           const destStk = inventoryStock.find(
-            (s) => s.productId === item.productId && s.branchId === sh.destinationBranchId
+            (s) => s.productId === item.productId && (s.branchId === destBranchId || s.branchId === destBranchCode)
           );
           if (destStk) {
             destStk.incomingQty = Math.max(0, (destStk.incomingQty || 0) - qtySent);
@@ -3286,10 +3495,10 @@ app.post('/api/approval-requests/:id/process', (req, res) => {
             if (!s?.deviceSerial) return;
             const cleanSer = s.deviceSerial.trim().toUpperCase();
             let devRecord = customerDeviceRecords.find(
-              (cd) => cd.deviceSerial.trim().toUpperCase() === cleanSer
+              (cd) => cd.deviceSerial.trim().toUpperCase() === cleanSer || (cd.ponSerial && cd.ponSerial.trim().toUpperCase() === cleanSer)
             );
             if (devRecord) {
-              devRecord.branchId = sh.sourceBranchId;
+              devRecord.branchId = srcBranchId;
               devRecord.status = 'IN_STOCK';
               devRecord.notes = `Transfer ${sh.trackingCode} cancelled via Approval #${request.requestNumber}. Restored to source branch.`;
             }
@@ -3300,17 +3509,7 @@ app.post('/api/approval-requests/:id/process', (req, res) => {
       sh.status = 'CANCELLED';
       sh.notes = (sh.notes ? sh.notes + ' | ' : '') + `Transfer cancelled via Approval #${request.requestNumber} on ${new Date().toISOString().split('T')[0]} by ${request.processedByName} (${request.processedByRole}). Stock restored to source branch.`;
 
-      auditTrail.unshift({
-        id: `audit-${Date.now()}`,
-        userEmail: request.processedByEmail,
-        userName: request.processedByName,
-        action: `APPROVAL_REQUEST_APPROVED`,
-        module: 'BRANCH_OPERATIONS',
-        details: `Approved transfer cancellation for ${sh.trackingCode} (${sh.sourceBranchName || sh.sourceBranchId} -> ${sh.destinationBranchName || sh.destinationBranchId}). Refunded stock back to ${sh.sourceBranchName || sh.sourceBranchId}.`,
-        timestampAD: new Date().toISOString(),
-        timestampBS: '2083-04-22 BS',
-        branchId: sh.sourceBranchId,
-      });
+      logAuditEvent(req, 'APPROVAL_REQUEST_APPROVED', 'BRANCH_OPERATIONS', `Approved transfer cancellation for ${sh.trackingCode} (${sh.sourceBranchName || srcBranchId} -> ${sh.destinationBranchName || destBranchId}). Refunded stock back to ${sh.sourceBranchName || srcBranchId}.`, srcBranchId);
     }
   }
 
@@ -3367,17 +3566,7 @@ app.post('/api/approval-requests/:id/process', (req, res) => {
       });
     }
 
-    auditTrail.unshift({
-      id: `audit-${Date.now()}`,
-      userEmail: request.processedByEmail,
-      userName: request.processedByName,
-      action: `STOCK_AUDIT_RECONCILED`,
-      module: 'INVENTORY_AUDIT',
-      details: `Approved & Reconciled Physical Stock Audit #${auditData.auditRefNumber} (Approval #${request.requestNumber}) for ${auditData.branchName || targetBranchId}. Adjusted ${auditData.discrepancyCount || auditData.varianceItems?.length || 0} variance items to physical count. Net Financial Impact: NPR ${(auditData.netValueVariance || 0).toLocaleString()}.`,
-      timestampAD: new Date().toISOString(),
-      timestampBS: '2083-04-22 BS',
-      branchId: targetBranchId,
-    });
+    logAuditEvent(req, 'STOCK_AUDIT_RECONCILED', 'INVENTORY_AUDIT', `Approved & Reconciled Physical Stock Audit #${auditData.auditRefNumber} (Approval #${request.requestNumber}) for ${auditData.branchName || targetBranchId}. Adjusted ${auditData.discrepancyCount || auditData.varianceItems?.length || 0} variance items to physical count. Net Financial Impact: NPR ${(auditData.netValueVariance || 0).toLocaleString()}.`, targetBranchId);
   }
 
   res.json({ request, message: 'Approval request authorized and executed successfully' });
@@ -3394,25 +3583,16 @@ app.post('/api/approval-requests/:id/cancel', (req, res) => {
     return res.status(400).json({ message: `Cannot cancel a request that is already ${request.status}` });
   }
 
+  const currentU = getUserFromReq(req);
   request.status = 'CANCELLED';
-  request.processedByEmail = user?.email || request.requestedByEmail;
-  request.processedByName = user?.name || request.requestedByName;
-  request.processedByRole = user?.role || request.requestedByRole;
+  request.processedByEmail = user?.email || currentU.email || request.requestedByEmail;
+  request.processedByName = user?.name || currentU.name || request.requestedByName;
+  request.processedByRole = user?.role || currentU.role || request.requestedByRole;
   request.processedAtAD = new Date().toISOString();
   request.processedAtBS = '2083-04-22 BS';
   request.rejectionReason = reason?.trim() || 'Request cancelled by user';
 
-  auditTrail.unshift({
-    id: `audit-${Date.now()}`,
-    userEmail: request.processedByEmail,
-    userName: request.processedByName,
-    action: `APPROVAL_REQUEST_CANCELLED`,
-    module: 'OPERATIONS',
-    details: `Cancelled approval request #${request.requestNumber} for ${request.customerName} (${request.deviceSerial}). Reason: ${request.rejectionReason}`,
-    timestampAD: new Date().toISOString(),
-    timestampBS: '2083-04-22 BS',
-    branchId: request.branchId,
-  });
+  logAuditEvent(req, 'APPROVAL_REQUEST_CANCELLED', 'OPERATIONS', `Cancelled approval request #${request.requestNumber} for ${request.customerName} (${request.deviceSerial}). Reason: ${request.rejectionReason}`, request.branchId);
 
   res.json({ request, message: 'Approval request cancelled successfully' });
 });
@@ -3503,7 +3683,141 @@ app.post('/api/ai/analytics', async (req, res) => {
 });
 
 // Vite Middleware Setup for Dev Mode vs Static Production Serving
+async function syncDatabaseAndIndexes() {
+  try {
+    const client = await pgPool.connect();
+    console.log('PostgreSQL Pool connected successfully. Syncing database schema & creating performance indexes...');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(50) PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL,
+        branch_id VARCHAR(50) NOT NULL,
+        allowed_branch_ids TEXT[],
+        can_switch_user BOOLEAN DEFAULT FALSE
+      );
+
+      CREATE TABLE IF NOT EXISTS suppliers (
+        id VARCHAR(50) PRIMARY KEY,
+        supplier_code VARCHAR(50) UNIQUE NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        contact_person VARCHAR(255),
+        phone VARCHAR(50),
+        email VARCHAR(255),
+        address TEXT,
+        pan_vat_number VARCHAR(50),
+        status VARCHAR(20) DEFAULT 'ACTIVE'
+      );
+
+      CREATE TABLE IF NOT EXISTS products (
+        id VARCHAR(50) PRIMARY KEY,
+        sku VARCHAR(50) UNIQUE NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(100),
+        unit VARCHAR(20),
+        cost_price NUMERIC(12,2) DEFAULT 0,
+        selling_price NUMERIC(12,2) DEFAULT 0,
+        min_reorder_level INT DEFAULT 0,
+        requires_serial_tracking BOOLEAN DEFAULT FALSE,
+        is_consumable BOOLEAN DEFAULT FALSE,
+        status VARCHAR(20) DEFAULT 'ACTIVE'
+      );
+
+      CREATE TABLE IF NOT EXISTS inventory_stock (
+        id VARCHAR(50) PRIMARY KEY,
+        product_id VARCHAR(50) NOT NULL,
+        branch_id VARCHAR(50) NOT NULL,
+        quantity_on_hand INT DEFAULT 0,
+        quantity_reserved INT DEFAULT 0,
+        damaged_qty INT DEFAULT 0,
+        reorder_level INT DEFAULT 5,
+        CONSTRAINT unq_product_branch UNIQUE(product_id, branch_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS purchase_invoices (
+        id VARCHAR(50) PRIMARY KEY,
+        invoice_number VARCHAR(100) NOT NULL,
+        supplier_id VARCHAR(50) NOT NULL,
+        supplier_name VARCHAR(255),
+        branch_id VARCHAR(50) NOT NULL,
+        invoice_date_ad DATE,
+        invoice_date_bs VARCHAR(50),
+        taxable_amount NUMERIC(12,2) DEFAULT 0,
+        vat_amount NUMERIC(12,2) DEFAULT 0,
+        grand_total NUMERIC(12,2) DEFAULT 0,
+        amount_paid NUMERIC(12,2) DEFAULT 0,
+        payment_status VARCHAR(50)
+      );
+
+      CREATE TABLE IF NOT EXISTS purchase_orders (
+        id VARCHAR(50) PRIMARY KEY,
+        order_number VARCHAR(100) NOT NULL,
+        supplier_id VARCHAR(50) NOT NULL,
+        supplier_name VARCHAR(255),
+        branch_id VARCHAR(50) NOT NULL,
+        order_date_ad DATE,
+        status VARCHAR(50),
+        total_amount NUMERIC(12,2) DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id VARCHAR(50) PRIMARY KEY,
+        user_email VARCHAR(255),
+        user_name VARCHAR(255),
+        action VARCHAR(100),
+        module VARCHAR(50),
+        details TEXT,
+        timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        timestamp_bs VARCHAR(50),
+        branch_id VARCHAR(50)
+      );
+
+      CREATE TABLE IF NOT EXISTS transaction_logs (
+        id VARCHAR(50) PRIMARY KEY,
+        transaction_number VARCHAR(100),
+        product_id VARCHAR(50),
+        product_sku VARCHAR(50),
+        product_name VARCHAR(255),
+        branch_id VARCHAR(50),
+        change_type VARCHAR(50),
+        quantity_before INT,
+        quantity_changed INT,
+        quantity_after INT,
+        timestamp_ad TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- PERFORMANCE INDEXES --
+      CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku);
+      CREATE INDEX IF NOT EXISTS idx_products_name ON products(name);
+      CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
+
+      CREATE INDEX IF NOT EXISTS idx_stock_prod_branch ON inventory_stock(product_id, branch_id);
+      CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON purchase_invoices(supplier_id);
+      CREATE INDEX IF NOT EXISTS idx_invoices_branch ON purchase_invoices(branch_id);
+      
+      CREATE INDEX IF NOT EXISTS idx_orders_supplier ON purchase_orders(supplier_id);
+      CREATE INDEX IF NOT EXISTS idx_orders_branch ON purchase_orders(branch_id);
+
+      CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp_ad DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_email);
+      
+      CREATE INDEX IF NOT EXISTS idx_txn_product ON transaction_logs(product_id);
+      CREATE INDEX IF NOT EXISTS idx_txn_branch ON transaction_logs(branch_id);
+    `);
+
+    client.release();
+    console.log('Database tables and performance indexes created & synced successfully.');
+  } catch (err: any) {
+    console.log('Database pool note: Memory cache active.', err?.message || err);
+  }
+}
+
 async function startServer() {
+  await syncDatabaseAndIndexes();
+
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`IZone Inventory System server running on http://localhost:${PORT}`);
   });

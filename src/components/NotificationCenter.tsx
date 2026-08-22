@@ -47,7 +47,7 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
 
   if (!isOpen) return null;
 
-  // 1. Generate Low Stock / Reorder Alerts (matching Header badge logic accurately)
+  // 1. Generate Low Stock / Reorder Alerts (matching Header badge & Consolidated Total logic accurately)
   const lowStockAlerts: {
     id: string;
     type: 'REORDER';
@@ -60,33 +60,67 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({
     actionTab: string;
   }[] = [];
 
+  const activeBr =
+    selectedBranchId === 'ALL'
+      ? branches
+      : branches.filter((b) => b.id === selectedBranchId);
+
   products.forEach((prod) => {
-    const relevantStock = stock.filter(
-      (s) => s.productId === prod.id && (selectedBranchId === 'ALL' || s.branchId === selectedBranchId)
-    );
+    let totalOnHand = 0;
+    let totalConsolidatedReorder = 0;
+    let totalDeficit = 0;
+    const lowBranchNames: string[] = [];
 
-    const lowBranches = relevantStock.filter((s) =>
-      prod.minReorderLevel > 0
-        ? s.quantityOnHand <= prod.minReorderLevel
-        : s.quantityOnHand <= 0
-    );
+    activeBr.forEach((b) => {
+      const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
+      const onHand = item ? item.quantityOnHand : 0;
+      totalOnHand += onHand;
 
-    if (lowBranches.length > 0) {
-      const totalOnHand = relevantStock.reduce((sum, s) => sum + s.quantityOnHand, 0);
-      const branchNames = lowBranches
-        .map((s) => branches.find((b) => b.id === s.branchId)?.name || 'Branch')
-        .join(', ');
+      const threshold =
+        item?.minReorderLevel !== undefined && item?.minReorderLevel !== null
+          ? item.minReorderLevel
+          : prod.minReorderLevel;
+      totalConsolidatedReorder += threshold;
+
+      if (threshold > 0 && onHand <= threshold) {
+        lowBranchNames.push(b.name);
+        totalDeficit += Math.max(1, threshold - onHand);
+      } else if (threshold === 0 && onHand < 0) {
+        lowBranchNames.push(b.name);
+        totalDeficit += Math.abs(onHand);
+      }
+    });
+
+    const isLow =
+      lowBranchNames.length > 0 ||
+      (totalConsolidatedReorder > 0 && totalOnHand <= totalConsolidatedReorder);
+
+    if (isLow) {
+      if (
+        totalDeficit === 0 &&
+        totalConsolidatedReorder > 0 &&
+        totalOnHand <= totalConsolidatedReorder
+      ) {
+        totalDeficit = Math.max(1, totalConsolidatedReorder - totalOnHand);
+      }
+
+      const branchDisplay =
+        lowBranchNames.length > 0
+          ? lowBranchNames.join(', ')
+          : selectedBranchId === 'ALL'
+          ? 'Consolidated - All Branches'
+          : branches.find((b) => b.id === selectedBranchId)?.name || 'Branch';
 
       lowStockAlerts.push({
         id: `lowstock-${prod.id}`,
         type: 'REORDER',
         title: `Low Stock: ${prod.name}`,
-        subtitle: `Available: ${totalOnHand} ${prod.unit} (Min Reorder Level: ${prod.minReorderLevel || 1})`,
-        branchName: branchNames || 'All Branches',
+        subtitle: `Consolidated Stock: ${totalOnHand} ${prod.unit} | Deficit: ${totalDeficit} ${prod.unit} (Min Threshold: ${totalConsolidatedReorder || prod.minReorderLevel})`,
+        branchName: branchDisplay,
         date: 'Action Required',
         severity: totalOnHand === 0 ? 'CRITICAL' : 'WARNING',
         actionLabel: 'Reorder / PO',
-        actionTab: 'po-list',
+        actionTab: 'reorder-stock',
       });
     }
   });

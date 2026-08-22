@@ -38,6 +38,7 @@ import {
   AlertTriangle,
   Lock,
   ArrowLeft,
+  PackageCheck,
   RotateCcw,
   Layers,
   ChevronDown,
@@ -100,7 +101,9 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
   );
 
   const [viewingInvoice, setViewingInvoice] = useState<PurchaseInvoice | null>(null);
+  const [productsModalInvoice, setProductsModalInvoice] = useState<PurchaseInvoice | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [vendorFilter, setVendorFilter] = useState('ALL');
 
   // Sync active tab with autoOpenModal prop
   useEffect(() => {
@@ -144,17 +147,20 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
 
   const filteredPendingPOs = pendingPOs.filter(
     (po) =>
-      po.poNumber.toLowerCase().includes(poSearchQuery.toLowerCase()) ||
-      po.supplierName.toLowerCase().includes(poSearchQuery.toLowerCase())
+      (po?.poNumber || '').toLowerCase().includes((poSearchQuery || '').toLowerCase()) ||
+      (po?.supplierName || '').toLowerCase().includes((poSearchQuery || '').toLowerCase())
   );
 
   const filteredInvoices = invoices.filter((inv) => {
     const matchesBranch = selectedBranchId === 'ALL' || inv.branchId === selectedBranchId;
+    const matchesVendor =
+      vendorFilter === 'ALL' ||
+      (inv?.supplierName || '').toLowerCase() === (vendorFilter || '').toLowerCase();
     const matchesSearch =
-      inv.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (inv.vendorBillNumber && inv.vendorBillNumber.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      inv.supplierName.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesBranch && matchesSearch;
+      (inv?.invoiceNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      (inv.vendorBillNumber && (inv?.vendorBillNumber || '').toLowerCase().includes((searchQuery || '').toLowerCase())) ||
+      (inv?.supplierName || '').toLowerCase().includes((searchQuery || '').toLowerCase());
+    return matchesBranch && matchesVendor && matchesSearch;
   });
 
   // Financial Metrics
@@ -636,24 +642,48 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
             </div>
           </div>
 
-          {/* Search bar */}
+          {/* Search bar & Vendor Filter */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <div className="relative w-full sm:w-80">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search Invoice #, Bill # or Supplier..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  isDarkMode
-                    ? 'bg-slate-900 border-slate-800 text-slate-200'
-                    : 'bg-white border-slate-200 text-slate-800'
-                }`}
-              />
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto flex-1">
+              <div className="relative w-full sm:w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search Invoice #, Bill # or Supplier..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className={`w-full pl-9 pr-3 py-2 text-xs rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    isDarkMode
+                      ? 'bg-slate-900 border-slate-800 text-slate-200'
+                      : 'bg-white border-slate-200 text-slate-800'
+                  }`}
+                />
+              </div>
+
+              <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                <span className={`text-xs font-semibold whitespace-nowrap ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  Filter Vendor:
+                </span>
+                <select
+                  value={vendorFilter}
+                  onChange={(e) => setVendorFilter(e.target.value)}
+                  className={`px-3 py-2 text-xs font-medium rounded-xl border focus:outline-none transition-all cursor-pointer ${
+                    isDarkMode
+                      ? 'bg-slate-900 border-slate-800 text-slate-200 focus:border-blue-500'
+                      : 'bg-white border-slate-200 text-slate-800 focus:border-blue-500'
+                  }`}
+                >
+                  <option value="ALL">All Vendors / Suppliers ({DB_SUPPLIERS.length})</option>
+                  {Array.from(new Set([...DB_SUPPLIERS, ...invoices.map((i) => i.supplierName)])).map((supp) => (
+                    <option key={supp} value={supp}>
+                      🏢 {supp}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <div className="text-xs text-slate-500 dark:text-slate-400">
+            <div className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
               Showing <strong className="text-slate-900 dark:text-white font-mono">{filteredInvoices.length}</strong> purchase bills
             </div>
           </div>
@@ -733,17 +763,29 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
                             </span>
                           </td>
                           <td className="p-3.5 text-center">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setViewingInvoice(inv);
-                                setActiveTab('VIEW_INVOICE');
-                              }}
-                              title="View Bill Details & Print Voucher"
-                              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </button>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setProductsModalInvoice(inv)}
+                                title="View List of Products Purchased in this Invoice"
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 text-[11px] font-bold cursor-pointer transition-all shadow-2xs"
+                              >
+                                <PackageCheck className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                                <span className="hidden md:inline">Products ({inv.items?.length || 0})</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setViewingInvoice(inv);
+                                  setActiveTab('VIEW_INVOICE');
+                                }}
+                                title="View Bill Details & Print Voucher"
+                                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1687,6 +1729,163 @@ export const PurchaseInvoices: React.FC<PurchaseInvoicesProps> = ({
               >
                 Done Inspecting
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Purchased Products Breakdown Modal */}
+      {productsModalInvoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div
+            className={`w-full max-w-4xl max-h-[90vh] flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${
+              isDarkMode ? 'bg-[#0f1218] border-slate-800 text-slate-200' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800 bg-indigo-600 text-white">
+              <div className="flex items-center gap-2.5">
+                <PackageCheck className="h-5 w-5 text-amber-300" />
+                <div>
+                  <h3 className="font-bold text-sm">
+                    Purchased Products List — Ref #{productsModalInvoice.invoiceNumber}
+                  </h3>
+                  <p className="text-[11px] text-indigo-100">
+                    Vendor: <strong>{productsModalInvoice.supplierName}</strong> | Vendor Bill #: <strong>{productsModalInvoice.vendorBillNumber || '—'}</strong>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProductsModalInvoice(null)}
+                className="p-1 rounded-lg hover:bg-white/10 text-white cursor-pointer transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 overflow-y-auto space-y-4 flex-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-50 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Invoice Date (AD)</span>
+                  <span className="font-mono font-bold">{formatDualDate(productsModalInvoice.invoiceDateAD, dateMode)}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Total Items</span>
+                  <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{productsModalInvoice.items.length} Lines</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Taxable Subtotal</span>
+                  <span className="font-mono font-bold">Rs. {(productsModalInvoice.taxableAmount ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Grand Total</span>
+                  <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">Rs. {(productsModalInvoice.grandTotal ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+
+              {/* Products Table */}
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className={`font-bold uppercase text-[10px] tracking-wider border-b ${
+                    isDarkMode ? 'bg-[#12161f] text-slate-400 border-slate-800' : 'bg-slate-100 text-slate-700 border-slate-200'
+                  }`}>
+                    <tr>
+                      <th className="p-3">#</th>
+                      <th className="p-3">Product Name & Code</th>
+                      <th className="p-3 text-center">Qty Purchased</th>
+                      <th className="p-3 text-right">Unit Price</th>
+                      <th className="p-3 text-right">Discount</th>
+                      <th className="p-3 text-right">Line Total</th>
+                      <th className="p-3">Serials / PON Data</th>
+                    </tr>
+                  </thead>
+                  <tbody className={`divide-y ${isDarkMode ? 'divide-slate-800' : 'divide-slate-200'}`}>
+                    {productsModalInvoice.items.map((item, idx) => {
+                      const prod = products.find((p) => p.id === item.productId || p.sku === item.productSku);
+                      const hasSerials = item.deviceSerials && item.deviceSerials.length > 0;
+                      return (
+                        <tr key={item.id || idx} className={isDarkMode ? 'hover:bg-slate-800/40' : 'hover:bg-slate-50'}>
+                          <td className="p-3 font-mono text-slate-400">{idx + 1}</td>
+                          <td className="p-3">
+                            <span className="font-bold block text-slate-900 dark:text-white">{item.productName || prod?.name}</span>
+                            <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">
+                              SKU: {item.productSku || prod?.sku} | {prod?.category || 'Inventory'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                            {item.quantity} {prod?.unit || 'Pcs'}
+                          </td>
+                          <td className="p-3 text-right font-mono">
+                            Rs. {(item.unitPrice ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="p-3 text-right font-mono text-slate-500">
+                            Rs. {(item.discount ?? 0).toLocaleString('en-IN')}
+                          </td>
+                          <td className="p-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                            Rs. {(item.totalPrice ?? (item.quantity * item.unitPrice)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="p-3">
+                            {hasSerials ? (
+                              <div className="space-y-1">
+                                <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
+                                  {item.deviceSerials?.length} Serials Scanned
+                                </span>
+                                <div className="max-h-16 overflow-y-auto space-y-0.5">
+                                  {item.deviceSerials?.map((s, sIdx) => (
+                                    <div key={sIdx} className="text-[9px] font-mono bg-slate-100 dark:bg-slate-900 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-800">
+                                      SN: {s.serialNumber} {s.ponMacAddress ? `| PON: ${s.ponMacAddress}` : ''}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic">Non-serialized Item</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50">
+              <div className="text-xs text-slate-500">
+                Purchased list exported or saved to inventory database.
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    exportToCSV(
+                      `Invoice_Products_${productsModalInvoice.invoiceNumber}`,
+                      productsModalInvoice.items,
+                      [
+                        { key: 'productName', label: 'Product Name' },
+                        { key: 'productSku', label: 'SKU' },
+                        { key: 'quantity', label: 'Qty' },
+                        { key: 'unitPrice', label: 'Unit Price' },
+                        { key: 'totalPrice', label: 'Total Price' },
+                      ]
+                    )
+                  }
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer"
+                >
+                  <Download className="h-3.5 w-3.5 text-indigo-500" />
+                  <span>Export CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductsModalInvoice(null)}
+                  className="px-4 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-500 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

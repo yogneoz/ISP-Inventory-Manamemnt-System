@@ -33,9 +33,9 @@ export const UomManagement: React.FC<UomManagementProps> = ({ currentUser, isDar
 
   const filteredUoms = uoms.filter(
     (u) =>
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.type.toLowerCase().includes(searchQuery.toLowerCase())
+      (u?.name || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      (u?.symbol || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      (u?.type || '').toLowerCase().includes((searchQuery || '').toLowerCase())
   );
 
   const openCreateModal = () => {

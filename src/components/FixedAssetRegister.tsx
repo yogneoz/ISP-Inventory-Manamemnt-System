@@ -67,8 +67,8 @@ export const FixedAssetRegister: React.FC<FixedAssetRegisterProps> = ({
     const matchesBranch = selectedBranchId === 'ALL' || a.branchId === selectedBranchId;
     const matchesSearch =
       !search ||
-      a.name.toLowerCase().includes(search.toLowerCase()) ||
-      a.tagNumber.toLowerCase().includes(search.toLowerCase());
+      (a?.name || '').toLowerCase().includes((search || '').toLowerCase()) ||
+      (a?.tagNumber || '').toLowerCase().includes((search || '').toLowerCase());
     return matchesBranch && matchesSearch;
   });
 

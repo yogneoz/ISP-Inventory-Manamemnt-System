@@ -931,13 +931,13 @@ export const NepaliFiscalManagement: React.FC<NepaliFiscalManagementProps> = ({
                     {rangeConversionStatus.records
                       .filter((rec) => {
                         if (!rangeSearchQuery.trim()) return true;
-                        const q = rangeSearchQuery.toLowerCase();
+                        const q = (rangeSearchQuery || '').toLowerCase();
                         return (
                           rec.adDate.includes(q) ||
                           rec.bsDate.includes(q) ||
-                          rec.bsMonthName.toLowerCase().includes(q) ||
-                          rec.dayOfWeekName.toLowerCase().includes(q) ||
-                          rec.fiscalYear.toLowerCase().includes(q)
+                          (rec?.bsMonthName || '').toLowerCase().includes(q) ||
+                          (rec?.dayOfWeekName || '').toLowerCase().includes(q) ||
+                          (rec?.fiscalYear || '').toLowerCase().includes(q)
                         );
                       })
                       .map((rec) => (

@@ -131,39 +131,6 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
   const [bulkShowPrice, setBulkShowPrice] = useState<boolean>(true);
   const [bulkShowCategory, setBulkShowCategory] = useState<boolean>(true);
 
-  const seedPresetConsumables = async () => {
-    const presets = [
-      { sku: 'SPL-1X8-01', name: 'PLC Fiber Optic Splitter 1x8 SC/APC', category: 'Splitter', unit: 'Pcs', costPrice: 450, sellingPrice: 600 },
-      { sku: 'SPL-1X16-01', name: 'PLC Fiber Optic Splitter 1x16 SC/APC', category: 'Splitter', unit: 'Pcs', costPrice: 850, sellingPrice: 1100 },
-      { sku: 'SLV-60MM-100', name: 'Fiber Fusion Protection Sleeve 60mm (Pack of 100)', category: 'Sleeves', unit: 'Box', costPrice: 250, sellingPrice: 350 },
-      { sku: 'CPL-SCAPC-01', name: 'Fiber Optic Coupler SC/APC Simplex Adapter', category: 'Coupler', unit: 'Pcs', costPrice: 35, sellingPrice: 50 },
-      { sku: 'FCN-SCUPC-01', name: 'Fast Connector SC/UPC Fiber Optical', category: 'Fast Connector', unit: 'Pcs', costPrice: 45, sellingPrice: 65 },
-      { sku: 'PTC-3M-01', name: 'Fiber Patch Cord SC/APC-SC/APC 3M Simplex', category: 'Patch Cord', unit: 'Pcs', costPrice: 180, sellingPrice: 250 },
-      { sku: 'DWC-ANC-01', name: 'Drop Wire Anchor Clamp Plastic/Metal', category: 'Drop Cable', unit: 'Pcs', costPrice: 25, sellingPrice: 40 },
-    ];
-
-    for (const item of presets) {
-      if (!products.some((p) => p.sku === item.sku || p.name.toLowerCase() === item.name.toLowerCase())) {
-        await onCreateProduct({
-          sku: item.sku,
-          barcode: `890${Math.floor(100000000 + Math.random() * 900000000)}`,
-          name: item.name,
-          category: item.category,
-          productGroup: 'Consumable Item',
-          unit: item.unit,
-          costPrice: item.costPrice,
-          sellingPrice: item.sellingPrice,
-          taxRate: 13,
-          minReorderLevel: 20,
-          requiresSerialTracking: false,
-          trackingType: 'QUANTITY_ONLY',
-          description: `[Consumable Item] High-turnover telecom field material for splicing & installation`,
-        });
-      }
-    }
-    setFilterProductGroup('Consumable Item');
-  };
-
   // Form state
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState('');
@@ -204,9 +171,9 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
     const matchesGroup = filterProductGroup === 'ALL' || (p.productGroup || 'Product Item') === filterProductGroup;
     const matchesSearch =
       !effectiveSearch ||
-      p.name.toLowerCase().includes(effectiveSearch.toLowerCase()) ||
-      p.sku.toLowerCase().includes(effectiveSearch.toLowerCase()) ||
-      p.barcode.toLowerCase().includes(effectiveSearch.toLowerCase());
+      (p?.name || '').toLowerCase().includes((effectiveSearch || '').toLowerCase()) ||
+      (p?.sku || '').toLowerCase().includes((effectiveSearch || '').toLowerCase()) ||
+      (p?.barcode || '').toLowerCase().includes((effectiveSearch || '').toLowerCase());
 
     const totalQty = getProductStockQty(p.id);
     const matchesStockFilter = showZeroStock || totalQty > 0;
@@ -514,24 +481,8 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={seedPresetConsumables}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-xs transition-all cursor-pointer flex items-center gap-1"
-                title="Auto-create standard telecom consumable SKUs (1x8 Splitter, 1x16 Splitter, 60mm Sleeves, SC/APC Couplers, Patch Cords)"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>Seed Telecom Consumables</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilterProductGroup('Consumable Item')}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-slate-800 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 cursor-pointer transition-all"
-              >
-                Filter Consumables
-              </button>
-              <button
-                type="button"
                 onClick={() => setShowConsumablesBanner(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer transition-colors"
                 title="Dismiss guide"
               >
                 <X className="h-4 w-4" />
@@ -1078,7 +1029,7 @@ export const ProductManagement: React.FC<ProductManagementProps> = ({
                     onChange={(e) => {
                       const newCat = e.target.value;
                       setCategory(newCat);
-                      if (newCat.toLowerCase().includes('asset') || newCat.toLowerCase().includes('fixed')) {
+                      if ((newCat || '').toLowerCase().includes('asset') || (newCat || '').toLowerCase().includes('fixed')) {
                         setMinReorderLevel(0);
                       }
                     }}

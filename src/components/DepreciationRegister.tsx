@@ -58,10 +58,10 @@ export const DepreciationRegister: React.FC<DepreciationRegisterProps> = ({
     const matchesBranch = selectedBranchId === 'ALL' || asset.branchId === selectedBranchId;
     const matchesSearch =
       !searchQuery ||
-      asset.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      asset.tagNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      asset.invoiceNo?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      asset.supplierName?.toLowerCase().includes(searchQuery.toLowerCase());
+      asset.name?.toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      asset.tagNumber?.toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      asset.invoiceNo?.toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      asset.supplierName?.toLowerCase().includes((searchQuery || '').toLowerCase());
     const matchesCategory = categoryFilter === 'ALL' || asset.category === categoryFilter;
 
     return matchesBranch && matchesSearch && matchesCategory;

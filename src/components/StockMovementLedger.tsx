@@ -91,13 +91,13 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
     if (endDateAD && logDate > endDateAD) return false;
 
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const matchName = log.productName.toLowerCase().includes(q);
-      const matchSku = log.productSku.toLowerCase().includes(q);
+      const q = (searchQuery || '').toLowerCase().trim();
+      const matchName = (log?.productName || '').toLowerCase().includes(q);
+      const matchSku = (log?.productSku || '').toLowerCase().includes(q);
       const matchedProd = products.find((p) => p.id === log.productId || p.sku === log.productSku);
-      const matchBarcode = matchedProd?.barcode ? matchedProd.barcode.toLowerCase().includes(q) : false;
-      const matchTx = log.transactionNumber.toLowerCase().includes(q);
-      const matchType = log.changeType.toLowerCase().includes(q);
+      const matchBarcode = matchedProd?.barcode ? (matchedProd?.barcode || '').toLowerCase().includes(q) : false;
+      const matchTx = (log?.transactionNumber || '').toLowerCase().includes(q);
+      const matchType = (log?.changeType || '').toLowerCase().includes(q);
       if (!matchName && !matchSku && !matchBarcode && !matchTx && !matchType) return false;
     }
 
@@ -197,10 +197,10 @@ export const StockMovementLedger: React.FC<StockMovementLedgerProps> = ({
   const filteredProductLedger = productLedgerMatrix.filter(({ prod }) => {
     if (selectedCategory !== 'ALL' && prod.category !== selectedCategory) return false;
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const matchName = prod.name.toLowerCase().includes(q);
-      const matchSku = prod.sku.toLowerCase().includes(q);
-      const matchBarcode = prod.barcode ? prod.barcode.toLowerCase().includes(q) : false;
+      const q = (searchQuery || '').toLowerCase().trim();
+      const matchName = (prod?.name || '').toLowerCase().includes(q);
+      const matchSku = (prod?.sku || '').toLowerCase().includes(q);
+      const matchBarcode = prod.barcode ? (prod?.barcode || '').toLowerCase().includes(q) : false;
       if (!matchName && !matchSku && !matchBarcode) return false;
     }
     return true;

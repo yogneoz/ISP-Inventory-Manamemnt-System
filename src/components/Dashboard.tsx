@@ -224,18 +224,29 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Consolidated Low Stock Products across active branches (per-branch reorder threshold evaluation)
   const consolidatedLowStockProducts = products.filter((prod) => {
-    return activeBranches.some((b) => {
+    let totalOnHand = 0;
+    let totalConsolidatedReorder = 0;
+    let isAnyBranchLow = false;
+
+    activeBranches.forEach((b) => {
       const item = stock.find((st) => st.productId === prod.id && st.branchId === b.id);
       const onHand = item ? item.quantityOnHand : 0;
+      totalOnHand += onHand;
+
       const threshold =
         item?.minReorderLevel !== undefined && item?.minReorderLevel !== null
           ? item.minReorderLevel
           : prod.minReorderLevel;
-      if (threshold > 0) {
-        return onHand <= threshold;
+      totalConsolidatedReorder += threshold;
+
+      if (threshold > 0 && onHand <= threshold) {
+        isAnyBranchLow = true;
+      } else if (threshold === 0 && onHand <= 0) {
+        isAnyBranchLow = true;
       }
-      return onHand <= 0;
     });
+
+    return isAnyBranchLow || (totalConsolidatedReorder > 0 && totalOnHand <= totalConsolidatedReorder);
   });
 
   // Pending POs filtered by branch context
@@ -286,9 +297,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (specialSearchQuery.trim()) {
       const q = specialSearchQuery.toLowerCase();
       return (
-        p.name.toLowerCase().includes(q) ||
-        p.sku.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q)
+        (p?.name || '').toLowerCase().includes(q) ||
+        (p?.sku || '').toLowerCase().includes(q) ||
+        (p?.category || '').toLowerCase().includes(q)
       );
     }
     return true;
@@ -613,16 +624,26 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     const st = stock.find(
                       (s) => s.productId === prod.id && s.branchId === b.id
                     );
+                    const threshold =
+                      st?.minReorderLevel !== undefined && st?.minReorderLevel !== null
+                        ? st.minReorderLevel
+                        : prod.minReorderLevel;
                     return {
                       branchId: b.id,
                       branchName: b.name,
                       branchCode: b.code,
                       quantityOnHand: st ? st.quantityOnHand : 0,
+                      minReorderLevel: threshold,
                     };
                   });
 
                   const totalAvailableStock = branchBreakdown.reduce(
                     (sum, b) => sum + b.quantityOnHand,
+                    0
+                  );
+
+                  const totalConsolidatedReorder = branchBreakdown.reduce(
+                    (sum, b) => sum + b.minReorderLevel,
                     0
                   );
 
@@ -678,7 +699,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         </td>
 
                         <td className="p-3.5 text-right font-mono text-slate-500">
-                          {prod.minReorderLevel} {prod.unit}
+                          {totalConsolidatedReorder || prod.minReorderLevel} {prod.unit}
                         </td>
 
                         <td className="p-3.5 text-center">
@@ -721,13 +742,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                   <span>Branch-wise Available Stock Breakdown for {prod.name}:</span>
                                 </span>
                                 <span className="text-[11px] text-slate-500 font-mono">
-                                  Min Reorder Threshold: {prod.minReorderLevel} {prod.unit}
+                                  Consolidated Threshold: {totalConsolidatedReorder || prod.minReorderLevel} {prod.unit}
                                 </span>
                               </div>
 
                               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
                                 {branchBreakdown.map((bb) => {
-                                  const hasStock = bb.quantityOnHand > 0;
+                                  const isBranchLow =
+                                    bb.minReorderLevel > 0
+                                      ? bb.quantityOnHand <= bb.minReorderLevel
+                                      : bb.quantityOnHand <= 0;
                                   return (
                                     <div
                                       key={bb.branchId}
@@ -736,13 +760,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                         onNavigateTab('branch-stock');
                                       }}
                                       className={`p-2.5 rounded-xl border text-xs flex flex-col justify-between transition-all cursor-pointer ${
-                                        hasStock
+                                        isBranchLow
                                           ? isDarkMode
-                                            ? 'bg-slate-800/80 border-slate-700 hover:border-rose-500'
-                                            : 'bg-white border-slate-200 hover:border-rose-400 hover:shadow-xs'
+                                            ? 'bg-rose-950/40 border-rose-800 hover:border-rose-500'
+                                            : 'bg-rose-50/60 border-rose-200 hover:border-rose-400 hover:shadow-xs'
                                           : isDarkMode
-                                          ? 'bg-slate-900/40 border-slate-800/80 opacity-60'
-                                          : 'bg-slate-100/60 border-slate-200 opacity-60'
+                                          ? 'bg-slate-800/80 border-slate-700 hover:border-emerald-500'
+                                          : 'bg-white border-slate-200 hover:border-emerald-400 hover:shadow-xs'
                                       }`}
                                       title={`Click to view matrix for ${bb.branchName}`}
                                     >
@@ -758,15 +782,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                                       <div className="mt-2 flex items-baseline justify-between">
                                         <span
                                           className={`font-mono font-extrabold text-sm ${
-                                            hasStock
-                                              ? 'text-emerald-600 dark:text-emerald-400'
-                                              : 'text-rose-500'
+                                            isBranchLow
+                                              ? 'text-rose-600 dark:text-rose-400'
+                                              : 'text-emerald-600 dark:text-emerald-400'
                                           }`}
                                         >
                                           {bb.quantityOnHand} {prod.unit}
                                         </span>
-                                        <span className="text-[10px] text-rose-600 font-bold underline">
-                                          View →
+                                        <span className="text-[9px] text-slate-500 font-mono">
+                                          (Min: {bb.minReorderLevel})
                                         </span>
                                       </div>
                                     </div>

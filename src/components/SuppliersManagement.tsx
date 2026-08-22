@@ -34,9 +34,9 @@ export const SuppliersManagement: React.FC<SuppliersManagementProps> = ({
 
   const filtered = suppliers.filter(
     (s) =>
-      s.name.toLowerCase().includes(search.toLowerCase()) ||
+      (s?.name || '').toLowerCase().includes((search || '').toLowerCase()) ||
       s.panVatNumber.includes(search) ||
-      s.address.toLowerCase().includes(search.toLowerCase())
+      (s?.address || '').toLowerCase().includes((search || '').toLowerCase())
   );
 
   const handleOpenAddModal = () => {

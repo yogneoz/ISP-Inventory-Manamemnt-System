@@ -32,9 +32,9 @@ export const VatRegister: React.FC<VatRegisterProps> = ({
   const filteredInvoices = (invoices || []).filter((inv) => {
     const matchesSearch =
       !searchQuery ||
-      inv.invoiceNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inv.supplierName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      inv.vendorBillNumber?.toLowerCase().includes(searchQuery.toLowerCase());
+      inv.invoiceNumber?.toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      inv.supplierName?.toLowerCase().includes((searchQuery || '').toLowerCase()) ||
+      inv.vendorBillNumber?.toLowerCase().includes((searchQuery || '').toLowerCase());
 
     const vatAmt = inv.vatAmount ?? 0;
     if (vatTypeFilter === '13%') return matchesSearch && vatAmt > 0;

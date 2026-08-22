@@ -84,9 +84,9 @@ export const LocationsManagement: React.FC<LocationsManagementProps> = ({
 
   const filteredLocations = locations.filter((loc) => {
     const matchesSearch =
-      loc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      loc.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (loc.contactPerson && loc.contactPerson.toLowerCase().includes(searchTerm.toLowerCase()));
+      (loc?.name || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+      (loc?.address || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+      (loc.contactPerson && (loc?.contactPerson || '').toLowerCase().includes((searchTerm || '').toLowerCase()));
     const matchesBranch = selectedBranchFilter === 'ALL' || loc.branchId === selectedBranchFilter;
     const matchesType = selectedTypeFilter === 'ALL' || loc.type === selectedTypeFilter;
     return matchesSearch && matchesBranch && matchesType;

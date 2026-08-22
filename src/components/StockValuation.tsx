@@ -97,11 +97,11 @@ export const StockValuation: React.FC<StockValuationProps> = ({
     if (stockStatusFilter === 'NORMAL' && (isLow || isOutOfStock)) return false;
 
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const matchName = prod.name.toLowerCase().includes(q);
-      const matchSKU = prod.sku.toLowerCase().includes(q);
-      const matchBarcode = prod.barcode ? prod.barcode.toLowerCase().includes(q) : false;
-      const matchCat = prod.category.toLowerCase().includes(q);
+      const q = (searchQuery || '').toLowerCase().trim();
+      const matchName = (prod?.name || '').toLowerCase().includes(q);
+      const matchSKU = (prod?.sku || '').toLowerCase().includes(q);
+      const matchBarcode = prod.barcode ? (prod?.barcode || '').toLowerCase().includes(q) : false;
+      const matchCat = (prod?.category || '').toLowerCase().includes(q);
       if (!matchName && !matchSKU && !matchBarcode && !matchCat) return false;
     }
     return true;

@@ -108,15 +108,15 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
 
   // 1. Manual Chapters Definition
   const manualChapters = [
-    { id: 'overview', title: '1. System Overview & Architecture', icon: Layers },
+    { id: 'overview', title: '1. System Overview & Core Architecture', icon: Layers },
     { id: 'roles', title: '2. User Roles & Permission Matrix', icon: ShieldCheck },
-    { id: 'getting-started', title: '3. Getting Started & Account Features', icon: Zap },
-    { id: 'inventory-ops', title: '4. Inventory & Stock Operations', icon: BookOpen },
-    { id: 'isp-devices', title: '5. ISP & Device Serial Tracking (ONU)', icon: Smartphone },
+    { id: 'getting-started', title: '3. Getting Started, Setup & Staff Password Resets', icon: Zap },
+    { id: 'inventory-ops', title: '4. Inventory, Barcode Scanner & Blind Stock Audit', icon: BookOpen },
+    { id: 'isp-devices', title: '5. ISP Hardware & ONU Serial Tracking', icon: Smartphone },
     { id: 'approval-center', title: '6. Multi-Tier Approval Workflows', icon: CheckCircle2 },
     { id: 'purchasing', title: '7. Purchasing, Invoices & Shipments', icon: Receipt },
-    { id: 'tax-depreciation', title: '8. Financials, VAT & Depreciation', icon: FileSpreadsheet },
-    { id: 'fiscal-closing', title: '9. BS Calendar & Fiscal Year Closing', icon: Calendar },
+    { id: 'tax-depreciation', title: '8. Financials, VAT Register & Depreciation', icon: FileSpreadsheet },
+    { id: 'fiscal-closing', title: '9. BS Calendar & Fiscal Year Closing Wizard', icon: Calendar },
     { id: 'troubleshooting', title: '10. FAQ & System Diagnostics', icon: HelpCircle },
   ];
 
@@ -164,41 +164,121 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
     },
     {
       id: 'stock-audit',
-      title: 'Physical Stock Audit & Reconciliation',
+      title: 'Blind Stock Audit & Cycle Counting',
       category: 'Inventory Control',
-      description: 'Periodic physical inventory counting, discrepancy calculation, and stock adjustment.',
+      description: 'Unbiased physical inventory counting with hidden book balances and manager reconciliation.',
       steps: [
         {
           step: 1,
-          title: 'Initiate Audit Batch',
+          title: 'Initiate Blind Audit Session',
           role: 'Inventory Manager / Auditor',
-          description: 'Select branch and target category or location to snapshot system quantities.',
+          description: 'Select branch location and activate "Blind Count Mode: ON" to hide expected book quantities from counting staff.',
           actionTab: 'physical-stock-audit',
-          keyOutputs: ['Audit Batch ID', 'System Baseline Stock Frozen'],
+          keyOutputs: ['Audit Session ID', 'Book Balances Hidden (Locked)'],
         },
         {
           step: 2,
-          title: 'Physical Barcode Scanning',
-          role: 'Store Incharge',
-          description: 'Scan physical stock using handheld camera or USB scanner to log counted totals.',
+          title: 'Physical Mobile Barcode Counting',
+          role: 'Store Incharge / Floor Auditor',
+          description: 'Scan shelf stock using smartphone camera or barcode reader to log counted physical quantities.',
           actionTab: 'physical-stock-audit',
-          keyOutputs: ['Physical Count Records', 'Real-Time Variance Calculation'],
+          keyOutputs: ['Physical Count Records', 'Unbiased Stock Log'],
         },
         {
           step: 3,
-          title: 'Submit Discrepancy Reconciliation',
+          title: 'Unseal & Calculate Variances',
           role: 'Auditor / Store Manager',
-          description: 'Review Surplus (+) or Deficit (-) variances and provide stock adjustment justification.',
+          description: 'Click "Unseal & Reveal System Balances" to expose book numbers, variance quantities, and net valuation impact (NPR).',
           actionTab: 'physical-stock-audit',
-          keyOutputs: ['Reconciliation Audit Request', 'Variance Report'],
+          keyOutputs: ['Unsealed Variances', 'Audit Discrepancy Statement'],
         },
         {
           step: 4,
-          title: 'Ledger Auto-Adjustment',
+          title: 'Approval & Ledger Reconciliation',
           role: 'Branch Manager / Super Admin',
-          description: 'Approval applies stock level adjustments directly to the inventory ledger.',
+          description: 'Review variance justification and authorize stock adjustment in the Approval Center to update stock ledgers.',
           actionTab: 'approvals',
-          keyOutputs: ['Audited Stock Ledger Record', 'Inventory Asset Valuation Update'],
+          keyOutputs: ['Reconciled Stock Ledger', 'Audit Compliance Entry'],
+        },
+      ],
+    },
+    {
+      id: 'barcode-labeling',
+      title: 'Barcode Scanning & Thermal Label Printing',
+      category: 'Warehouse & Labeling',
+      description: 'Scanning barcodes with mobile camera and printing thermal labels with prices and serial tags.',
+      steps: [
+        {
+          step: 1,
+          title: 'Launch Mobile Scanner Studio',
+          role: 'All Warehouse & Branch Staff',
+          description: 'Press Alt + B or click the Barcode Scanner icon in the header to launch camera scanner.',
+          actionTab: 'barcode-scanner',
+          keyOutputs: ['Camera Viewfinder Active', 'Flashlight / Torch Toggle'],
+        },
+        {
+          step: 2,
+          title: 'Scan Item or Hardware Tag',
+          role: 'Store Incharge',
+          description: 'Align barcode or QR code inside the viewfinder to fetch product SKU, category, and NPR price instantly.',
+          actionTab: 'barcode-scanner',
+          keyOutputs: ['Audio Beep Confirmation', 'Product Master Match'],
+        },
+        {
+          step: 3,
+          title: 'Configure Thermal Label Tag',
+          role: 'Store Incharge / Labeling Tech',
+          description: 'Switch to Thermal Tag Studio, select label dimensions (50x30, 38x25, 100x50), CODE128/QR, price, and serial tags.',
+          actionTab: 'barcode-scanner',
+          keyOutputs: ['Live Thermal Tag Preview', 'Print Quantity Selector'],
+        },
+        {
+          step: 4,
+          title: 'Thermal Printer Output',
+          role: 'Store Incharge',
+          description: 'Click Print to send formatted sticker labels directly to Zebra, Xprinter, or TSC thermal barcode printers.',
+          actionTab: 'barcode-scanner',
+          keyOutputs: ['Printed Barcode Stickers', 'Shelf Tag Placement'],
+        },
+      ],
+    },
+    {
+      id: 'user-admin',
+      title: 'User Access Setup & Password Recovery',
+      category: 'Security & Access',
+      description: 'First-time super admin provisioning, role-based branch assignments, and staff password resets.',
+      steps: [
+        {
+          step: 1,
+          title: 'Initial System Provisioning',
+          role: 'Super Admin',
+          description: 'On fresh launch, system detects empty database and opens Super Admin Setup to create root administrator credentials.',
+          actionTab: 'users',
+          keyOutputs: ['Root Super Admin Created', 'Global Access Granted'],
+        },
+        {
+          step: 2,
+          title: 'Add User & Assign Multi-Branch Access',
+          role: 'Super Admin',
+          description: 'Create staff user accounts with specific roles (Front Desk, Accountant, Branch Manager) and assign allowed branch permissions.',
+          actionTab: 'users',
+          keyOutputs: ['User Credentials Active', 'Branch Data Isolation Enforced'],
+        },
+        {
+          step: 3,
+          title: 'Staff Forgotten Password Request',
+          role: 'Staff Member',
+          description: 'Staff member requests password reset at login or notifies system administrator.',
+          actionTab: 'users',
+          keyOutputs: ['Reset Request Logged', 'Admin Action Prompt'],
+        },
+        {
+          step: 4,
+          title: 'Issue New Password & Auto-Generate',
+          role: 'Super Admin',
+          description: 'Super Admin opens User Access Administration, clicks Reset Pass, auto-generates strong password, and copies credentials.',
+          actionTab: 'users',
+          keyOutputs: ['Instant Password Reset', 'Audit Log Entry'],
         },
       ],
     },
@@ -244,15 +324,15 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
     },
     {
       id: 'fiscal-closing',
-      title: 'Nepali BS Fiscal Year Closing & Lock',
+      title: 'Nepali BS Fiscal Year Closing & Period Lock',
       category: 'Accounting & Year-End',
-      description: '5-step guided fiscal year closing wizard for BS 2080/81 transition.',
+      description: '5-step guided fiscal year closing wizard for BS 2080/81 transition with IRD certificate.',
       steps: [
         {
           step: 1,
-          title: 'Pre-Closing Reconciliation Audit',
+          title: 'Pre-Closing Audit & Trial Balance',
           role: 'Accountant / Super Admin',
-          description: 'Verify Trial Balance, Stock Valuation, and VAT sales/purchase registers.',
+          description: 'Verify Trial Balance, Stock Movement Ledger opening balances, and VAT registers.',
           actionTab: 'financial-statements',
           keyOutputs: ['Reconciled Balances', 'Verified VAT Liability'],
         },
@@ -266,19 +346,19 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
         },
         {
           step: 3,
-          title: 'Run Year-End Closing Wizard',
+          title: 'Execute 5-Step Closing Wizard',
           role: 'Super Admin',
-          description: 'Execute 5-step closing wizard to freeze prior year transactions and carry balance forward.',
+          description: 'Enter Admin PIN / Password to lock prior year transactions, freeze ledgers, and issue IRD Certificate.',
           actionTab: 'fiscal-year-closing',
-          keyOutputs: ['Locked Fiscal Year Status', 'Retained Earnings Balance Forward'],
+          keyOutputs: ['Locked Fiscal Period', 'IRD Year-End Audit Certificate'],
         },
         {
           step: 4,
-          title: 'Open New BS Fiscal Period',
+          title: 'Unlock / Carry Forward Balances',
           role: 'Super Admin',
-          description: 'Activate next fiscal year (e.g., 2081/82 BS) for clean operational entry.',
+          description: 'Carry forward opening balances into new BS period. If audit edits are needed, Super Admin can click "Unlock Period" to perform adjustments.',
           actionTab: 'nepali-fiscal',
-          keyOutputs: ['New Active Fiscal Period', 'Immutable Historic Archive'],
+          keyOutputs: ['New Active BS Fiscal Period', 'Opening Stock Rollback Balances'],
         },
       ],
     },
@@ -337,10 +417,10 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
   ];
 
   const filteredFaqs = faqItems.filter((item) => {
-    const matchesCat = faqCategory === 'all' || item.category.toLowerCase().includes(faqCategory.toLowerCase());
+    const matchesCat = faqCategory === 'all' || (item?.category || '').toLowerCase().includes((faqCategory || '').toLowerCase());
     const matchesSearch =
-      item.question.toLowerCase().includes(faqSearch.toLowerCase()) ||
-      item.answer.toLowerCase().includes(faqSearch.toLowerCase());
+      (item?.question || '').toLowerCase().includes(faqSearch.toLowerCase()) ||
+      (item?.answer || '').toLowerCase().includes(faqSearch.toLowerCase());
     return matchesCat && matchesSearch;
   });
 
@@ -479,7 +559,7 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
 
             <div className="space-y-1">
               {manualChapters
-                .filter((ch) => ch.title.toLowerCase().includes(manualSearch.toLowerCase()))
+                .filter((ch) => (ch?.title || '').toLowerCase().includes((manualSearch || '').toLowerCase()))
                 .map((ch) => {
                   const IconComp = ch.icon;
                   const isActive = activeChapter === ch.id;
@@ -787,12 +867,24 @@ export const HelpDocumentation: React.FC<HelpDocumentationProps> = ({
                         ))}
                       </div>
 
-                      {st.actionTab && onNavigateTab && (
+                      {st.actionTab && (
                         <button
-                          onClick={() => onNavigateTab(st.actionTab!)}
+                          onClick={() => {
+                            if (st.actionTab === 'barcode-scanner') {
+                              if (onOpenBarcodeModal) {
+                                onOpenBarcodeModal();
+                              } else if (onNavigateTab) {
+                                onNavigateTab('barcode-scanner');
+                              }
+                            } else if (st.actionTab === 'users-management' || st.actionTab === 'login') {
+                              if (onNavigateTab) onNavigateTab('users');
+                            } else if (onNavigateTab) {
+                              onNavigateTab(st.actionTab);
+                            }
+                          }}
                           className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 cursor-pointer transition-all"
                         >
-                          <span>Go to Module</span>
+                          <span>{st.actionTab === 'barcode-scanner' ? 'Launch Barcode Scanner' : 'Go to Module'}</span>
                           <ArrowRight className="h-3.5 w-3.5" />
                         </button>
                       )}

@@ -56,7 +56,7 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
     }
 
     const rows: ParsedImportRow[] = [];
-    const existingSkus = new Set(products.map((p) => p.sku.toLowerCase().trim()));
+    const existingSkus = new Set(products.map((p) => (p?.sku || '').toLowerCase().trim()));
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -70,8 +70,8 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
       const name = cols[2] || 'Imported Stock Item';
       const rawGrp = (cols[3] || 'Product Item').toLowerCase();
       const category = cols[4] || 'General Inventory';
-      const catLower = category.toLowerCase();
-      const nameLower = name.toLowerCase();
+      const catLower = (category || '').toLowerCase();
+      const nameLower = (name || '').toLowerCase();
 
       let productGroup: 'Product Item' | 'Fixed Asset' | 'Consumable Item' = 'Product Item';
       if (
@@ -102,11 +102,11 @@ IZ-109283,890102938105,Fusion Splicer Fiber Toolkit Heavy Duty,Fixed Asset,Fixed
       const initialQty = parseInt(cols[11]) || 0;
 
       const matchingBranch = branches.find(
-        (b) => b.code.toLowerCase() === targetBranchCode.toLowerCase() || b.id.toLowerCase() === targetBranchCode.toLowerCase()
+        (b) => (b?.code || '').toLowerCase() === (targetBranchCode || '').toLowerCase() || (b?.id || '').toLowerCase() === (targetBranchCode || '').toLowerCase()
       );
       const targetBranchId = matchingBranch ? matchingBranch.id : branches[0]?.id || 'ALL';
 
-      const isDuplicateSku = existingSkus.has(sku.toLowerCase());
+      const isDuplicateSku = existingSkus.has((sku || '').toLowerCase());
       const isValid = Boolean(sku && name && costPrice >= 0);
       let notes = 'New SKU ready to insert';
       if (isDuplicateSku) notes = 'Existing SKU detected (will update existing entry)';
